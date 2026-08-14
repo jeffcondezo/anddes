@@ -1,0 +1,58 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Empresas · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Administración</p>
+    <h1>Empresas</h1>
+    <p class="page-desc">Catálogo de empresas mineras asociadas a gestores y usuarios cliente.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:empresa_create' %}">+ Nueva empresa</a>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>RUC</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for empresa in empresas %}
+          <tr>
+            <td><strong>{{ empresa.nombre }}</strong></td>
+            <td class="mono">{{ empresa.ruc|default:"—" }}</td>
+            <td>
+              {% if empresa.activo %}
+                <span class="badge badge-ok">Activa</span>
+              {% else %}
+                <span class="badge badge-off">Inactiva</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:empresa_edit' empresa.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4">
+              <div class="empty-state">
+                <strong>No hay empresas registradas</strong>
+                Agrega una empresa minera para asociar gestores y clientes.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

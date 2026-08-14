@@ -1,0 +1,54 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Accesos denegados · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguridad</p>
+    <h1>Accesos denegados</h1>
+    <p class="page-desc">Registro de intentos de autenticación Entra ID que no fueron admitidos en la plataforma.</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-info">Últimos 200</span>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Correo</th>
+          <th>Motivo</th>
+          <th>OID</th>
+          <th>IP</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for intento in intentos %}
+          <tr>
+            <td class="mono">{{ intento.creado_en|date:"Y-m-d H:i" }}</td>
+            <td>{{ intento.email|default:"—" }}</td>
+            <td><span class="badge badge-off">{{ intento.get_motivo_display }}</span></td>
+            <td class="muted mono">{{ intento.oid|truncatechars:18|default:"—" }}</td>
+            <td class="mono">{{ intento.ip|default:"—" }}</td>
+            <td class="muted">{{ intento.detalle|truncatechars:80|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6">
+              <div class="empty-state">
+                <strong>Sin intentos denegados</strong>
+                Todavía no se registran ingresos no autorizados.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

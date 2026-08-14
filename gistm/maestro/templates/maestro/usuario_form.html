@@ -1,0 +1,82 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Usuarios</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">El acceso se realizará con Microsoft Entra ID usando el correo declarado. No se define contraseña local.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:usuario_list' %}">Volver al listado</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" id="usuario-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="form-row span-2">
+      <label for="id_email">{{ form.email.label }}</label>
+      {{ form.email }}
+      {{ form.email.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_first_name">{{ form.first_name.label }}</label>
+      {{ form.first_name }}
+      {{ form.first_name.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_last_name">{{ form.last_name.label }}</label>
+      {{ form.last_name }}
+      {{ form.last_name.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_tipo">{{ form.tipo.label }}</label>
+      {{ form.tipo }}
+      {{ form.tipo.errors }}
+    </div>
+    <div class="form-row">
+      <label style="margin-top:1.7rem;">
+        {{ form.activo }} {{ form.activo.label }}
+      </label>
+      {{ form.activo.errors }}
+    </div>
+    <div class="form-row span-2" id="row-empresa">
+      <label for="id_empresa">{{ form.empresa.label }}</label>
+      {{ form.empresa }}
+      {{ form.empresa.errors }}
+    </div>
+    <div class="form-row span-2" id="row-empresas">
+      <label for="id_empresas">{{ form.empresas.label }}</label>
+      {{ form.empresas }}
+      {{ form.empresas.errors }}
+    </div>
+
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:usuario_list' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<script>
+  (function () {
+    const tipo = document.getElementById("id_tipo");
+    const rowEmpresa = document.getElementById("row-empresa");
+    const rowEmpresas = document.getElementById("row-empresas");
+    function sync() {
+      const value = tipo.value;
+      rowEmpresa.style.display = value === "CLIENTE" ? "" : "none";
+      rowEmpresas.style.display = value === "GESTOR" ? "" : "none";
+    }
+    tipo.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}

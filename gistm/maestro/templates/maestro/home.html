@@ -1,0 +1,80 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Resumen · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Resumen</p>
+    <h1>Panel de control</h1>
+    <p class="page-desc">
+      Bienvenido{% if entra_name %}, {{ entra_name|truncatechars:28 }}{% endif %}.
+      {% if perfil %}Perfil activo: <strong>{{ perfil.get_tipo_display }}</strong>.{% endif %}
+    </p>
+  </div>
+</header>
+
+{% if es_administrador %}
+  <div class="stat-grid">
+    <article class="stat-card">
+      <div class="stat-label">Usuarios</div>
+      <div class="stat-value">{{ total_usuarios }}</div>
+      <div class="stat-hint">Registrados en la plataforma</div>
+    </article>
+    <article class="stat-card neutral">
+      <div class="stat-label">Empresas activas</div>
+      <div class="stat-value">{{ total_empresas }}</div>
+      <div class="stat-hint">Mineras habilitadas</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Accesos denegados</div>
+      <div class="stat-value">{{ total_accesos_denegados }}</div>
+      <div class="stat-hint">Intentos auditados</div>
+    </article>
+    <article class="stat-card danger">
+      <div class="stat-label">Estado</div>
+      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">Activo</div>
+      <div class="stat-hint">Sistema operativo</div>
+    </article>
+  </div>
+
+  <div class="info-banner">
+    <div class="banner-icon" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    </div>
+    <div>
+      <h2>Gestión de acceso corporativo</h2>
+      <p>Administra usuarios Anddes y clientes de empresas externas. El ingreso se realiza únicamente mediante Microsoft Entra ID con cuentas pre-registradas.</p>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Accesos rápidos</h2>
+    <p class="muted" style="margin:0;">Atajos a las funciones principales de administración.</p>
+    <div class="quick-links">
+      <a class="quick-link" href="{% url 'maestro:usuario_list' %}">
+        <strong>Usuarios</strong>
+        <span>Crear y administrar perfiles Anddes y clientes.</span>
+      </a>
+      <a class="quick-link" href="{% url 'maestro:empresa_list' %}">
+        <strong>Empresas</strong>
+        <span>Mantén el catálogo de empresas mineras asociadas.</span>
+      </a>
+      <a class="quick-link" href="{% url 'maestro:login_externo_list' %}">
+        <strong>Login empresas</strong>
+        <span>Revisa ingresos de usuarios de empresas externas.</span>
+      </a>
+    </div>
+  </section>
+{% else %}
+  <div class="info-banner">
+    <div class="banner-icon" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    </div>
+    <div>
+      <h2>Tu espacio de trabajo</h2>
+      <p>Los módulos disponibles para tu perfil se habilitarán conforme avance la implementación de la plataforma.</p>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

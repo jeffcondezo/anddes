@@ -1,0 +1,93 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Iniciar sesión · GISTM{% endblock %}
+
+{% block extra_head %}
+<style>
+  body { background: #eef1f4; }
+  .login-layout {
+    min-height: calc(100vh - 3rem);
+    display: grid;
+    place-items: center;
+    padding: 1rem 0;
+  }
+  .login-card {
+    width: min(420px, 100%);
+    text-align: center;
+    padding: 2rem 1.6rem 1.6rem;
+  }
+  .login-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1.25rem;
+  }
+  .login-brand .mark {
+    width: 2.3rem;
+    height: 2.3rem;
+    border-radius: 0.55rem;
+    background: var(--primary);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 0.75rem;
+  }
+  .login-brand .title {
+    text-align: left;
+    font-weight: 750;
+    color: var(--primary);
+    font-size: 1rem;
+  }
+  .login-brand .sub {
+    text-align: left;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .login-card h1 {
+    margin: 0 0 0.4rem;
+    font-size: 1.65rem;
+  }
+  .login-card p {
+    margin: 0 0 1.4rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .ms-logo {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: inline-block;
+  }
+  .login-meta {
+    margin-top: 1.1rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-layout">
+  <section class="panel login-card">
+    <div class="login-brand">
+      <div class="mark">GI</div>
+      <div>
+        <div class="title">Anddes · GISTM</div>
+        <div class="sub">Monitoring Platform</div>
+      </div>
+    </div>
+    <h1>Iniciar sesión</h1>
+    <p>Accede con tu cuenta corporativa de Microsoft Entra ID para continuar.</p>
+    <a class="btn" href="{% url 'maestro:entra_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
+      <svg class="ms-logo" viewBox="0 0 21 21" aria-hidden="true">
+        <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+        <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+        <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+        <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+      </svg>
+      Continuar con Microsoft
+    </a>
+    <div class="login-meta">Solo usuarios pre-registrados pueden ingresar.</div>
+  </section>
+</div>
+{% endblock %}

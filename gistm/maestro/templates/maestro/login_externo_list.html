@@ -1,0 +1,103 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Login empresas · GISTM{% endblock %}
+
+{% block extra_head %}
+<style>
+  .filters-bar {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  .filters-bar .form-row { margin: 0; }
+  @media (max-width: 900px) {
+    .filters-bar { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Auditoría</p>
+    <h1>Login empresas</h1>
+    <p class="page-desc">Registro de inicios de sesión de usuarios cliente. Por defecto se muestran los de la última semana.</p>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <form method="get" class="filters-bar">
+    <div class="form-row">
+      <label for="id_empresa">Empresa</label>
+      <select class="input" name="empresa" id="id_empresa">
+        <option value="">Todas las empresas</option>
+        {% for empresa in empresas %}
+          <option value="{{ empresa.pk }}" {% if filtro_empresa == empresa.pk|stringformat:"s" %}selected{% endif %}>
+            {{ empresa.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_desde">Desde</label>
+      <input class="input" type="date" name="fecha_desde" id="id_fecha_desde" value="{{ filtro_fecha_desde }}">
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_hasta">Hasta</label>
+      <input class="input" type="date" name="fecha_hasta" id="id_fecha_hasta" value="{{ filtro_fecha_hasta }}">
+    </div>
+    <div class="form-row" style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:login_externo_list' %}">Última semana</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Correo</th>
+          <th>Nombre</th>
+          <th>Empresa</th>
+          <th>IP</th>
+          <th>OID</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for registro in registros %}
+          <tr>
+            <td class="mono">{{ registro.creado_en|date:"Y-m-d H:i" }}</td>
+            <td>{{ registro.email }}</td>
+            <td>{{ registro.nombre|default:"—" }}</td>
+            <td>
+              {% if registro.empresa_nombre %}
+                {{ registro.empresa_nombre }}
+              {% elif registro.empresa %}
+                {{ registro.empresa.nombre }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="mono">{{ registro.ip|default:"—" }}</td>
+            <td class="muted mono">{{ registro.oid|truncatechars:18|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6">
+              <div class="empty-state">
+                <strong>Sin resultados</strong>
+                No hay logins de empresas para los filtros seleccionados.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
