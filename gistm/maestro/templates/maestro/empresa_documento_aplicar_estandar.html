@@ -1,0 +1,70 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Aplicar estándar · {{ revision.anio }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }}</p>
+    <h1>Aplicar relación estándar</h1>
+    <p class="page-desc">
+      Activa documentos del catálogo y crea vínculos a criterios según la plantilla maestro.
+      No borra ni modifica lo que ya exista en esta revisión.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver</a>
+  </div>
+</header>
+
+<div class="stat-grid" style="margin-bottom:1.25rem;">
+  <article class="stat-card">
+    <div class="stat-label">Documentos a activar</div>
+    <div class="stat-value">{{ docs_a_activar }}</div>
+    <div class="stat-hint">Pendientes del estándar</div>
+  </article>
+  <article class="stat-card neutral">
+    <div class="stat-label">Vínculos a crear</div>
+    <div class="stat-value">{{ vinculos_a_crear }}</div>
+    <div class="stat-hint">De {{ total_pares_estandar }} pares estándar</div>
+  </article>
+</div>
+
+<section class="panel">
+  {% if not tiene_areas %}
+    <div class="empty-state">
+      <strong>Sin áreas activas</strong>
+      Debes
+      <a href="{% url 'maestro:empresa_edit' empresa.pk %}">definir al menos un área</a>
+      en la empresa antes de aplicar el estándar.
+    </div>
+  {% elif docs_a_activar == 0 and vinculos_a_crear == 0 %}
+    <div class="empty-state">
+      <strong>Nada pendiente</strong>
+      Esta revisión ya tiene aplicados todos los documentos y vínculos del estándar.
+    </div>
+    <div class="form-actions" style="margin-top:1rem;">
+      <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver</a>
+    </div>
+  {% else %}
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div>{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="form-row" style="max-width:28rem;">
+        <label for="id_area">{{ form.area.label }}</label>
+        {{ form.area }}
+        {{ form.area.errors }}
+        {% if form.area.help_text %}
+          <p class="muted" style="margin:0.35rem 0 0; font-size:0.82rem;">{{ form.area.help_text }}</p>
+        {% endif %}
+      </div>
+      <div class="form-actions" style="margin-top:1.1rem;">
+        <button type="submit" class="btn">Aplicar estándar</button>
+        <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

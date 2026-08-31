@@ -1,0 +1,46 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Activar catálogo · {{ revision.anio }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }}</p>
+    <h1>Activar documentos del catálogo</h1>
+    <p class="page-desc">Selecciona documentos estándar para asociarlos a esta revisión.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div>{{ form.non_field_errors }}</div>
+    {% endif %}
+    {% if form.documentos.field.queryset %}
+      <div class="form-row">
+        <label>{{ form.documentos.label }}</label>
+        <div class="checkbox-list">
+          {{ form.documentos }}
+        </div>
+        {{ form.documentos.errors }}
+      </div>
+      <div class="form-actions" style="margin-top:1.1rem;">
+        <button type="submit" class="btn">Activar seleccionados</button>
+        <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>No hay documentos pendientes</strong>
+        Todos los documentos del catálogo ya están asociados a esta revisión.
+      </div>
+      <div class="form-actions" style="margin-top:1.1rem;">
+        <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver</a>
+      </div>
+    {% endif %}
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,118 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Criterios · {{ documento.codigo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }} · Documentos</p>
+    <h1>{{ documento.codigo }} · {{ documento.nombre }}</h1>
+    <p class="page-desc">Asocia criterios cubiertos por este documento y define el área responsable de cargarlo.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver a documentos</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <h2 style="font-size:1.05rem; margin:0 0 0.75rem;">Agregar criterios</h2>
+  <form method="get" class="form-grid two-col" style="margin-bottom:1rem;">
+    <div class="form-row">
+      <label for="id_filtro_tema">Filtrar por tema</label>
+      <select class="input" name="tema" id="id_filtro_tema">
+        <option value="">Todos</option>
+        {% for tema in temas %}
+          <option value="{{ tema.pk }}" {% if filtro_tema == tema.pk|stringformat:"s" %}selected{% endif %}>
+            {{ tema.codigo }} · {{ tema.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_filtro_principio">Filtrar por principio</label>
+      <select class="input" name="principio" id="id_filtro_principio">
+        <option value="">Todos</option>
+        {% for principio in principios %}
+          <option value="{{ principio.pk }}" {% if filtro_principio == principio.pk|stringformat:"s" %}selected{% endif %}>
+            {{ principio.codigo }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn btn-ghost">Aplicar filtro</button>
+    </div>
+  </form>
+
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row span-2">
+      <label for="id_criterios">Criterios</label>
+      {{ form.criterios }}
+      {{ form.criterios.errors }}
+      <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
+    </div>
+    <div class="form-row">
+      <label for="id_area">Área responsable</label>
+      {{ form.area }}
+      {{ form.area.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Asociar criterios</button>
+    </div>
+  </form>
+  {% if not form.fields.area.queryset %}
+    <p class="muted" style="margin-top:0.75rem;">
+      Esta empresa aún no tiene áreas activas.
+      <a href="{% url 'maestro:empresa_edit' empresa.pk %}">Agregar áreas</a> antes de vincular criterios.
+    </p>
+  {% endif %}
+</section>
+
+<section class="panel panel-flush">
+  <div style="padding:1rem 1.1rem 0.5rem;">
+    <h2 style="font-size:1.05rem; margin:0;">Criterios asociados</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Criterio</th>
+          <th>Tema</th>
+          <th>Principio</th>
+          <th>Área responsable</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vinculo in vinculos %}
+          <tr>
+            <td class="mono">{{ vinculo.criterio.codigo }}</td>
+            <td>{{ vinculo.criterio.tema.codigo }}</td>
+            <td class="mono">{{ vinculo.criterio.principio.codigo }}</td>
+            <td>{{ vinculo.area.nombre }}</td>
+            <td class="actions">
+              <form method="post" action="{% url 'maestro:empresa_documento_criterio_eliminar' empresa.pk revision.pk documento.pk vinculo.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">Quitar</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <strong>Sin criterios asociados</strong>
+                Selecciona criterios y un área responsable para empezar.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

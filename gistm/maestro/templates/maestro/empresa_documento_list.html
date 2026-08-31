@@ -1,0 +1,91 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Documentos · {{ revision.anio }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }}{% if revision.nombre %} · {{ revision.nombre }}{% endif %}</p>
+    <h1>Documentos</h1>
+    <p class="page-desc">Define qué documentos usa esta revisión y asócialos gradualmente a criterios.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Volver a revisiones</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_aplicar_estandar' empresa.pk revision.pk %}">Aplicar relación estándar</a>
+    <a class="btn" href="{% url 'maestro:empresa_documento_activar_catalogo' empresa.pk revision.pk %}">Activar del catálogo</a>
+    <a class="btn" href="{% url 'maestro:empresa_documento_crear_propio' empresa.pk revision.pk %}">+ Documento propio</a>
+  </div>
+</header>
+
+<div class="stat-grid" style="margin-bottom:1.25rem;">
+  <article class="stat-card">
+    <div class="stat-label">Documentos activos</div>
+    <div class="stat-value">{{ docs_activos }}</div>
+    <div class="stat-hint">De {{ documentos|length }} en la lista</div>
+  </article>
+  <article class="stat-card neutral">
+    <div class="stat-label">Criterios cubiertos</div>
+    <div class="stat-value">{{ criterios_cubiertos }}</div>
+    <div class="stat-hint">De {{ total_criterios }} del catálogo</div>
+  </article>
+  <article class="stat-card accent">
+    <div class="stat-label">Avance</div>
+    <div class="stat-value">{{ avance_pct }}%</div>
+    <div class="stat-hint">Criterios con al menos un documento</div>
+  </article>
+</div>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Nombre</th>
+          <th>Tipo</th>
+          <th>Origen</th>
+          <th>Criterios</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in documentos %}
+          <tr>
+            <td class="mono">{{ doc.codigo }}</td>
+            <td><strong>{{ doc.nombre }}</strong></td>
+            <td>{{ doc.tipo_documento }}</td>
+            <td>{{ doc.get_origen_display }}</td>
+            <td class="mono">{{ doc.total_criterios }}</td>
+            <td>
+              {% if doc.activo %}
+                <span class="badge badge-ok">Activo</span>
+              {% else %}
+                <span class="badge badge-off">Inactivo</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:empresa_documento_criterios' empresa.pk revision.pk doc.pk %}">Criterios</a>
+              <form method="post" action="{% url 'maestro:empresa_documento_toggle_activo' empresa.pk revision.pk doc.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if doc.activo %}Desactivar{% else %}Activar{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <strong>Sin documentos asociados</strong>
+                Activa documentos del catálogo estándar o crea documentos propios para esta revisión.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Principios</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">Asocia el principio a un tema. La suma de ponderación se actualiza automáticamente con los criterios.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:principio_list' %}">Volver al listado</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_codigo">Código</label>
+      {{ form.codigo }}
+      {{ form.codigo.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_tema">Tema</label>
+      {{ form.tema }}
+      {{ form.tema.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_descripcion">Descripción</label>
+      {{ form.descripcion }}
+      {{ form.descripcion.errors }}
+    </div>
+    {% if principio %}
+      <div class="form-row span-2">
+        <label>Suma ponderación</label>
+        <input class="input" value="{{ principio.suma_ponderacion }}" readonly>
+      </div>
+    {% endif %}
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:principio_list' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

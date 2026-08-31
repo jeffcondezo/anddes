@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,13 +14,36 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .entra import build_auth_url, claims_from_id_token, exchange_code_for_token, new_oauth_state
-from .forms import EmpresaForm, UsuarioForm
+from .forms import (
+    ActivarDocumentosCatalogoForm,
+    AplicarEstandarRevisionForm,
+    AreaFormSet,
+    CriterioForm,
+    DocumentoCriterioForm,
+    DocumentoForm,
+    EmpresaDocumentoCriterioForm,
+    EmpresaDocumentoPropioForm,
+    EmpresaForm,
+    PrincipioForm,
+    RevisionForm,
+    TemaForm,
+    UsuarioForm,
+)
 from .models import (
+    Criterio,
+    Documento,
+    DocumentoCriterio,
     Empresa,
+    EmpresaDocumento,
+    EmpresaDocumentoCriterio,
     IntentoAcceso,
     MotivoIntentoAcceso,
+    OrigenEmpresaDocumento,
     PerfilUsuario,
+    Principio,
     RegistroLoginExterno,
+    Revision,
+    Tema,
     TipoUsuario,
 )
 from .permissions import administrador_required, get_perfil, usuario_es_administrador
@@ -287,7 +311,7 @@ def usuario_edit(request: HttpRequest, pk: int) -> HttpResponse:
 @administrador_required
 @require_GET
 def empresa_list(request: HttpRequest) -> HttpResponse:
-    empresas = Empresa.objects.all()
+    empresas = Empresa.objects.annotate(total_areas=Count("areas")).all()
     return render(request, "maestro/empresa_list.html", {"empresas": empresas})
 
 
@@ -295,14 +319,18 @@ def empresa_list(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET", "POST"])
 def empresa_create(request: HttpRequest) -> HttpResponse:
     form = EmpresaForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        form.save()
+    formset = AreaFormSet(request.POST or None)
+    if request.method == "POST" and form.is_valid() and formset.is_valid():
+        with transaction.atomic():
+            empresa = form.save()
+            formset.instance = empresa
+            formset.save()
         messages.success(request, "Empresa creada correctamente.")
         return redirect("maestro:empresa_list")
     return render(
         request,
         "maestro/empresa_form.html",
-        {"form": form, "titulo": "Nueva empresa"},
+        {"form": form, "formset": formset, "titulo": "Nueva empresa"},
     )
 
 
@@ -311,14 +339,281 @@ def empresa_create(request: HttpRequest) -> HttpResponse:
 def empresa_edit(request: HttpRequest, pk: int) -> HttpResponse:
     empresa = get_object_or_404(Empresa, pk=pk)
     form = EmpresaForm(request.POST or None, instance=empresa)
-    if request.method == "POST" and form.is_valid():
-        form.save()
+    formset = AreaFormSet(request.POST or None, instance=empresa)
+    if request.method == "POST" and form.is_valid() and formset.is_valid():
+        with transaction.atomic():
+            form.save()
+            formset.save()
         messages.success(request, "Empresa actualizada correctamente.")
         return redirect("maestro:empresa_list")
     return render(
         request,
         "maestro/empresa_form.html",
-        {"form": form, "titulo": "Editar empresa", "empresa": empresa},
+        {
+            "form": form,
+            "formset": formset,
+            "titulo": "Editar empresa",
+            "empresa": empresa,
+        },
+    )
+
+
+@administrador_required
+@require_GET
+def empresa_revision_list(request: HttpRequest, pk: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    total_criterios = Criterio.objects.count()
+    revisiones = []
+    for revision in Revision.objects.filter(empresa=empresa).annotate(
+        total_documentos=Count("documentos"),
+        docs_activos=Count("documentos", filter=Q(documentos__activo=True)),
+    ):
+        criterios_cubiertos = (
+            EmpresaDocumentoCriterio.objects.filter(
+                empresa_documento__revision=revision,
+                empresa_documento__activo=True,
+            )
+            .values("criterio_id")
+            .distinct()
+            .count()
+        )
+        avance_pct = (
+            round((criterios_cubiertos / total_criterios) * 100, 1) if total_criterios else 0
+        )
+        revisiones.append(
+            {
+                "obj": revision,
+                "criterios_cubiertos": criterios_cubiertos,
+                "total_criterios": total_criterios,
+                "avance_pct": avance_pct,
+            }
+        )
+    return render(
+        request,
+        "maestro/empresa_revision_list.html",
+        {"empresa": empresa, "revisiones": revisiones},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_revision_create(request: HttpRequest, pk: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    form = RevisionForm(request.POST or None, empresa=empresa)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Revisión creada correctamente.")
+        return redirect("maestro:empresa_revision_list", pk=empresa.pk)
+    return render(
+        request,
+        "maestro/empresa_revision_form.html",
+        {"empresa": empresa, "form": form, "titulo": "Nueva revisión"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_revision_edit(request: HttpRequest, pk: int, rev_id: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    form = RevisionForm(request.POST or None, instance=revision, empresa=empresa)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Revisión actualizada correctamente.")
+        return redirect("maestro:empresa_revision_list", pk=empresa.pk)
+    return render(
+        request,
+        "maestro/empresa_revision_form.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "form": form,
+            "titulo": "Editar revisión",
+        },
+    )
+
+
+@administrador_required
+@require_GET
+def empresa_documento_list(request: HttpRequest, pk: int, rev_id: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    documentos = (
+        EmpresaDocumento.objects.filter(revision=revision)
+        .annotate(total_criterios=Count("vinculos_criterio"))
+        .order_by("codigo")
+    )
+    total_criterios = Criterio.objects.count()
+    criterios_cubiertos = (
+        EmpresaDocumentoCriterio.objects.filter(
+            empresa_documento__revision=revision,
+            empresa_documento__activo=True,
+        )
+        .values("criterio_id")
+        .distinct()
+        .count()
+    )
+    docs_activos = documentos.filter(activo=True).count()
+    avance_pct = round((criterios_cubiertos / total_criterios) * 100, 1) if total_criterios else 0
+    return render(
+        request,
+        "maestro/empresa_documento_list.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "documentos": documentos,
+            "docs_activos": docs_activos,
+            "criterios_cubiertos": criterios_cubiertos,
+            "total_criterios": total_criterios,
+            "avance_pct": avance_pct,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_documento_activar_catalogo(request: HttpRequest, pk: int, rev_id: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    form = ActivarDocumentosCatalogoForm(request.POST or None, revision=revision)
+    if request.method == "POST" and form.is_valid():
+        creados = 0
+        with transaction.atomic():
+            for doc in form.cleaned_data["documentos"]:
+                _, created = EmpresaDocumento.objects.get_or_create(
+                    revision=revision,
+                    documento=doc,
+                    defaults={
+                        "codigo": doc.codigo,
+                        "nombre": doc.nombre,
+                        "tipo_documento": doc.tipo_documento,
+                        "origen": OrigenEmpresaDocumento.CATALOGO,
+                        "activo": True,
+                    },
+                )
+                if created:
+                    creados += 1
+        messages.success(request, f"Se activaron {creados} documento(s) del catálogo.")
+        return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
+    return render(
+        request,
+        "maestro/empresa_documento_activar.html",
+        {"empresa": empresa, "revision": revision, "form": form},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_documento_crear_propio(request: HttpRequest, pk: int, rev_id: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    form = EmpresaDocumentoPropioForm(request.POST or None, revision=revision)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Documento propio creado correctamente.")
+        return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
+    return render(
+        request,
+        "maestro/empresa_documento_propio_form.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "form": form,
+            "titulo": "Nuevo documento propio",
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def empresa_documento_toggle_activo(
+    request: HttpRequest, pk: int, rev_id: int, doc_id: int
+) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    documento = get_object_or_404(EmpresaDocumento, pk=doc_id, revision=revision)
+    documento.activo = not documento.activo
+    documento.save(update_fields=["activo", "actualizado_en"])
+    estado = "activado" if documento.activo else "desactivado"
+    messages.success(request, f"Documento {documento.codigo} {estado}.")
+    return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_documento_criterios(
+    request: HttpRequest, pk: int, rev_id: int, doc_id: int
+) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    documento = get_object_or_404(
+        EmpresaDocumento.objects.select_related("documento"),
+        pk=doc_id,
+        revision=revision,
+    )
+    form = EmpresaDocumentoCriterioForm(request.POST or None, empresa_documento=documento)
+    tema_id = (request.GET.get("tema") or "").strip()
+    principio_id = (request.GET.get("principio") or "").strip()
+    if request.method == "GET":
+        qs = form.fields["criterios"].queryset
+        if tema_id.isdigit():
+            qs = qs.filter(tema_id=int(tema_id))
+        if principio_id.isdigit():
+            qs = qs.filter(principio_id=int(principio_id))
+        form.fields["criterios"].queryset = qs
+
+    if request.method == "POST" and form.is_valid():
+        creados = form.save()
+        messages.success(request, f"Se asociaron {len(creados)} criterio(s).")
+        return redirect(
+            "maestro:empresa_documento_criterios",
+            pk=empresa.pk,
+            rev_id=revision.pk,
+            doc_id=documento.pk,
+        )
+
+    vinculos = (
+        EmpresaDocumentoCriterio.objects.filter(empresa_documento=documento)
+        .select_related("criterio", "criterio__tema", "criterio__principio", "area")
+        .order_by("criterio__codigo")
+    )
+    return render(
+        request,
+        "maestro/empresa_documento_criterios.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "documento": documento,
+            "form": form,
+            "vinculos": vinculos,
+            "temas": Tema.objects.all(),
+            "principios": Principio.objects.select_related("tema").all(),
+            "filtro_tema": tema_id,
+            "filtro_principio": principio_id,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def empresa_documento_criterio_eliminar(
+    request: HttpRequest, pk: int, rev_id: int, doc_id: int, vinculo_id: int
+) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    documento = get_object_or_404(EmpresaDocumento, pk=doc_id, revision=revision)
+    vinculo = get_object_or_404(
+        EmpresaDocumentoCriterio,
+        pk=vinculo_id,
+        empresa_documento=documento,
+    )
+    vinculo.delete()
+    messages.success(request, "Vínculo eliminado.")
+    return redirect(
+        "maestro:empresa_documento_criterios",
+        pk=empresa.pk,
+        rev_id=revision.pk,
+        doc_id=documento.pk,
     )
 
 
@@ -389,5 +684,364 @@ def login_externo_list(request: HttpRequest) -> HttpResponse:
             "filtro_empresa": empresa_id,
             "filtro_fecha_desde": (fecha_desde or fecha_desde_default).isoformat(),
             "filtro_fecha_hasta": (fecha_hasta or fecha_hasta_default).isoformat(),
+        },
+    )
+
+
+@administrador_required
+@require_GET
+def tema_list(request: HttpRequest) -> HttpResponse:
+    temas = Tema.objects.all()
+    return render(request, "maestro/tema_list.html", {"temas": temas})
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def tema_create(request: HttpRequest) -> HttpResponse:
+    form = TemaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Tema creado correctamente.")
+        return redirect("maestro:tema_list")
+    return render(request, "maestro/tema_form.html", {"form": form, "titulo": "Nuevo tema"})
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def tema_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    tema = get_object_or_404(Tema, pk=pk)
+    form = TemaForm(request.POST or None, instance=tema)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Tema actualizado correctamente.")
+        return redirect("maestro:tema_list")
+    return render(
+        request,
+        "maestro/tema_form.html",
+        {"form": form, "titulo": "Editar tema", "tema": tema},
+    )
+
+
+@administrador_required
+@require_GET
+def principio_list(request: HttpRequest) -> HttpResponse:
+    principios = Principio.objects.select_related("tema").all()
+    return render(request, "maestro/principio_list.html", {"principios": principios})
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def principio_create(request: HttpRequest) -> HttpResponse:
+    form = PrincipioForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Principio creado correctamente.")
+        return redirect("maestro:principio_list")
+    return render(
+        request,
+        "maestro/principio_form.html",
+        {"form": form, "titulo": "Nuevo principio"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def principio_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    principio = get_object_or_404(Principio, pk=pk)
+    form = PrincipioForm(request.POST or None, instance=principio)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Principio actualizado correctamente.")
+        return redirect("maestro:principio_list")
+    return render(
+        request,
+        "maestro/principio_form.html",
+        {"form": form, "titulo": "Editar principio", "principio": principio},
+    )
+
+
+@administrador_required
+@require_GET
+def criterio_list(request: HttpRequest) -> HttpResponse:
+    criterios = Criterio.objects.select_related("principio", "tema").all()
+    tema_id = (request.GET.get("tema") or "").strip()
+    principio_id = (request.GET.get("principio") or "").strip()
+    if tema_id.isdigit():
+        criterios = criterios.filter(tema_id=int(tema_id))
+    if principio_id.isdigit():
+        criterios = criterios.filter(principio_id=int(principio_id))
+    return render(
+        request,
+        "maestro/criterio_list.html",
+        {
+            "criterios": criterios,
+            "temas": Tema.objects.all(),
+            "principios": Principio.objects.select_related("tema").all(),
+            "filtro_tema": tema_id,
+            "filtro_principio": principio_id,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def criterio_create(request: HttpRequest) -> HttpResponse:
+    form = CriterioForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Criterio creado correctamente.")
+        return redirect("maestro:criterio_list")
+    return render(
+        request,
+        "maestro/criterio_form.html",
+        {"form": form, "titulo": "Nuevo criterio"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def criterio_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    criterio = get_object_or_404(Criterio.objects.select_related("principio", "tema"), pk=pk)
+    form = CriterioForm(request.POST or None, instance=criterio)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Criterio actualizado correctamente.")
+        return redirect("maestro:criterio_list")
+    return render(
+        request,
+        "maestro/criterio_form.html",
+        {"form": form, "titulo": "Editar criterio", "criterio": criterio},
+    )
+
+
+@administrador_required
+@require_GET
+def documento_list(request: HttpRequest) -> HttpResponse:
+    documentos = Documento.objects.all()
+    tipo = (request.GET.get("tipo") or "").strip()
+    if tipo:
+        documentos = documentos.filter(tipo_documento=tipo)
+    tipos = (
+        Documento.objects.order_by("tipo_documento")
+        .values_list("tipo_documento", flat=True)
+        .distinct()
+    )
+    return render(
+        request,
+        "maestro/documento_list.html",
+        {
+            "documentos": documentos,
+            "tipos": tipos,
+            "filtro_tipo": tipo,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def documento_create(request: HttpRequest) -> HttpResponse:
+    form = DocumentoForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Documento creado correctamente.")
+        return redirect("maestro:documento_list")
+    return render(
+        request,
+        "maestro/documento_form.html",
+        {"form": form, "titulo": "Nuevo documento"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def documento_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    documento = get_object_or_404(Documento, pk=pk)
+    form = DocumentoForm(request.POST or None, instance=documento)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Documento actualizado correctamente.")
+        return redirect("maestro:documento_list")
+    return render(
+        request,
+        "maestro/documento_form.html",
+        {"form": form, "titulo": "Editar documento", "documento": documento},
+    )
+
+
+@administrador_required
+@require_GET
+def documento_criterio_list(request: HttpRequest) -> HttpResponse:
+    relaciones = DocumentoCriterio.objects.select_related(
+        "documento",
+        "criterio",
+        "criterio__tema",
+        "criterio__principio",
+    ).all()
+    documento_id = (request.GET.get("documento") or "").strip()
+    tema_id = (request.GET.get("tema") or "").strip()
+    principio_id = (request.GET.get("principio") or "").strip()
+    if documento_id.isdigit():
+        relaciones = relaciones.filter(documento_id=int(documento_id))
+    if tema_id.isdigit():
+        relaciones = relaciones.filter(criterio__tema_id=int(tema_id))
+    if principio_id.isdigit():
+        relaciones = relaciones.filter(criterio__principio_id=int(principio_id))
+    return render(
+        request,
+        "maestro/documento_criterio_list.html",
+        {
+            "relaciones": relaciones,
+            "documentos": Documento.objects.order_by("codigo"),
+            "temas": Tema.objects.all(),
+            "principios": Principio.objects.select_related("tema").all(),
+            "filtro_documento": documento_id,
+            "filtro_tema": tema_id,
+            "filtro_principio": principio_id,
+            "total": relaciones.count(),
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def documento_criterio_create(request: HttpRequest) -> HttpResponse:
+    form = DocumentoCriterioForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Relación estándar creada correctamente.")
+        return redirect("maestro:documento_criterio_list")
+    return render(
+        request,
+        "maestro/documento_criterio_form.html",
+        {"form": form, "titulo": "Nueva relación estándar"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def documento_criterio_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    relacion = get_object_or_404(
+        DocumentoCriterio.objects.select_related("documento", "criterio"),
+        pk=pk,
+    )
+    form = DocumentoCriterioForm(request.POST or None, instance=relacion)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Relación estándar actualizada correctamente.")
+        return redirect("maestro:documento_criterio_list")
+    return render(
+        request,
+        "maestro/documento_criterio_form.html",
+        {"form": form, "titulo": "Editar relación estándar", "relacion": relacion},
+    )
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def documento_criterio_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    relacion = get_object_or_404(DocumentoCriterio, pk=pk)
+    relacion.delete()
+    messages.success(request, "Relación estándar eliminada.")
+    return redirect("maestro:documento_criterio_list")
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def documento_criterio_importar(request: HttpRequest) -> HttpResponse:
+    from django.core.management import call_command
+    from io import StringIO
+
+    out = StringIO()
+    try:
+        call_command("importar_documento_criterio", stdout=out)
+        messages.success(request, "Importación desde Excel completada. " + out.getvalue().strip())
+    except Exception as exc:  # noqa: BLE001
+        messages.error(request, f"No se pudo importar: {exc}")
+    return redirect("maestro:documento_criterio_list")
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_documento_aplicar_estandar(
+    request: HttpRequest, pk: int, rev_id: int
+) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    form = AplicarEstandarRevisionForm(request.POST or None, revision=revision)
+
+    estandar = DocumentoCriterio.objects.select_related("documento", "criterio")
+    doc_ids_estandar = set(estandar.values_list("documento_id", flat=True).distinct())
+    ya_docs = set(
+        revision.documentos.filter(documento_id__isnull=False).values_list(
+            "documento_id", flat=True
+        )
+    )
+    docs_a_activar = len(doc_ids_estandar - ya_docs)
+
+    existentes = set(
+        EmpresaDocumentoCriterio.objects.filter(
+            empresa_documento__revision=revision,
+            empresa_documento__documento_id__isnull=False,
+        ).values_list("empresa_documento__documento_id", "criterio_id")
+    )
+    pares_estandar = set(estandar.values_list("documento_id", "criterio_id"))
+    vinculos_a_crear = len(pares_estandar - existentes)
+
+    if request.method == "POST" and form.is_valid():
+        area = form.cleaned_data["area"]
+        docs_creados = 0
+        vinculos_creados = 0
+        with transaction.atomic():
+            for documento in Documento.objects.filter(pk__in=doc_ids_estandar):
+                emp_doc, created = EmpresaDocumento.objects.get_or_create(
+                    revision=revision,
+                    documento=documento,
+                    defaults={
+                        "codigo": documento.codigo,
+                        "nombre": documento.nombre,
+                        "tipo_documento": documento.tipo_documento,
+                        "origen": OrigenEmpresaDocumento.CATALOGO,
+                        "activo": True,
+                    },
+                )
+                if created:
+                    docs_creados += 1
+
+            emp_docs = {
+                ed.documento_id: ed
+                for ed in EmpresaDocumento.objects.filter(
+                    revision=revision, documento_id__in=doc_ids_estandar
+                )
+            }
+            for rel in DocumentoCriterio.objects.filter(documento_id__in=doc_ids_estandar):
+                emp_doc = emp_docs.get(rel.documento_id)
+                if emp_doc is None:
+                    continue
+                _, created = EmpresaDocumentoCriterio.objects.get_or_create(
+                    empresa_documento=emp_doc,
+                    criterio=rel.criterio,
+                    defaults={"area": area},
+                )
+                if created:
+                    vinculos_creados += 1
+
+        messages.success(
+            request,
+            f"Estándar aplicado: {docs_creados} documento(s) activados, "
+            f"{vinculos_creados} vínculo(s) creados.",
+        )
+        return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
+
+    return render(
+        request,
+        "maestro/empresa_documento_aplicar_estandar.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "form": form,
+            "docs_a_activar": docs_a_activar,
+            "vinculos_a_crear": vinculos_a_crear,
+            "total_pares_estandar": len(pares_estandar),
+            "tiene_areas": form.fields["area"].queryset.exists(),
         },
     )

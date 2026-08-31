@@ -1,0 +1,54 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Principios · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Catálogo GISTM</p>
+    <h1>Principios</h1>
+    <p class="page-desc">Los 15 principios se asocian a un tema. La suma de ponderación se calcula desde sus criterios.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:principio_create' %}">+ Nuevo principio</a>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Tema</th>
+          <th>Descripción</th>
+          <th>Suma ponderación</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for principio in principios %}
+          <tr>
+            <td class="mono">{{ principio.codigo }}</td>
+            <td>{{ principio.tema.codigo }} · {{ principio.tema.nombre }}</td>
+            <td>{{ principio.descripcion|truncatechars:90 }}</td>
+            <td class="mono">{{ principio.suma_ponderacion }}</td>
+            <td class="actions">
+              <a href="{% url 'maestro:principio_edit' principio.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <strong>No hay principios registrados</strong>
+                Primero crea temas y luego asocia principios.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Temas · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Catálogo GISTM</p>
+    <h1>Temas</h1>
+    <p class="page-desc">Los 6 temas del estándar agrupan principios y criterios.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:tema_create' %}">+ Nuevo tema</a>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Nombre</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tema in temas %}
+          <tr>
+            <td class="mono">{{ tema.codigo }}</td>
+            <td><strong>{{ tema.nombre }}</strong></td>
+            <td class="actions">
+              <a href="{% url 'maestro:tema_edit' tema.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="3">
+              <div class="empty-state">
+                <strong>No hay temas registrados</strong>
+                Crea el primer tema del catálogo GISTM.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

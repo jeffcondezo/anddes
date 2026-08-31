@@ -1,0 +1,110 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Relación estándar · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Catálogo GISTM</p>
+    <h1>Relación estándar</h1>
+    <p class="page-desc">
+      Plantilla Documento ↔ Criterio. Las revisiones de empresa pueden aplicarla y luego ajustar.
+      Total filtrado: {{ total }}.
+    </p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="{% url 'maestro:documento_criterio_importar' %}" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost">Importar desde Excel</button>
+    </form>
+    <a class="btn" href="{% url 'maestro:documento_criterio_create' %}">+ Nueva relación</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <form method="get" class="form-grid two-col">
+    <div class="form-row">
+      <label for="id_filtro_documento">Documento</label>
+      <select class="input" name="documento" id="id_filtro_documento">
+        <option value="">Todos</option>
+        {% for documento in documentos %}
+          <option value="{{ documento.pk }}" {% if filtro_documento == documento.pk|stringformat:"s" %}selected{% endif %}>
+            {{ documento.codigo }} · {{ documento.nombre|truncatechars:40 }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_filtro_tema">Tema</label>
+      <select class="input" name="tema" id="id_filtro_tema">
+        <option value="">Todos</option>
+        {% for tema in temas %}
+          <option value="{{ tema.pk }}" {% if filtro_tema == tema.pk|stringformat:"s" %}selected{% endif %}>
+            {{ tema.codigo }} · {{ tema.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_filtro_principio">Principio</label>
+      <select class="input" name="principio" id="id_filtro_principio">
+        <option value="">Todos</option>
+        {% for principio in principios %}
+          <option value="{{ principio.pk }}" {% if filtro_principio == principio.pk|stringformat:"s" %}selected{% endif %}>
+            {{ principio.codigo }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_list' %}">Limpiar</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Documento</th>
+          <th>Criterio</th>
+          <th>Tema</th>
+          <th>Principio</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for relacion in relaciones %}
+          <tr>
+            <td>
+              <span class="mono">{{ relacion.documento.codigo }}</span>
+              <div class="muted" style="font-size:0.82rem;">{{ relacion.documento.nombre|truncatechars:50 }}</div>
+            </td>
+            <td class="mono">{{ relacion.criterio.codigo }}</td>
+            <td>{{ relacion.criterio.tema.codigo }}</td>
+            <td class="mono">{{ relacion.criterio.principio.codigo }}</td>
+            <td class="actions">
+              <a href="{% url 'maestro:documento_criterio_edit' relacion.pk %}">Editar</a>
+              <form method="post" action="{% url 'maestro:documento_criterio_delete' relacion.pk %}" style="display:inline;" onsubmit="return confirm('¿Eliminar esta relación del estándar?');">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <strong>No hay relaciones estándar</strong>
+                Crea pares documento–criterio o importa desde el Excel.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -2,42 +2,241 @@
 
 {% block title %}{{ titulo }} · GISTM{% endblock %}
 
+{% block extra_head %}
+<style>
+  .btn-remove-area {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid #e2b8b8;
+    border-radius: 8px;
+    background: #fdf4f4;
+    color: #b42318;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .btn-remove-area svg {
+    width: 0.9rem;
+    height: 0.9rem;
+    flex-shrink: 0;
+  }
+  .btn-remove-area:hover {
+    background: #f8e4e4;
+    border-color: #d09292;
+    color: #912018;
+  }
+  .btn-remove-area:focus-visible {
+    outline: 2px solid #b42318;
+    outline-offset: 2px;
+  }
+  .area-delete-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f7f9fb;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .area-delete-label:has(input:checked) {
+    border-color: #e2b8b8;
+    background: #fdf4f4;
+    color: #b42318;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <header class="page-header">
   <div>
     <p class="page-kicker">Empresas</p>
     <h1>{{ titulo }}</h1>
-    <p class="page-desc">Define los datos básicos de la empresa minera que se asociará a gestores y clientes.</p>
+    <p class="page-desc">Define los datos de la empresa minera y las áreas que posee.</p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Volver al listado</a>
+    {% if empresa %}
+      <a class="btn" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Revisiones</a>
+    {% endif %}
   </div>
 </header>
 
 <section class="panel">
-  <form method="post" class="form-grid two-col" novalidate>
+  <form method="post" novalidate id="empresa-form">
     {% csrf_token %}
+    {{ formset.management_form }}
+
     {% if form.non_field_errors %}
-      <div class="span-2">{{ form.non_field_errors }}</div>
+      <div>{{ form.non_field_errors }}</div>
     {% endif %}
-    <div class="form-row">
-      <label for="id_nombre">Nombre</label>
-      {{ form.nombre }}
-      {{ form.nombre.errors }}
+    {% if formset.non_form_errors %}
+      <div>{{ formset.non_form_errors }}</div>
+    {% endif %}
+
+    <div class="form-grid two-col">
+      <div class="form-row">
+        <label for="id_nombre">Nombre</label>
+        {{ form.nombre }}
+        {{ form.nombre.errors }}
+      </div>
+      <div class="form-row">
+        <label for="id_ruc">RUC</label>
+        {{ form.ruc }}
+        {{ form.ruc.errors }}
+      </div>
+      <div class="form-row span-2">
+        <label>{{ form.activo }} Activa</label>
+        {{ form.activo.errors }}
+      </div>
     </div>
-    <div class="form-row">
-      <label for="id_ruc">RUC</label>
-      {{ form.ruc }}
-      {{ form.ruc.errors }}
+
+    <hr style="border:0; border-top:1px solid var(--border); margin:1.25rem 0;">
+
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:0.9rem;">
+      <div>
+        <h2 style="font-size:1.05rem; margin:0 0 0.35rem;">Áreas de la empresa</h2>
+        <p class="muted" style="margin:0;">Agrega las áreas responsables (ej. Sustentabilidad, Operaciones, HSEC).</p>
+      </div>
+      <button type="button" class="btn btn-ghost" id="add-area-btn">+ Agregar área</button>
     </div>
-    <div class="form-row span-2">
-      <label>{{ form.activo }} Activa</label>
-      {{ form.activo.errors }}
+
+    <div class="table-wrap">
+      <table class="data" id="areas-table">
+        <thead>
+          <tr>
+            <th>Nombre del área</th>
+            <th style="width:7rem;">Activa</th>
+            <th style="width:7rem;">Quitar</th>
+          </tr>
+        </thead>
+        <tbody id="areas-tbody">
+          {% for area_form in formset %}
+            <tr class="area-row">
+              <td>
+                {% for hidden in area_form.hidden_fields %}{{ hidden }}{% endfor %}
+                {{ area_form.nombre }}
+                {{ area_form.nombre.errors }}
+                {{ area_form.non_field_errors }}
+              </td>
+              <td>
+                {{ area_form.activo }}
+                {{ area_form.activo.errors }}
+              </td>
+              <td>
+                {% if area_form.instance.pk %}
+                  <label class="area-delete-label">
+                    {{ area_form.DELETE }}
+                    <span>Eliminar</span>
+                  </label>
+                {% else %}
+                  <button type="button" class="btn-remove-area remove-area-btn" title="Quitar esta fila">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M18 6 6 18M6 6l12 12"/>
+                    </svg>
+                    Quitar
+                  </button>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <div class="form-actions span-2">
+
+    <template id="area-empty-form">
+      <tr class="area-row">
+        <td>
+          {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+          {{ formset.empty_form.nombre }}
+        </td>
+        <td>
+          {{ formset.empty_form.activo }}
+        </td>
+        <td>
+          <button type="button" class="btn-remove-area remove-area-btn" title="Quitar esta fila">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+            Quitar
+          </button>
+        </td>
+      </tr>
+    </template>
+
+    <div class="form-actions" style="margin-top:1.1rem;">
       <button type="submit" class="btn">Guardar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Cancelar</a>
     </div>
   </form>
 </section>
+
+<script>
+(function () {
+  var tbody = document.getElementById("areas-tbody");
+  var addBtn = document.getElementById("add-area-btn");
+  var template = document.getElementById("area-empty-form");
+  var totalInput = document.getElementById("id_areas-TOTAL_FORMS");
+  var maxInput = document.getElementById("id_areas-MAX_NUM_FORMS");
+  if (!tbody || !addBtn || !template || !totalInput) return;
+
+  function currentTotal() {
+    return parseInt(totalInput.value, 10) || 0;
+  }
+
+  function maxAllowed() {
+    var max = parseInt(maxInput && maxInput.value, 10);
+    return isNaN(max) ? 50 : max;
+  }
+
+  function bindRemove(btn) {
+    btn.addEventListener("click", function () {
+      var row = btn.closest("tr");
+      if (row) row.remove();
+      reindexRows();
+    });
+  }
+
+  function reindexRows() {
+    var rows = tbody.querySelectorAll("tr.area-row");
+    rows.forEach(function (row, index) {
+      row.querySelectorAll("input, select, textarea, label").forEach(function (el) {
+        ["name", "id", "for"].forEach(function (attr) {
+          var val = el.getAttribute(attr);
+          if (!val) return;
+          el.setAttribute(attr, val.replace(/areas-\d+-/g, "areas-" + index + "-"));
+        });
+      });
+    });
+    totalInput.value = String(rows.length);
+    addBtn.disabled = rows.length >= maxAllowed();
+  }
+
+  tbody.querySelectorAll(".remove-area-btn").forEach(bindRemove);
+
+  addBtn.addEventListener("click", function () {
+    if (currentTotal() >= maxAllowed()) return;
+    var html = template.innerHTML.replace(/__prefix__/g, String(currentTotal()));
+    var wrap = document.createElement("tbody");
+    wrap.innerHTML = html.trim();
+    var row = wrap.firstElementChild;
+    tbody.appendChild(row);
+    var removeBtn = row.querySelector(".remove-area-btn");
+    if (removeBtn) bindRemove(removeBtn);
+    var activo = row.querySelector('input[type="checkbox"][name$="-activo"]');
+    if (activo) activo.checked = true;
+    totalInput.value = String(currentTotal() + 1);
+    addBtn.disabled = currentTotal() >= maxAllowed();
+    var nombre = row.querySelector('input[name$="-nombre"]');
+    if (nombre) nombre.focus();
+  });
+})();
+</script>
 {% endblock %}

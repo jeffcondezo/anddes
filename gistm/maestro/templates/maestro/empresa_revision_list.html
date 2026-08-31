@@ -1,0 +1,69 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Revisiones · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Empresa · {{ empresa.nombre }}</p>
+    <h1>Revisiones</h1>
+    <p class="page-desc">Cada revisión define el conjunto de documentos y criterios para un año o periodo.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Volver a empresas</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_edit' empresa.pk %}">Editar empresa</a>
+    <a class="btn" href="{% url 'maestro:empresa_revision_create' empresa.pk %}">+ Nueva revisión</a>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Año</th>
+          <th>Nombre</th>
+          <th>Documentos</th>
+          <th>Criterios cubiertos</th>
+          <th>Avance</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in revisiones %}
+          {% with revision=item.obj %}
+          <tr>
+            <td class="mono"><strong>{{ revision.anio }}</strong></td>
+            <td>{{ revision.nombre|default:"—" }}</td>
+            <td class="mono">{{ revision.docs_activos }} / {{ revision.total_documentos }}</td>
+            <td class="mono">{{ item.criterios_cubiertos }} / {{ item.total_criterios }}</td>
+            <td class="mono">{{ item.avance_pct }}%</td>
+            <td>
+              {% if revision.activo %}
+                <span class="badge badge-ok">Activa</span>
+              {% else %}
+                <span class="badge badge-off">Inactiva</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Documentos</a>
+              <a href="{% url 'maestro:empresa_revision_edit' empresa.pk revision.pk %}">Editar</a>
+            </td>
+          </tr>
+          {% endwith %}
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <strong>No hay revisiones registradas</strong>
+                Crea una revisión para definir documentos y criterios de esta empresa.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

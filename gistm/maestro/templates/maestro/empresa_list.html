@@ -21,6 +21,7 @@
         <tr>
           <th>Nombre</th>
           <th>RUC</th>
+          <th>Áreas</th>
           <th>Estado</th>
           <th></th>
         </tr>
@@ -30,6 +31,7 @@
           <tr>
             <td><strong>{{ empresa.nombre }}</strong></td>
             <td class="mono">{{ empresa.ruc|default:"—" }}</td>
+            <td class="mono">{{ empresa.total_areas }}</td>
             <td>
               {% if empresa.activo %}
                 <span class="badge badge-ok">Activa</span>
@@ -38,12 +40,13 @@
               {% endif %}
             </td>
             <td class="actions">
+              <a href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Revisiones</a>
               <a href="{% url 'maestro:empresa_edit' empresa.pk %}">Editar</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="4">
+            <td colspan="5">
               <div class="empty-state">
                 <strong>No hay empresas registradas</strong>
                 Agrega una empresa minera para asociar gestores y clientes.

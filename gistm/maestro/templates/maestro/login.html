@@ -12,7 +12,7 @@
     padding: 1rem 0;
   }
   .login-card {
-    width: min(420px, 100%);
+    width: min(460px, 100%);
     text-align: center;
     padding: 2rem 1.6rem 1.6rem;
   }
@@ -48,8 +48,8 @@
     margin: 0 0 0.4rem;
     font-size: 1.65rem;
   }
-  .login-card p {
-    margin: 0 0 1.4rem;
+  .login-card > p {
+    margin: 0 0 1.15rem;
     color: var(--muted);
     line-height: 1.5;
   }
@@ -58,10 +58,38 @@
     height: 1.05rem;
     display: inline-block;
   }
+  .login-permissions {
+    text-align: left;
+    margin: 0 0 1.25rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f7f9fb;
+  }
+  .login-permissions h2 {
+    margin: 0 0 0.45rem;
+    font-size: 0.88rem;
+    color: var(--text);
+  }
+  .login-permissions p {
+    margin: 0 0 0.55rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .login-permissions ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.82rem;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .login-permissions li { margin-bottom: 0.2rem; }
   .login-meta {
     margin-top: 1.1rem;
     font-size: 0.78rem;
     color: var(--muted);
+    line-height: 1.45;
   }
 </style>
 {% endblock %}
@@ -78,6 +106,22 @@
     </div>
     <h1>Iniciar sesión</h1>
     <p>Accede con tu cuenta corporativa de Microsoft Entra ID para continuar.</p>
+
+    <div class="login-permissions">
+      <h2>Qué solicita esta aplicación</h2>
+      <p>
+        Al continuar con Microsoft, Entra ID pedirá tu consentimiento para que GISTM pueda:
+      </p>
+      <ul>
+        <li>Leer tu perfil básico (<strong>User.Read</strong>): nombre y correo electrónico.</li>
+        <li>Identificarte de forma segura para abrir tu sesión en la plataforma.</li>
+      </ul>
+      <p style="margin-top:0.65rem; margin-bottom:0;">
+        No solicita acceso a tus archivos, correos, calendario ni a datos de otras aplicaciones.
+        Si eres usuario invitado (empresa externa), el consentimiento puede requerirse la primera vez que ingreses al tenant.
+      </p>
+    </div>
+
     <a class="btn" href="{% url 'maestro:entra_login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
       <svg class="ms-logo" viewBox="0 0 21 21" aria-hidden="true">
         <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
@@ -87,7 +131,10 @@
       </svg>
       Continuar con Microsoft
     </a>
-    <div class="login-meta">Solo usuarios pre-registrados pueden ingresar.</div>
+    <div class="login-meta">
+      Solo usuarios pre-registrados en GISTM pueden ingresar.
+      Las empresas invitadas deben usar la cuenta con la que fueron invitadas al tenant.
+    </div>
   </section>
 </div>
 {% endblock %}

@@ -1,0 +1,43 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }}</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">Una revisión por año permite mantener historial de documentos y criterios.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Volver a revisiones</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_anio">Año</label>
+      {{ form.anio }}
+      {{ form.anio.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_nombre">Nombre (opcional)</label>
+      {{ form.nombre }}
+      {{ form.nombre.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label>{{ form.activo }} Activa</label>
+      {{ form.activo.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

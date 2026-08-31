@@ -587,6 +587,38 @@
       border-radius: 0.35rem;
     }
     .actions a:hover { background: var(--primary-soft); }
+    .actions .link-btn {
+      background: none;
+      border: 0;
+      color: var(--primary);
+      font: inherit;
+      font-weight: 700;
+      padding: 0.25rem 0.45rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
+    }
+    .actions .link-btn:hover { background: var(--primary-soft); }
+    .checkbox-list {
+      max-height: 22rem;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      background: #fff;
+    }
+    .checkbox-list ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .checkbox-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
     .empty-state {
       text-align: center;
       padding: 2.4rem 1.25rem;
@@ -693,10 +725,31 @@
             </div>
           </div>
           {% endwith %}
-          <a href="{% url 'maestro:empresa_list' %}" class="{% if request.resolver_match.url_name == 'empresa_list' or request.resolver_match.url_name == 'empresa_create' or request.resolver_match.url_name == 'empresa_edit' %}active{% endif %}">
+          <a href="{% url 'maestro:empresa_list' %}" class="{% if request.resolver_match.url_name == 'empresa_list' or request.resolver_match.url_name == 'empresa_create' or request.resolver_match.url_name == 'empresa_edit' or request.resolver_match.url_name == 'empresa_revision_list' or request.resolver_match.url_name == 'empresa_revision_create' or request.resolver_match.url_name == 'empresa_revision_edit' or request.resolver_match.url_name == 'empresa_documento_list' or request.resolver_match.url_name == 'empresa_documento_activar_catalogo' or request.resolver_match.url_name == 'empresa_documento_aplicar_estandar' or request.resolver_match.url_name == 'empresa_documento_crear_propio' or request.resolver_match.url_name == 'empresa_documento_criterios' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01"/></svg>
             Empresas
           </a>
+          {% with catalogo_active=request.resolver_match.url_name %}
+          <div class="nav-group{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open{% endif %}" data-nav-group>
+            <button
+              type="button"
+              class="nav-group-toggle{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open active-parent{% endif %}"
+              data-nav-toggle
+              aria-expanded="{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %}true{% else %}false{% endif %}"
+            >
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>
+              <span>Catálogo GISTM</span>
+              <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="nav-submenu">
+              <a href="{% url 'maestro:tema_list' %}" class="{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' %}active{% endif %}">Temas</a>
+              <a href="{% url 'maestro:principio_list' %}" class="{% if catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' %}active{% endif %}">Principios</a>
+              <a href="{% url 'maestro:criterio_list' %}" class="{% if catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' %}active{% endif %}">Criterios</a>
+              <a href="{% url 'maestro:documento_list' %}" class="{% if catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' %}active{% endif %}">Documentos</a>
+              <a href="{% url 'maestro:documento_criterio_list' %}" class="{% if catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %}active{% endif %}">Relación estándar</a>
+            </div>
+          </div>
+          {% endwith %}
         {% endif %}
       </nav>
       <div class="sidebar-footer">

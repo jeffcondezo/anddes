@@ -1,0 +1,44 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Documentos</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">El código corresponde al ID del documento y debe ser único.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:documento_list' %}">Volver al listado</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_codigo">Código</label>
+      {{ form.codigo }}
+      {{ form.codigo.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_tipo_documento">Tipo documento</label>
+      {{ form.tipo_documento }}
+      {{ form.tipo_documento.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_nombre">Nombre</label>
+      {{ form.nombre }}
+      {{ form.nombre.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:documento_list' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
