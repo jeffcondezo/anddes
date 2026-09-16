@@ -1,0 +1,173 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Asociar criterios · {{ documento.codigo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento · {{ empresa.nombre }}</p>
+    <h1>Asociar criterios huérfanos</h1>
+    <p class="page-desc">
+      Revisa la evidencia del cliente y elige qué criterios huérfanos cubre
+      <strong>{{ documento.codigo }}</strong>. Solo se listan criterios aún sin documento en esta revisión.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Volver a por revisar</a>
+  </div>
+</header>
+
+<div class="split-layout">
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Evidencia del cliente</h2>
+        <p class="muted">{{ documento.nombre }} · documento propio</p>
+      </div>
+      {% if carga %}
+        <span class="badge badge-ok">Con archivo</span>
+      {% else %}
+        <span class="badge badge-off">Sin archivo</span>
+      {% endif %}
+    </div>
+
+    <div class="doc-list">
+      <div class="doc-row">
+        <div class="doc-row-main">
+          <strong>{{ documento.codigo }}</strong>
+          <span>
+            {% if carga %}
+              {{ carga.nombre_original|default:carga.archivo.name }}
+              · {{ carga.creado_en|date:"d/m/Y H:i" }}
+              {% if carga.subido_por %} · {{ carga.subido_por.get_full_name|default:carga.subido_por.email }}{% endif %}
+            {% else %}
+              Todavía no hay evidencia vigente. Puedes asociar criterios de todos modos.
+            {% endif %}
+          </span>
+          {% if carga and carga.observaciones %}
+            <span style="display:block; margin-top:0.35rem;">Obs.: {{ carga.observaciones }}</span>
+          {% endif %}
+        </div>
+        <div class="doc-row-side">
+          {% if carga and carga.archivo %}
+            <a class="btn btn-ghost" href="{{ carga.archivo.url }}" target="_blank" rel="noopener">Ver / descargar</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if vinculos %}
+      <div class="panel-head" style="margin-top:1.25rem;">
+        <div>
+          <h2>Criterios ya asociados</h2>
+          <p class="muted">Este documento ya cubre estos criterios.</p>
+        </div>
+        <span class="badge badge-info">{{ vinculos|length }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Criterio</th>
+              <th>Área</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in vinculos %}
+              <tr>
+                <td>
+                  <strong class="mono">{{ v.criterio.codigo }}</strong>
+                  <div class="muted" style="font-size:0.82rem;">{{ v.criterio.descripcion|truncatechars:100 }}</div>
+                </td>
+                <td>{{ v.area.nombre }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Criterios huérfanos</h2>
+        <p class="muted">Disponibles para asociar en esta revisión.</p>
+      </div>
+      <span class="badge badge-off">{{ huerfanos_disponibles }}</span>
+    </div>
+
+    {% if huerfanos_disponibles == 0 and not form.is_bound %}
+      <div class="empty-state">
+        <strong>No hay criterios huérfanos</strong>
+        Todos los criterios aplicables ya tienen documento, o el filtro no dejó resultados.
+      </div>
+    {% else %}
+      <form method="get" class="form-grid two-col" style="margin-bottom:1rem;">
+        <div class="form-row">
+          <label for="id_filtro_tema">Filtrar por tema</label>
+          <select class="input" name="tema" id="id_filtro_tema">
+            <option value="">Todos</option>
+            {% for tema in temas %}
+              <option value="{{ tema.pk }}" {% if filtro_tema == tema.pk|stringformat:"s" %}selected{% endif %}>
+                {{ tema.codigo }} · {{ tema.nombre }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="id_filtro_principio">Filtrar por principio</label>
+          <select class="input" name="principio" id="id_filtro_principio">
+            <option value="">Todos</option>
+            {% for principio in principios %}
+              <option value="{{ principio.pk }}" {% if filtro_principio == principio.pk|stringformat:"s" %}selected{% endif %}>
+                {{ principio.codigo }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-actions span-2">
+          <button type="submit" class="btn btn-ghost">Aplicar filtro</button>
+        </div>
+      </form>
+
+      <form method="post" class="form-grid" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div>{{ form.non_field_errors }}</div>
+        {% endif %}
+        <div class="form-row">
+          <label for="id_criterios">Selecciona criterios huérfanos</label>
+          {{ form.criterios }}
+          {{ form.criterios.errors }}
+          {% if form.criterios.help_text %}
+            <p class="muted" style="margin:0.35rem 0 0;">{{ form.criterios.help_text }}</p>
+          {% endif %}
+          <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
+        </div>
+        <div class="form-row">
+          <label for="id_area">Área responsable</label>
+          {{ form.area }}
+          {{ form.area.errors }}
+        </div>
+        {% if not form.fields.area.queryset %}
+          <p class="muted">
+            Esta empresa no tiene áreas activas.
+            {% if es_administrador %}
+              <a href="{% url 'maestro:empresa_edit' empresa.pk %}">Agregar áreas</a> antes de vincular.
+            {% else %}
+              Pide a un administrador que configure áreas.
+            {% endif %}
+          </p>
+        {% endif %}
+        <div class="form-actions">
+          <button type="submit" class="btn" {% if not form.fields.area.queryset or huerfanos_disponibles == 0 %}disabled{% endif %}>
+            Asociar criterios
+          </button>
+          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Cancelar</a>
+        </div>
+      </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

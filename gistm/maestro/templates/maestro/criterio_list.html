@@ -6,7 +6,7 @@
 <style>
   .filters-bar {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: 1fr 1fr 1fr auto;
     gap: 0.75rem;
     align-items: end;
     margin-bottom: 1rem;
@@ -22,7 +22,7 @@
   <div>
     <p class="page-kicker">Catálogo GISTM</p>
     <h1>Criterios</h1>
-    <p class="page-desc">Los criterios se asocian a un principio. El tema se toma del principio y la ponderación alimenta su suma.</p>
+    <p class="page-desc">Los criterios se asocian a un requisito. Principio y tema se toman del requisito. La ponderación es informativa: 1 ÷ N criterios del mismo requisito.</p>
   </div>
   <div class="page-actions">
     <a class="btn" href="{% url 'maestro:criterio_create' %}">+ Nuevo criterio</a>
@@ -53,6 +53,17 @@
         {% endfor %}
       </select>
     </div>
+    <div class="form-row">
+      <label for="id_filtro_requisito">Requisito</label>
+      <select class="input" name="requisito" id="id_filtro_requisito">
+        <option value="">Todos los requisitos</option>
+        {% for requisito in requisitos %}
+          <option value="{{ requisito.pk }}" {% if filtro_requisito == requisito.pk|stringformat:"s" %}selected{% endif %}>
+            {{ requisito.codigo }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
     <div class="form-row" style="display:flex; gap:0.5rem;">
       <button type="submit" class="btn">Filtrar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:criterio_list' %}">Limpiar</a>
@@ -68,8 +79,9 @@
           <th>Código</th>
           <th>Tema</th>
           <th>Principio</th>
+          <th>Requisito</th>
           <th>Descripción</th>
-          <th>Ponderación</th>
+          <th>Ponderación (calc.)</th>
           <th></th>
         </tr>
       </thead>
@@ -79,18 +91,19 @@
             <td class="mono">{{ criterio.codigo }}</td>
             <td>{{ criterio.tema.codigo }}</td>
             <td class="mono">{{ criterio.principio.codigo }}</td>
+            <td class="mono">{{ criterio.requisito.codigo }}</td>
             <td>{{ criterio.descripcion|truncatechars:80 }}</td>
-            <td class="mono">{{ criterio.ponderacion }}</td>
+            <td class="mono" title="Calculada automáticamente (1 ÷ N del requisito)">{{ criterio.ponderacion }}</td>
             <td class="actions">
               <a href="{% url 'maestro:criterio_edit' criterio.pk %}">Editar</a>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="6">
+            <td colspan="7">
               <div class="empty-state">
                 <strong>No hay criterios</strong>
-                Crea criterios asociados a un principio existente.
+                Crea criterios asociados a un requisito existente.
               </div>
             </td>
           </tr>

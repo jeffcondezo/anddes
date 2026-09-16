@@ -1,0 +1,57 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Documento adicional · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · {{ revision.etiqueta }}</p>
+    <h1>Documento adicional</h1>
+    <p class="page-desc">
+      Hay {{ huerfanos }} criterio(s) sin documento asignado. Registra un documento propio con su evidencia;
+      el consultor asociará los criterios después.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}">Volver</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" enctype="multipart/form-data" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_codigo">Código</label>
+      {{ form.codigo }}
+      {{ form.codigo.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_tipo_documento">Tipo documento</label>
+      {{ form.tipo_documento }}
+      {{ form.tipo_documento.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_nombre">Nombre</label>
+      {{ form.nombre }}
+      {{ form.nombre.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_archivo">Archivo</label>
+      {{ form.archivo }}
+      {{ form.archivo.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_observaciones">Observaciones</label>
+      {{ form.observaciones }}
+      {{ form.observaciones.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Crear y cargar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

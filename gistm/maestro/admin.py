@@ -4,7 +4,9 @@ from .models import (
     Area,
     Criterio,
     Documento,
+    DocumentoCarga,
     DocumentoCriterio,
+    DocumentoMensaje,
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
@@ -12,7 +14,9 @@ from .models import (
     PerfilUsuario,
     Principio,
     RegistroLoginExterno,
+    Requisito,
     Revision,
+    RevisionCriterioDesactivado,
     Tema,
 )
 
@@ -54,6 +58,15 @@ class RevisionAdmin(admin.ModelAdmin):
     inlines = [EmpresaDocumentoInline]
 
 
+@admin.register(RevisionCriterioDesactivado)
+class RevisionCriterioDesactivadoAdmin(admin.ModelAdmin):
+    list_display = ("revision", "criterio", "creado_en")
+    list_filter = ("revision__empresa", "revision__anio")
+    search_fields = ("criterio__codigo", "motivo", "revision__empresa__nombre")
+    raw_id_fields = ("revision", "criterio")
+    readonly_fields = ("creado_en", "actualizado_en")
+
+
 @admin.register(Area)
 class AreaAdmin(admin.ModelAdmin):
     list_display = ("nombre", "empresa", "activo", "creado_en")
@@ -82,6 +95,47 @@ class EmpresaDocumentoCriterioAdmin(admin.ModelAdmin):
         "empresa_documento__revision__empresa__nombre",
     )
     raw_id_fields = ("empresa_documento", "criterio", "area")
+
+
+@admin.register(DocumentoCarga)
+class DocumentoCargaAdmin(admin.ModelAdmin):
+    list_display = (
+        "nombre_original",
+        "empresa_documento",
+        "estado_revision",
+        "subido_por",
+        "activo",
+        "creado_en",
+    )
+    list_filter = ("estado_revision", "activo", "empresa_documento__revision__empresa")
+    search_fields = (
+        "nombre_original",
+        "empresa_documento__codigo",
+        "empresa_documento__revision__empresa__nombre",
+        "motivo_rechazo",
+    )
+    raw_id_fields = ("empresa_documento", "subido_por", "revisado_por")
+    readonly_fields = ("creado_en", "revisado_en")
+
+
+@admin.register(DocumentoMensaje)
+class DocumentoMensajeAdmin(admin.ModelAdmin):
+    list_display = (
+        "empresa_documento",
+        "tipo",
+        "es_consultor",
+        "autor",
+        "creado_en",
+    )
+    list_filter = ("tipo", "es_consultor", "empresa_documento__revision__empresa")
+    search_fields = (
+        "texto",
+        "empresa_documento__codigo",
+        "empresa_documento__revision__empresa__nombre",
+        "autor__email",
+    )
+    raw_id_fields = ("empresa_documento", "autor", "carga")
+    readonly_fields = ("creado_en",)
 
 
 @admin.register(PerfilUsuario)
@@ -133,12 +187,19 @@ class PrincipioAdmin(admin.ModelAdmin):
     readonly_fields = ("suma_ponderacion",)
 
 
+@admin.register(Requisito)
+class RequisitoAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "principio", "creado_en")
+    list_filter = ("principio__tema", "principio")
+    search_fields = ("codigo", "descripcion")
+
+
 @admin.register(Criterio)
 class CriterioAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "principio", "tema", "ponderacion")
-    list_filter = ("tema", "principio")
+    list_display = ("codigo", "requisito", "principio", "tema", "ponderacion")
+    list_filter = ("tema", "principio", "requisito")
     search_fields = ("codigo", "descripcion")
-    readonly_fields = ("tema",)
+    readonly_fields = ("principio", "tema", "ponderacion")
 
 
 @admin.register(Documento)

@@ -2,12 +2,39 @@
 
 {% block title %}{{ titulo }} · GISTM{% endblock %}
 
+{% block extra_head %}
+<style>
+  .info-value {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-height: 2.5rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px dashed #c9d5dc;
+    border-radius: 8px;
+    background: #f4f7f9;
+    color: #314047;
+  }
+  .info-value strong {
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .info-value small {
+    color: #667780;
+    font-size: 0.8rem;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <header class="page-header">
   <div>
     <p class="page-kicker">Criterios</p>
     <h1>{{ titulo }}</h1>
-    <p class="page-desc">Al elegir el principio, el tema se asigna automáticamente. La ponderación actualiza la suma del principio.</p>
+    <p class="page-desc">
+      Solo se capturan código, requisito y descripción. Principio, tema y ponderación son informativos:
+      la ponderación vale <strong>1 ÷ N</strong> criterios del mismo requisito y se recalcula al guardar.
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:criterio_list' %}">Volver al listado</a>
@@ -26,18 +53,24 @@
       {{ form.codigo.errors }}
     </div>
     <div class="form-row">
-      <label for="id_principio">Principio</label>
-      {{ form.principio }}
-      {{ form.principio.errors }}
+      <label for="id_requisito">Requisito</label>
+      {{ form.requisito }}
+      {{ form.requisito.errors }}
     </div>
     <div class="form-row">
-      <label for="id_tema_display">Tema</label>
-      <input class="input" id="id_tema_display" value="{{ form.tema_nombre }}" readonly>
+      <label>Principio</label>
+      <div class="info-value"><strong id="id_principio_display">{{ form.principio_nombre|default:"—" }}</strong></div>
     </div>
     <div class="form-row">
-      <label for="id_ponderacion">Ponderación</label>
-      {{ form.ponderacion }}
-      {{ form.ponderacion.errors }}
+      <label>Tema</label>
+      <div class="info-value"><strong id="id_tema_display">{{ form.tema_nombre|default:"—" }}</strong></div>
+    </div>
+    <div class="form-row span-2">
+      <label>Ponderación</label>
+      <div class="info-value">
+        <strong id="id_ponderacion_display">{{ form.ponderacion_info|default:"—" }}</strong>
+        <small id="id_ponderacion_hint">Valor calculado automáticamente; no se edita.</small>
+      </div>
     </div>
     <div class="form-row span-2">
       <label for="id_descripcion">Descripción</label>
@@ -53,16 +86,46 @@
 
 <script>
   (function () {
+    const currentRequisitoId = "{{ form.instance_requisito_id|default_if_none:'' }}";
     const map = {
-      {% for principio in form.fields.principio.queryset %}
-      "{{ principio.pk }}": "{{ principio.tema.codigo|escapejs }} · {{ principio.tema.nombre|escapejs }}",
+      {% for requisito in form.fields.requisito.queryset %}
+      "{{ requisito.pk }}": {
+        principio: "{{ requisito.principio.codigo|escapejs }}",
+        tema: "{{ requisito.principio.tema.codigo|escapejs }} · {{ requisito.principio.tema.nombre|escapejs }}",
+        total: {{ requisito.total_criterios|default:0 }}
+      },
       {% endfor %}
     };
-    const select = document.getElementById("id_principio");
-    const display = document.getElementById("id_tema_display");
-    function sync() {
-      display.value = map[select.value] || "";
+    const select = document.getElementById("id_requisito");
+    const principioDisplay = document.getElementById("id_principio_display");
+    const temaDisplay = document.getElementById("id_tema_display");
+    const ponderacionDisplay = document.getElementById("id_ponderacion_display");
+    const ponderacionHint = document.getElementById("id_ponderacion_hint");
+
+    function formatPeso(n) {
+      if (!n || n < 1) return "—";
+      return (1 / n).toFixed(4);
     }
+
+    function sync() {
+      const item = map[select.value];
+      if (!item) {
+        principioDisplay.textContent = "—";
+        temaDisplay.textContent = "—";
+        ponderacionDisplay.textContent = "—";
+        ponderacionHint.textContent = "Elige un requisito para ver la ponderación estimada.";
+        return;
+      }
+      principioDisplay.textContent = item.principio;
+      temaDisplay.textContent = item.tema;
+      let n = item.total;
+      if (!currentRequisitoId || String(currentRequisitoId) !== String(select.value)) {
+        n += 1;
+      }
+      ponderacionDisplay.textContent = formatPeso(n);
+      ponderacionHint.textContent = "Estimado con " + n + " criterio(s) en este requisito (1 ÷ " + n + "). Se confirma al guardar.";
+    }
+
     if (select) {
       select.addEventListener("change", sync);
       sync();

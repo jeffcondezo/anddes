@@ -29,6 +29,16 @@ urlpatterns = [
         name="empresa_documento_list",
     ),
     path(
+        "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/criterios/desactivar/",
+        views.empresa_criterios_desactivar,
+        name="empresa_criterios_desactivar",
+    ),
+    path(
+        "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/criterios/reactivar/",
+        views.empresa_criterios_reactivar,
+        name="empresa_criterios_reactivar",
+    ),
+    path(
         "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/activar-catalogo/",
         views.empresa_documento_activar_catalogo,
         name="empresa_documento_activar_catalogo",
@@ -66,6 +76,9 @@ urlpatterns = [
     path("catalogo/principios/", views.principio_list, name="principio_list"),
     path("catalogo/principios/nuevo/", views.principio_create, name="principio_create"),
     path("catalogo/principios/<int:pk>/editar/", views.principio_edit, name="principio_edit"),
+    path("catalogo/requisitos/", views.requisito_list, name="requisito_list"),
+    path("catalogo/requisitos/nuevo/", views.requisito_create, name="requisito_create"),
+    path("catalogo/requisitos/<int:pk>/editar/", views.requisito_edit, name="requisito_edit"),
     path("catalogo/criterios/", views.criterio_list, name="criterio_list"),
     path("catalogo/criterios/nuevo/", views.criterio_create, name="criterio_create"),
     path("catalogo/criterios/<int:pk>/editar/", views.criterio_edit, name="criterio_edit"),
@@ -96,5 +109,55 @@ urlpatterns = [
         "catalogo/relacion-estandar/importar/",
         views.documento_criterio_importar,
         name="documento_criterio_importar",
+    ),
+    # Portal cliente
+    path("mi-empresa/", views.mi_empresa_dashboard, name="mi_empresa_dashboard"),
+    path("mi-empresa/documentos/", views.mi_empresa_documentos, name="mi_empresa_documentos"),
+    path(
+        "mi-empresa/documentos/nuevo/",
+        views.mi_empresa_documento_nuevo,
+        name="mi_empresa_documento_nuevo",
+    ),
+    path(
+        "mi-empresa/documentos/<int:doc_id>/cargar/",
+        views.mi_empresa_documento_cargar,
+        name="mi_empresa_documento_cargar",
+    ),
+    path(
+        "documentos/<int:doc_id>/conversacion/",
+        views.documento_conversacion,
+        name="documento_conversacion",
+    ),
+    # Seguimiento admin / gestor
+    path("seguimiento/", views.seguimiento_list, name="seguimiento_list"),
+    path(
+        "seguimiento/empresas/<int:pk>/",
+        views.seguimiento_empresa_detail,
+        name="seguimiento_empresa_detail",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/monitoreo/",
+        views.seguimiento_empresa_monitoreo,
+        name="seguimiento_empresa_monitoreo",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/por-revisar/",
+        views.seguimiento_empresa_revision,
+        name="seguimiento_empresa_revision",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/aprobar/",
+        views.seguimiento_carga_aprobar,
+        name="seguimiento_carga_aprobar",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/rechazar/",
+        views.seguimiento_carga_rechazar,
+        name="seguimiento_carga_rechazar",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/asociar-criterios/",
+        views.seguimiento_documento_asociar_criterios,
+        name="seguimiento_documento_asociar_criterios",
     ),
 ]

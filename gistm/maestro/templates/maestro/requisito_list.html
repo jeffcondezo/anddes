@@ -1,0 +1,89 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Requisitos · GISTM{% endblock %}
+
+{% block extra_head %}
+<style>
+  .filters-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 900px) {
+    .filters-bar { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Catálogo GISTM</p>
+    <h1>Requisitos</h1>
+    <p class="page-desc">Los requisitos se asocian a un principio y agrupan los criterios del estándar.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:requisito_create' %}">+ Nuevo requisito</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <form method="get" class="filters-bar">
+    <div class="form-row">
+      <label for="id_filtro_principio">Principio</label>
+      <select class="input" name="principio" id="id_filtro_principio">
+        <option value="">Todos los principios</option>
+        {% for principio in principios %}
+          <option value="{{ principio.pk }}" {% if filtro_principio == principio.pk|stringformat:"s" %}selected{% endif %}>
+            {{ principio.codigo }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row" style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:requisito_list' %}">Limpiar</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Principio</th>
+          <th>Tema</th>
+          <th>Descripción</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for requisito in requisitos %}
+          <tr>
+            <td class="mono">{{ requisito.codigo }}</td>
+            <td class="mono">{{ requisito.principio.codigo }}</td>
+            <td>{{ requisito.principio.tema.codigo }}</td>
+            <td>{{ requisito.descripcion|truncatechars:90 }}</td>
+            <td class="actions">
+              <a href="{% url 'maestro:requisito_edit' requisito.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <strong>No hay requisitos</strong>
+                Crea requisitos asociados a un principio existente.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

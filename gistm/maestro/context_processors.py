@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from .permissions import get_perfil, usuario_es_administrador
+from .permissions import (
+    get_perfil,
+    usuario_es_administrador,
+    usuario_es_cliente,
+    usuario_es_gestor,
+)
 
 
 def perfil_usuario(request):
@@ -9,4 +14,6 @@ def perfil_usuario(request):
     return {
         "perfil": perfil,
         "es_administrador": usuario_es_administrador(user) if user is not None else False,
+        "es_gestor": usuario_es_gestor(user) if user is not None else False,
+        "es_cliente": usuario_es_cliente(user) if user is not None else False,
     }

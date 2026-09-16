@@ -1,0 +1,55 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Cargar {{ documento.codigo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · {{ revision.etiqueta }}</p>
+    <h1>Cargar evidencia</h1>
+    <p class="page-desc"><strong>{{ documento.codigo }}</strong> — {{ documento.nombre }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}">Volver</a>
+  </div>
+</header>
+
+{% if carga_actual %}
+  <div class="info-banner" style="margin-bottom:1rem;">
+    <div>
+      <h2>Archivo vigente</h2>
+      <p>
+        {{ carga_actual.nombre_original|default:carga_actual.archivo.name }}
+        · {{ carga_actual.creado_en|date:"d/m/Y H:i" }}
+        {% if carga_actual.archivo %}
+          · <a href="{{ carga_actual.archivo.url }}" target="_blank" rel="noopener">Descargar</a>
+        {% endif %}
+      </p>
+      <p class="muted">Al subir un nuevo archivo se reemplaza la evidencia vigente.</p>
+    </div>
+  </div>
+{% endif %}
+
+<section class="panel">
+  <form method="post" enctype="multipart/form-data" class="form-grid" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div>{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_archivo">Archivo (PDF, DOC, XLS o imagen)</label>
+      {{ form.archivo }}
+      {{ form.archivo.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_observaciones">Observaciones</label>
+      {{ form.observaciones }}
+      {{ form.observaciones.errors }}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn">Subir archivo</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

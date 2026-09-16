@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from decimal import Decimal
+from pathlib import Path
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from .models import (
     Area,
     Criterio,
     Documento,
+    DocumentoCarga,
     DocumentoCriterio,
     Empresa,
     EmpresaDocumento,
@@ -17,10 +21,25 @@ from .models import (
     OrigenEmpresaDocumento,
     PerfilUsuario,
     Principio,
+    Requisito,
     Revision,
+    RevisionCriterioDesactivado,
     Tema,
     TipoUsuario,
 )
+
+EXTENSIONES_CARGA_PERMITIDAS = {
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+}
 
 User = get_user_model()
 
@@ -244,15 +263,14 @@ class PrincipioForm(forms.ModelForm):
         }
 
 
-class CriterioForm(forms.ModelForm):
+class RequisitoForm(forms.ModelForm):
     class Meta:
-        model = Criterio
-        fields = ["codigo", "principio", "descripcion", "ponderacion"]
+        model = Requisito
+        fields = ["codigo", "principio", "descripcion"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "principio": forms.Select(attrs={"class": "input", "id": "id_principio"}),
             "descripcion": forms.Textarea(attrs={"class": "input", "rows": 4}),
-            "ponderacion": forms.NumberInput(attrs={"class": "input", "step": "0.0001"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -265,12 +283,67 @@ class CriterioForm(forms.ModelForm):
                 principio = Principio.objects.select_related("tema").filter(pk=principio_id).first()
                 if principio:
                     self.tema_nombre = str(principio.tema)
-        elif self.instance.pk and self.instance.tema_id:
-            self.tema_nombre = str(self.instance.tema)
+        elif self.instance.pk:
+            self.tema_nombre = str(self.instance.principio.tema)
+
+
+class CriterioForm(forms.ModelForm):
+    class Meta:
+        model = Criterio
+        fields = ["codigo", "requisito", "descripcion"]
+        widgets = {
+            "codigo": forms.TextInput(attrs={"class": "input"}),
+            "requisito": forms.Select(attrs={"class": "input", "id": "id_requisito"}),
+            "descripcion": forms.Textarea(attrs={"class": "input", "rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["requisito"].queryset = (
+            Requisito.objects.select_related("principio", "principio__tema")
+            .annotate(total_criterios=Count("criterios"))
+            .all()
+        )
+        self.principio_nombre = ""
+        self.tema_nombre = ""
+        self.ponderacion_info = ""
+        self.instance_requisito_id = (
+            self.instance.requisito_id if self.instance.pk else None
+        )
+        requisito = None
+        if self.is_bound:
+            requisito_id = self.data.get("requisito")
+            if requisito_id:
+                requisito = (
+                    Requisito.objects.select_related("principio", "principio__tema")
+                    .annotate(total_criterios=Count("criterios"))
+                    .filter(pk=requisito_id)
+                    .first()
+                )
+        elif self.instance.pk and self.instance.requisito_id:
+            requisito = (
+                Requisito.objects.select_related("principio", "principio__tema")
+                .annotate(total_criterios=Count("criterios"))
+                .filter(pk=self.instance.requisito_id)
+                .first()
+            )
+            self.ponderacion_info = str(self.instance.ponderacion)
+        if requisito:
+            self.principio_nombre = str(requisito.principio)
+            self.tema_nombre = str(requisito.principio.tema)
+            if not self.ponderacion_info:
+                n = requisito.total_criterios
+                if not self.instance.pk or self.instance.requisito_id != requisito.pk:
+                    n += 1
+                if n > 0:
+                    self.ponderacion_info = str(
+                        (Decimal("1") / Decimal(n)).quantize(Decimal("0.0001"))
+                    )
 
     def save(self, commit=True):
         criterio = super().save(commit=False)
-        criterio.tema = criterio.principio.tema
+        criterio.principio = criterio.requisito.principio
+        criterio.tema = criterio.requisito.principio.tema
         if commit:
             criterio.save()
         return criterio
@@ -300,7 +373,7 @@ class DocumentoCriterioForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["documento"].queryset = Documento.objects.order_by("codigo")
         self.fields["criterio"].queryset = Criterio.objects.select_related(
-            "principio", "tema"
+            "requisito", "principio", "tema"
         ).order_by("codigo")
 
     def clean(self):
@@ -353,15 +426,6 @@ class RevisionForm(forms.ModelForm):
     def __init__(self, *args, empresa: Empresa, **kwargs):
         self.empresa = empresa
         super().__init__(*args, **kwargs)
-
-    def clean_anio(self):
-        anio = self.cleaned_data["anio"]
-        qs = Revision.objects.filter(empresa=self.empresa, anio=anio)
-        if self.instance.pk:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise ValidationError("Ya existe una revisión para este año en la empresa.")
-        return anio
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -440,13 +504,42 @@ class EmpresaDocumentoCriterioForm(forms.Form):
         self.empresa_documento = empresa_documento
         super().__init__(*args, **kwargs)
         empresa = empresa_documento.revision.empresa
-        ya_vinculados = empresa_documento.vinculos_criterio.values_list("criterio_id", flat=True)
+        revision = empresa_documento.revision
+        ya_en_revision = EmpresaDocumentoCriterio.objects.filter(
+            revision=revision
+        ).values_list("criterio_id", flat=True)
+        desactivados = RevisionCriterioDesactivado.objects.filter(
+            revision=revision
+        ).values_list("criterio_id", flat=True)
         self.fields["criterios"].queryset = (
-            Criterio.objects.select_related("principio", "tema")
-            .exclude(pk__in=ya_vinculados)
+            Criterio.objects.select_related("requisito", "principio", "tema")
+            .exclude(pk__in=ya_en_revision)
+            .exclude(pk__in=desactivados)
             .order_by("codigo")
         )
         self.fields["area"].queryset = Area.objects.filter(empresa=empresa, activo=True)
+        self.fields["criterios"].help_text = (
+            "Solo se listan criterios aún no asociados a ningún documento de esta revisión."
+        )
+
+    def clean_criterios(self):
+        criterios = self.cleaned_data["criterios"]
+        revision = self.empresa_documento.revision
+        ya = set(
+            EmpresaDocumentoCriterio.objects.filter(
+                revision=revision,
+                criterio_id__in=[c.pk for c in criterios],
+            ).values_list("criterio_id", flat=True)
+        )
+        if ya:
+            codigos = list(
+                Criterio.objects.filter(pk__in=ya).values_list("codigo", flat=True)
+            )
+            raise ValidationError(
+                "Estos criterios ya están asociados a otro documento de la revisión: "
+                + ", ".join(codigos)
+            )
+        return criterios
 
     def clean_area(self):
         area = self.cleaned_data["area"]
@@ -459,13 +552,16 @@ class EmpresaDocumentoCriterioForm(forms.Form):
         creados = []
         for criterio in self.cleaned_data["criterios"]:
             vinculo, created = EmpresaDocumentoCriterio.objects.get_or_create(
-                empresa_documento=self.empresa_documento,
+                revision=self.empresa_documento.revision,
                 criterio=criterio,
-                defaults={"area": area},
+                defaults={
+                    "empresa_documento": self.empresa_documento,
+                    "area": area,
+                },
             )
-            if not created and vinculo.area_id != area.pk:
-                vinculo.area = area
-                vinculo.save(update_fields=["area", "actualizado_en"])
+            if not created:
+                # Ya existía en otro documento de la revisión: no se mueve aquí.
+                continue
             creados.append(vinculo)
         return creados
 
@@ -488,3 +584,144 @@ class EmpresaDocumentoCriterioAreaForm(forms.ModelForm):
         if area.empresa_id != self.instance.empresa_documento.revision.empresa_id:
             raise ValidationError("El área debe pertenecer a la misma empresa del documento.")
         return area
+
+
+def _validar_extension_archivo(archivo) -> None:
+    if not archivo:
+        return
+    ext = Path(archivo.name).suffix.lower()
+    if ext not in EXTENSIONES_CARGA_PERMITIDAS:
+        raise ValidationError(
+            "Formato no permitido. Usa PDF, DOC/DOCX, XLS/XLSX o imagen (PNG/JPG/GIF/WEBP)."
+        )
+
+
+class DocumentoCargaForm(forms.ModelForm):
+    class Meta:
+        model = DocumentoCarga
+        fields = ["archivo", "observaciones"]
+        widgets = {
+            "archivo": forms.ClearableFileInput(attrs={"class": "input"}),
+            "observaciones": forms.Textarea(
+                attrs={"class": "input", "rows": 3, "placeholder": "Opcional"}
+            ),
+        }
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data.get("archivo")
+        _validar_extension_archivo(archivo)
+        return archivo
+
+    def save(self, commit=True):
+        from .models import EstadoRevisionCarga
+
+        obj = super().save(commit=False)
+        obj.estado_revision = EstadoRevisionCarga.PENDIENTE
+        obj.motivo_rechazo = ""
+        obj.revisado_por = None
+        obj.revisado_en = None
+        obj.activo = True
+        if commit:
+            obj.save()
+        return obj
+
+
+class RechazoDocumentoCargaForm(forms.Form):
+    motivo_rechazo = forms.CharField(
+        label="Motivo del rechazo",
+        widget=forms.Textarea(
+            attrs={
+                "class": "input",
+                "rows": 4,
+                "placeholder": "Explica a la minera por qué se rechaza esta evidencia.",
+            }
+        ),
+        min_length=10,
+        help_text="Este mensaje será visible para el cliente de la empresa minera.",
+    )
+
+
+class DocumentoMensajeForm(forms.Form):
+    texto = forms.CharField(
+        label="Mensaje",
+        widget=forms.Textarea(
+            attrs={
+                "class": "input",
+                "rows": 3,
+                "placeholder": "Escribe una observación, acuerdo de fecha u otra nota…",
+            }
+        ),
+        min_length=2,
+    )
+    tipo = forms.ChoiceField(
+        label="Tipo",
+        choices=[
+            ("OBSERVACION", "Observación"),
+            ("ACUERDO", "Acuerdo / fecha"),
+            ("RESPUESTA", "Respuesta"),
+        ],
+        initial="OBSERVACION",
+        widget=forms.Select(attrs={"class": "input"}),
+        required=False,
+    )
+
+
+class ClienteDocumentoPropioCargaForm(forms.ModelForm):
+    """Crear documento propio de la revisión + primera evidencia."""
+
+    archivo = forms.FileField(
+        label="Archivo",
+        widget=forms.ClearableFileInput(attrs={"class": "input"}),
+    )
+    observaciones = forms.CharField(
+        label="Observaciones",
+        required=False,
+        widget=forms.Textarea(
+            attrs={"class": "input", "rows": 3, "placeholder": "Opcional"}
+        ),
+    )
+
+    class Meta:
+        model = EmpresaDocumento
+        fields = ["codigo", "nombre", "tipo_documento"]
+        widgets = {
+            "codigo": forms.TextInput(attrs={"class": "input"}),
+            "nombre": forms.TextInput(attrs={"class": "input"}),
+            "tipo_documento": forms.TextInput(attrs={"class": "input"}),
+        }
+
+    def __init__(self, *args, revision: Revision, **kwargs):
+        self.revision = revision
+        super().__init__(*args, **kwargs)
+
+    def clean_codigo(self):
+        codigo = (self.cleaned_data.get("codigo") or "").strip()
+        qs = EmpresaDocumento.objects.filter(revision=self.revision, codigo__iexact=codigo)
+        if qs.exists():
+            raise ValidationError("Ya existe un documento con este código en la revisión.")
+        return codigo
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data.get("archivo")
+        _validar_extension_archivo(archivo)
+        return archivo
+
+    def save(self, user, commit=True):
+        obj = super().save(commit=False)
+        obj.revision = self.revision
+        obj.documento = None
+        obj.origen = OrigenEmpresaDocumento.PROPIO
+        obj.activo = True
+        if commit:
+            obj.save()
+            from .models import EstadoRevisionCarga
+
+            DocumentoCarga.objects.create(
+                empresa_documento=obj,
+                archivo=self.cleaned_data["archivo"],
+                observaciones=(self.cleaned_data.get("observaciones") or "").strip(),
+                subido_por=user,
+                activo=True,
+                estado_revision=EstadoRevisionCarga.PENDIENTE,
+            )
+        return obj

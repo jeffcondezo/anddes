@@ -2,12 +2,168 @@
 
 {% block title %}Documentos · {{ revision.anio }} · GISTM{% endblock %}
 
+{% block extra_head %}
+<style>
+  .coverage-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+  .coverage-tabs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    border: 1px solid #d7e0e6;
+    background: #fff;
+    color: #314047;
+    text-decoration: none;
+    font-size: 0.92rem;
+  }
+  .coverage-tabs a.active {
+    border-color: #1f6f8b;
+    background: #eef7fb;
+    color: #145066;
+    font-weight: 600;
+  }
+  .coverage-tabs .count {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    opacity: 0.85;
+  }
+  .filters-inline {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  .filters-docs {
+    display: grid;
+    grid-template-columns: 1fr 180px auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 900px) {
+    .filters-inline,
+    .filters-docs { grid-template-columns: 1fr; }
+  }
+  .doc-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .doc-chip {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border-radius: 6px;
+    border: 1px solid #d7e0e6;
+    background: #f7fafc;
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .bulk-bar {
+    display: none;
+    align-items: end;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.85rem;
+    border: 1px solid #d7e0e6;
+    border-radius: 10px;
+    background: #f7fafc;
+  }
+  .bulk-bar.visible { display: grid; grid-template-columns: 1fr auto; }
+  @media (max-width: 900px) {
+    .bulk-bar.visible { grid-template-columns: 1fr; }
+  }
+  .bulk-bar .selected-count {
+    font-size: 0.9rem;
+    color: #44555e;
+    margin-bottom: 0.35rem;
+  }
+  .check-col { width: 2.2rem; }
+  tr.doc-sin-criterios td {
+    background: #fff5f5;
+  }
+  tr.doc-sin-criterios:hover td {
+    background: #ffecec !important;
+  }
+  tr.doc-sin-criterios .mono-alert {
+    color: #d64545;
+    font-weight: 700;
+  }
+  .alert-config {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    padding: 0.9rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #f0c4c4;
+    background: #fff5f5;
+    color: #8f2f2f;
+  }
+  .alert-config strong { display: block; margin-bottom: 0.2rem; color: #d64545; }
+  .alert-config p { margin: 0; font-size: 0.9rem; }
+  .pager {
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.85rem 0 0.25rem;
+    font-size: 0.9rem;
+    color: #516069;
+  }
+  .pager.visible { display: flex; }
+  .pager-links {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .pager-links button {
+    min-width: 2rem;
+    text-align: center;
+    padding: 0.3rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid #d7e0e6;
+    color: #314047;
+    background: #fff;
+    cursor: pointer;
+  }
+  .pager-links button:hover:not(:disabled) {
+    border-color: #1f6f8b;
+    background: #eef7fb;
+  }
+  .pager-links button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .pager-links .page-label {
+    padding: 0.3rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid #1f6f8b;
+    background: #eef7fb;
+    color: #145066;
+    font-weight: 600;
+  }
+  tr.page-hidden { display: none; }
+</style>
+{% endblock %}
+
 {% block content %}
 <header class="page-header">
   <div>
     <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }}{% if revision.nombre %} · {{ revision.nombre }}{% endif %}</p>
     <h1>Documentos</h1>
-    <p class="page-desc">Define qué documentos usa esta revisión y asócialos gradualmente a criterios.</p>
+    <p class="page-desc">
+      Define documentos de la revisión y revisa cobertura de criterios. Puedes marcar criterios como
+      no aplicables (con motivo); eso reduce el universo y recalcula la ponderación solo para esta revisión.
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Volver a revisiones</a>
@@ -21,23 +177,81 @@
   <article class="stat-card">
     <div class="stat-label">Documentos activos</div>
     <div class="stat-value">{{ docs_activos }}</div>
-    <div class="stat-hint">De {{ documentos|length }} en la lista</div>
+    <div class="stat-hint">De {{ docs_total }} en la lista</div>
   </article>
   <article class="stat-card neutral">
-    <div class="stat-label">Criterios cubiertos</div>
+    <div class="stat-label">Con documento</div>
     <div class="stat-value">{{ criterios_cubiertos }}</div>
-    <div class="stat-hint">De {{ total_criterios }} del catálogo</div>
+    <div class="stat-hint">De {{ total_criterios }} aplicables</div>
+  </article>
+  <article class="stat-card danger">
+    <div class="stat-label">Huérfanos</div>
+    <div class="stat-value">{{ criterios_huerfanos_count }}</div>
+    <div class="stat-hint">Sin documento en esta revisión</div>
   </article>
   <article class="stat-card accent">
+    <div class="stat-label">No aplican</div>
+    <div class="stat-value">{{ criterios_desactivados_count }}</div>
+    <div class="stat-hint">Excluidos del avance (catálogo {{ total_catalogo }})</div>
+  </article>
+  <article class="stat-card">
     <div class="stat-label">Avance</div>
     <div class="stat-value">{{ avance_pct }}%</div>
-    <div class="stat-hint">Criterios con al menos un documento</div>
+    <div class="stat-hint">Sobre criterios aplicables</div>
   </article>
 </div>
 
-<section class="panel panel-flush">
-  <div class="table-wrap">
-    <table class="data">
+<section class="panel" style="margin-bottom:1.25rem;">
+  <header class="page-header" style="margin-bottom:0.75rem; padding:0;">
+    <div>
+      <p class="page-kicker">Documentos de la revisión</p>
+      <h2 style="margin:0; font-size:1.15rem;">Listado de documentos</h2>
+    </div>
+  </header>
+
+  <form method="get" class="filters-docs">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if filtro_q %}<input type="hidden" name="q" value="{{ filtro_q }}">{% endif %}
+    <div class="form-row">
+      <label for="id_doc_q">Buscar documento</label>
+      <input
+        class="input"
+        type="search"
+        name="doc_q"
+        id="id_doc_q"
+        value="{{ filtro_doc_q }}"
+        placeholder="Código, nombre, tipo u origen"
+      >
+    </div>
+    <div class="form-row">
+      <label for="id_doc_estado">Estado</label>
+      <select class="input" name="doc_estado" id="id_doc_estado">
+        <option value="">Todos</option>
+        <option value="activo" {% if filtro_doc_estado == "activo" %}selected{% endif %}>Activos</option>
+        <option value="inactivo" {% if filtro_doc_estado == "inactivo" %}selected{% endif %}>Inactivos</option>
+      </select>
+    </div>
+    <div class="form-row" style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="?tab={{ tab }}{% if filtro_q %}&q={{ filtro_q|urlencode }}{% endif %}">Limpiar</a>
+    </div>
+  </form>
+
+  {% if docs_sin_criterios_count %}
+    <div class="alert-config" role="alert">
+      <div>
+        <strong>{{ docs_sin_criterios_count }} documento{{ docs_sin_criterios_count|pluralize }} sin criterios</strong>
+        <p>
+          Están activos en la revisión pero no tienen criterios asociados, así que
+          <strong>no se piden al cliente</strong> ni cuentan en el avance de evidencias.
+          Asocia criterios o desactívalos.
+        </p>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="table-wrap" style="border:1px solid #e3ebf0; border-radius:10px; overflow:hidden;">
+    <table class="data" id="docs-table">
       <thead>
         <tr>
           <th>Código</th>
@@ -51,14 +265,22 @@
       </thead>
       <tbody>
         {% for doc in documentos %}
-          <tr>
+          <tr class="js-page-row{% if doc.activo and doc.total_criterios == 0 %} doc-sin-criterios{% endif %}">
             <td class="mono">{{ doc.codigo }}</td>
             <td><strong>{{ doc.nombre }}</strong></td>
             <td>{{ doc.tipo_documento }}</td>
             <td>{{ doc.get_origen_display }}</td>
-            <td class="mono">{{ doc.total_criterios }}</td>
+            <td class="mono{% if doc.activo and doc.total_criterios == 0 %} mono-alert{% endif %}">
+              {% if doc.activo and doc.total_criterios == 0 %}
+                0 · sin criterios
+              {% else %}
+                {{ doc.total_criterios }}
+              {% endif %}
+            </td>
             <td>
-              {% if doc.activo %}
+              {% if doc.activo and doc.total_criterios == 0 %}
+                <span class="badge badge-off">No aplicable al cliente</span>
+              {% elif doc.activo %}
                 <span class="badge badge-ok">Activo</span>
               {% else %}
                 <span class="badge badge-off">Inactivo</span>
@@ -75,11 +297,16 @@
             </td>
           </tr>
         {% empty %}
-          <tr>
+          <tr class="js-empty-row">
             <td colspan="7">
               <div class="empty-state">
-                <strong>Sin documentos asociados</strong>
-                Activa documentos del catálogo estándar o crea documentos propios para esta revisión.
+                {% if filtro_doc_q or filtro_doc_estado %}
+                  <strong>Sin resultados</strong>
+                  Ningún documento coincide con el filtro.
+                {% else %}
+                  <strong>Sin documentos asociados</strong>
+                  Activa documentos del catálogo estándar o crea documentos propios para esta revisión.
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -87,5 +314,384 @@
       </tbody>
     </table>
   </div>
+  <div class="pager" id="docs-pager" data-page-size="15" data-table="docs-table" data-noun="documento(s)">
+    <span class="pager-info"></span>
+    <div class="pager-links">
+      <button type="button" class="pager-prev">Anterior</button>
+      <span class="page-label"></span>
+      <button type="button" class="pager-next">Siguiente</button>
+    </div>
+  </div>
 </section>
+
+<section class="panel">
+  <header class="page-header" style="margin-bottom:0.75rem; padding:0;">
+    <div>
+      <p class="page-kicker">Cobertura de criterios</p>
+      <h2 style="margin:0; font-size:1.15rem;">Seguimiento por criterio</h2>
+      <p class="page-desc" style="margin-top:0.35rem;">
+        Selecciona varios criterios para marcarlos como no aplicables (con un motivo común) o reactivarlos.
+        La ponderación mostrada es la de esta revisión (1 ÷ N criterios activos del requisito).
+      </p>
+    </div>
+  </header>
+
+  <nav class="coverage-tabs" aria-label="Cobertura de criterios">
+    <a href="?tab=huerfanos{% if filtro_q %}&q={{ filtro_q|urlencode }}{% endif %}{% if filtro_doc_q %}&doc_q={{ filtro_doc_q|urlencode }}{% endif %}{% if filtro_doc_estado %}&doc_estado={{ filtro_doc_estado }}{% endif %}" class="{% if tab == 'huerfanos' %}active{% endif %}">
+      Huérfanos
+      <span class="count">({{ criterios_huerfanos_count }})</span>
+    </a>
+    <a href="?tab=cubiertos{% if filtro_q %}&q={{ filtro_q|urlencode }}{% endif %}{% if filtro_doc_q %}&doc_q={{ filtro_doc_q|urlencode }}{% endif %}{% if filtro_doc_estado %}&doc_estado={{ filtro_doc_estado }}{% endif %}" class="{% if tab == 'cubiertos' %}active{% endif %}">
+      Con documento
+      <span class="count">({{ criterios_cubiertos }})</span>
+    </a>
+    <a href="?tab=no_aplican{% if filtro_q %}&q={{ filtro_q|urlencode }}{% endif %}{% if filtro_doc_q %}&doc_q={{ filtro_doc_q|urlencode }}{% endif %}{% if filtro_doc_estado %}&doc_estado={{ filtro_doc_estado }}{% endif %}" class="{% if tab == 'no_aplican' %}active{% endif %}">
+      No aplican
+      <span class="count">({{ criterios_desactivados_count }})</span>
+    </a>
+  </nav>
+
+  <form method="get" class="filters-inline">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if filtro_doc_q %}<input type="hidden" name="doc_q" value="{{ filtro_doc_q }}">{% endif %}
+    {% if filtro_doc_estado %}<input type="hidden" name="doc_estado" value="{{ filtro_doc_estado }}">{% endif %}
+    <div class="form-row">
+      <label for="id_filtro_q">Buscar criterio</label>
+      <input
+        class="input"
+        type="search"
+        name="q"
+        id="id_filtro_q"
+        value="{{ filtro_q }}"
+        placeholder="Código, descripción, principio o requisito"
+      >
+    </div>
+    <div class="form-row" style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="?tab={{ tab }}{% if filtro_doc_q %}&doc_q={{ filtro_doc_q|urlencode }}{% endif %}{% if filtro_doc_estado %}&doc_estado={{ filtro_doc_estado }}{% endif %}">Limpiar</a>
+    </div>
+  </form>
+
+  {% if tab == 'no_aplican' %}
+    <form
+      id="bulk-form"
+      method="post"
+      action="{% url 'maestro:empresa_criterios_reactivar' empresa.pk revision.pk %}"
+    >
+      {% csrf_token %}
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="q" value="{{ filtro_q }}">
+      <div class="bulk-bar" id="bulk-bar">
+        <div>
+          <div class="selected-count"><span id="selected-count">0</span> criterio(s) seleccionados</div>
+          <p class="page-desc" style="margin:0;">Se volverán a incluir en el avance y en el cálculo de ponderación de esta revisión.</p>
+        </div>
+        <button type="submit" class="btn">Reactivar seleccionados</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data" id="criterios-table">
+          <thead>
+            <tr>
+              <th class="check-col"><input type="checkbox" id="select-all" title="Seleccionar todos visibles"></th>
+              <th>Código</th>
+              <th>Requisito</th>
+              <th>Descripción</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for criterio in criterios %}
+              <tr class="js-page-row">
+                <td><input type="checkbox" class="row-check" name="criterio_ids" value="{{ criterio.pk }}"></td>
+                <td class="mono">{{ criterio.codigo }}</td>
+                <td class="mono">{{ criterio.requisito.codigo }}</td>
+                <td>{{ criterio.descripcion|truncatechars:70 }}</td>
+                <td>{{ criterio.desactivacion.motivo|truncatechars:90 }}</td>
+              </tr>
+            {% empty %}
+              <tr class="js-empty-row">
+                <td colspan="5">
+                  <div class="empty-state">
+                    {% if filtro_q %}
+                      <strong>Sin resultados</strong>
+                      Ningún criterio desactivado coincide con “{{ filtro_q }}”.
+                    {% else %}
+                      <strong>Ningún criterio desactivado</strong>
+                      Todos los criterios del catálogo aplican a esta revisión.
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  {% else %}
+    <form
+      id="bulk-form"
+      method="post"
+      action="{% url 'maestro:empresa_criterios_desactivar' empresa.pk revision.pk %}"
+    >
+      {% csrf_token %}
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="q" value="{{ filtro_q }}">
+      <div class="bulk-bar" id="bulk-bar">
+        <div>
+          <div class="selected-count"><span id="selected-count">0</span> criterio(s) seleccionados</div>
+          <div class="form-row">
+            <label for="id_motivo">Motivo (aplica a todos los seleccionados)</label>
+            <textarea
+              class="input"
+              name="motivo"
+              id="id_motivo"
+              rows="2"
+              placeholder="Ej.: No aplica porque no forma parte del alcance de la empresa"
+              required
+            ></textarea>
+          </div>
+        </div>
+        <button type="submit" class="btn">Desactivar seleccionados</button>
+      </div>
+
+      {% if tab == 'huerfanos' %}
+        <div class="table-wrap">
+          <table class="data" id="criterios-table">
+            <thead>
+              <tr>
+                <th class="check-col"><input type="checkbox" id="select-all" title="Seleccionar todos visibles"></th>
+                <th>Código</th>
+                <th>Principio</th>
+                <th>Requisito</th>
+                <th>Descripción</th>
+                <th>Pond. revisión</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for criterio in criterios %}
+                <tr class="js-page-row">
+                  <td><input type="checkbox" class="row-check" name="criterio_ids" value="{{ criterio.pk }}"></td>
+                  <td class="mono">{{ criterio.codigo }}</td>
+                  <td class="mono">{{ criterio.principio.codigo }}</td>
+                  <td class="mono">{{ criterio.requisito.codigo }}</td>
+                  <td>{{ criterio.descripcion|truncatechars:80 }}</td>
+                  <td class="mono">{{ criterio.ponderacion_revision|default:"—" }}</td>
+                  <td><span class="badge badge-off">Sin documento</span></td>
+                </tr>
+              {% empty %}
+                <tr class="js-empty-row">
+                  <td colspan="7">
+                    <div class="empty-state">
+                      {% if filtro_q %}
+                        <strong>Sin resultados</strong>
+                        Ningún criterio huérfano coincide con “{{ filtro_q }}”.
+                      {% else %}
+                        <strong>Sin criterios huérfanos</strong>
+                        Todos los criterios aplicables tienen documento o están marcados como no aplicables.
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="table-wrap">
+          <table class="data" id="criterios-table">
+            <thead>
+              <tr>
+                <th class="check-col"><input type="checkbox" id="select-all" title="Seleccionar todos visibles"></th>
+                <th>Código</th>
+                <th>Principio</th>
+                <th>Requisito</th>
+                <th>Descripción</th>
+                <th>Pond. revisión</th>
+                <th>Documentos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for criterio in criterios %}
+                <tr class="js-page-row">
+                  <td><input type="checkbox" class="row-check" name="criterio_ids" value="{{ criterio.pk }}"></td>
+                  <td class="mono">{{ criterio.codigo }}</td>
+                  <td class="mono">{{ criterio.principio.codigo }}</td>
+                  <td class="mono">{{ criterio.requisito.codigo }}</td>
+                  <td>{{ criterio.descripcion|truncatechars:70 }}</td>
+                  <td class="mono">{{ criterio.ponderacion_revision|default:"—" }}</td>
+                  <td>
+                    <div class="doc-chips">
+                      {% for vinculo in criterio.vinculos_en_revision %}
+                        <a
+                          class="doc-chip"
+                          href="{% url 'maestro:empresa_documento_criterios' empresa.pk revision.pk vinculo.empresa_documento.pk %}"
+                          title="{{ vinculo.empresa_documento.nombre }} · Área: {{ vinculo.area.nombre }}"
+                        >{{ vinculo.empresa_documento.codigo }}</a>
+                      {% empty %}
+                        —
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr class="js-empty-row">
+                  <td colspan="7">
+                    <div class="empty-state">
+                      {% if filtro_q %}
+                        <strong>Sin resultados</strong>
+                        Ningún criterio con documento coincide con “{{ filtro_q }}”.
+                      {% else %}
+                        <strong>Aún no hay criterios con documento</strong>
+                        Activa documentos y asígnales criterios, o aplica la relación estándar.
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </form>
+  {% endif %}
+
+  <div class="pager" id="criterios-pager" data-page-size="20" data-table="criterios-table" data-noun="criterio(s)">
+    <span class="pager-info"></span>
+    <div class="pager-links">
+      <button type="button" class="pager-prev">Anterior</button>
+      <span class="page-label"></span>
+      <button type="button" class="pager-next">Siguiente</button>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    function initClientPager(pager) {
+      if (!pager) return;
+      const table = document.getElementById(pager.dataset.table);
+      if (!table) return;
+      const rows = Array.from(table.querySelectorAll("tbody tr.js-page-row"));
+      if (!rows.length) return;
+
+      const pageSize = Math.max(1, parseInt(pager.dataset.pageSize || "20", 10));
+      const noun = pager.dataset.noun || "elementos";
+      const info = pager.querySelector(".pager-info");
+      const label = pager.querySelector(".page-label");
+      const prev = pager.querySelector(".pager-prev");
+      const next = pager.querySelector(".pager-next");
+      let page = 1;
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+
+      function render() {
+        const start = (page - 1) * pageSize;
+        const end = start + pageSize;
+        rows.forEach((row, idx) => {
+          row.classList.toggle("page-hidden", idx < start || idx >= end);
+        });
+        if (info) {
+          info.textContent =
+            "Página " + page + " de " + totalPages + " · " + rows.length + " " + noun;
+        }
+        if (label) label.textContent = String(page);
+        if (prev) prev.disabled = page <= 1;
+        if (next) next.disabled = page >= totalPages;
+        pager.classList.toggle("visible", totalPages > 1);
+        // Reset select-all for visible page only
+        const selectAll = document.getElementById("select-all");
+        if (selectAll) {
+          selectAll.checked = false;
+          selectAll.indeterminate = false;
+        }
+        document.querySelectorAll(".row-check").forEach((c) => {
+          if (c.closest("tr") && c.closest("tr").classList.contains("page-hidden")) {
+            c.checked = false;
+          }
+        });
+        if (typeof window.syncBulkSelection === "function") {
+          window.syncBulkSelection();
+        }
+      }
+
+      if (prev) {
+        prev.addEventListener("click", function () {
+          if (page > 1) {
+            page -= 1;
+            render();
+          }
+        });
+      }
+      if (next) {
+        next.addEventListener("click", function () {
+          if (page < totalPages) {
+            page += 1;
+            render();
+          }
+        });
+      }
+      render();
+    }
+
+    initClientPager(document.getElementById("docs-pager"));
+    initClientPager(document.getElementById("criterios-pager"));
+
+    const selectAll = document.getElementById("select-all");
+    const bulkBar = document.getElementById("bulk-bar");
+    const selectedCount = document.getElementById("selected-count");
+    const motivo = document.getElementById("id_motivo");
+    const form = document.getElementById("bulk-form");
+
+    function visibleChecks() {
+      return Array.from(document.querySelectorAll(".row-check")).filter((c) => {
+        const row = c.closest("tr");
+        return row && !row.classList.contains("page-hidden");
+      });
+    }
+
+    window.syncBulkSelection = function sync() {
+      const checks = visibleChecks();
+      const n = checks.filter((c) => c.checked).length;
+      if (selectedCount) selectedCount.textContent = String(n);
+      if (bulkBar) bulkBar.classList.toggle("visible", n > 0);
+      if (selectAll && checks.length) {
+        selectAll.checked = n === checks.length;
+        selectAll.indeterminate = n > 0 && n < checks.length;
+      }
+    };
+
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        visibleChecks().forEach((c) => { c.checked = selectAll.checked; });
+        window.syncBulkSelection();
+      });
+    }
+    document.querySelectorAll(".row-check").forEach((c) => {
+      c.addEventListener("change", window.syncBulkSelection);
+    });
+
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        const n = visibleChecks().filter((c) => c.checked).length;
+        // Also include any checked hidden? Prefer only visible page for clarity.
+        // Collect all checked across pages for bulk action:
+        const allChecked = Array.from(document.querySelectorAll(".row-check:checked"));
+        if (!allChecked.length) {
+          e.preventDefault();
+          return;
+        }
+        if (motivo && !motivo.value.trim()) {
+          e.preventDefault();
+          motivo.focus();
+          return;
+        }
+        const actionLabel = motivo ? "desactivar" : "reactivar";
+        if (!window.confirm("¿Confirmas " + actionLabel + " " + allChecked.length + " criterio(s)?")) {
+          e.preventDefault();
+        }
+      });
+    }
+    window.syncBulkSelection();
+  })();
+</script>
 {% endblock %}

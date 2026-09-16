@@ -1,0 +1,121 @@
+{% extends "maestro/base.html" %}
+{% load l10n %}
+
+{% block title %}Mi empresa · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }}</p>
+    <h1>Avance de evidencias</h1>
+    <p class="page-desc">
+      {% if revision %}
+        Revisión activa: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
+      {% else %}
+        No hay una revisión activa para tu empresa.
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:mi_empresa_documentos' %}">Mis documentos</a>
+  </div>
+</header>
+
+{% if not revision %}
+  <div class="info-banner">
+    <div>
+      <h2>Sin revisión activa</h2>
+      <p>Cuando Anddes active una revisión, podrás cargar evidencias y ver el avance aquí.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="stat-grid">
+    <article class="stat-card">
+      <div class="stat-label">Documentos cargados</div>
+      <div class="stat-value">{{ progreso.docs_pct }}%</div>
+      <div class="stat-hint">{{ progreso.docs_cargados }} / {{ progreso.docs_total }}</div>
+    </article>
+    <article class="stat-card neutral">
+      <div class="stat-label">Criterios completos</div>
+      <div class="stat-value">{{ progreso.criterios_pct }}%</div>
+      <div class="stat-hint">{{ progreso.criterios_completos }} / {{ progreso.criterios_total }}</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Requisitos</div>
+      <div class="stat-value">{{ progreso.requisitos_pct }}%</div>
+      <div class="stat-hint">{{ progreso.requisitos_completos }} / {{ progreso.requisitos_total }}</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Principios / Temas</div>
+      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-hint">{{ progreso.principios_completos }}/{{ progreso.principios_total }} princ. · {{ progreso.temas_completos }}/{{ progreso.temas_total }} temas</div>
+    </article>
+  </div>
+
+  {% if progreso.criterios_huerfanos_count %}
+    <div class="info-banner" style="margin-top:1rem;">
+      <div>
+        <h2>Criterios sin documento</h2>
+        <p>Hay {{ progreso.criterios_huerfanos_count }} criterio(s) aplicable(s) sin documento asignado. Puedes registrar un documento adicional mientras el consultor completa la configuración.</p>
+        <p style="margin-top:0.75rem;"><a class="btn" href="{% url 'maestro:mi_empresa_documento_nuevo' %}">Documento adicional</a></p>
+      </div>
+    </div>
+  {% endif %}
+
+  <section class="panel" style="margin-top:1.25rem;">
+    <div class="panel-head">
+      <div>
+        <h2>Detalle por tema</h2>
+        <p class="muted">Expande cada tema para ver principios y requisitos.</p>
+      </div>
+    </div>
+    {% if not progreso.temas %}
+      <p class="muted" style="margin:0;">No hay criterios aplicables en esta revisión.</p>
+    {% else %}
+      <div class="theme-list">
+        {% for tema in progreso.temas %}
+          <details class="theme-block"{% if forloop.first %} open{% endif %}>
+            <summary>
+              <div>
+                <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
+                <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} principios completos</div>
+              </div>
+              <div class="meter" style="min-width:7.5rem;">
+                <div class="meter-top">
+                  <span></span>
+                  <strong>{{ tema.pct }}%</strong>
+                </div>
+                <div class="meter-bar {% if tema.pct >= 100 %}is-ok{% elif tema.pct < 25 %}is-warn{% endif %}">
+                  <span style="width: {{ tema.pct|unlocalize }}%;"></span>
+                </div>
+              </div>
+            </summary>
+            <div class="theme-body">
+              {% for principio in tema.children %}
+                <div class="level-row is-principio">
+                  <div>
+                    <div class="level-label">Principio</div>
+                    <div class="level-code">{{ principio.codigo }}</div>
+                    <div class="muted" style="font-size:0.78rem;">{{ principio.completos }}/{{ principio.total }} requisitos</div>
+                  </div>
+                  <div class="level-pct">{{ principio.pct }}%</div>
+                </div>
+                {% for requisito in principio.children %}
+                  <div class="level-row is-requisito">
+                    <div>
+                      <div class="level-label">Requisito</div>
+                      <div class="level-code">{{ requisito.codigo }}</div>
+                      <div class="muted" style="font-size:0.78rem;">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
+                    </div>
+                    <div class="level-pct">{{ requisito.pct }}%</div>
+                  </div>
+                {% endfor %}
+              {% endfor %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

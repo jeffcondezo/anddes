@@ -7,7 +7,7 @@
   <div>
     <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }} · Documentos</p>
     <h1>{{ documento.codigo }} · {{ documento.nombre }}</h1>
-    <p class="page-desc">Asocia criterios cubiertos por este documento y define el área responsable de cargarlo.</p>
+    <p class="page-desc">Asocia criterios cubiertos por este documento y define el área responsable. Cada criterio solo puede asociarse a un documento en esta revisión.</p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver a documentos</a>

@@ -1,0 +1,113 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Conversación · {{ documento.codigo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · {{ revision.etiqueta }}</p>
+    <h1>{{ documento.codigo }}</h1>
+    <p class="page-desc">
+      {{ documento.nombre }}. Conversación entre la minera y el consultor sobre esta evidencia.
+    </p>
+  </div>
+  <div class="page-actions">
+    {% if es_cliente %}
+      <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}?estado=rechazados">Mis documentos</a>
+      <a class="btn" href="{% url 'maestro:mi_empresa_documento_cargar' documento.pk %}">Cargar / reemplazar</a>
+    {% else %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Por revisar</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Detalle</a>
+    {% endif %}
+  </div>
+</header>
+
+{% if carga_actual %}
+  <div class="info-banner" style="margin-bottom:1rem;">
+    <div>
+      <h2>Evidencia vigente</h2>
+      <p>
+        {{ carga_actual.nombre_original|default:carga_actual.archivo.name }}
+        · {{ carga_actual.get_estado_revision_display }}
+        · {{ carga_actual.creado_en|date:"d/m/Y H:i" }}
+        {% if carga_actual.archivo %}
+          · <a href="{{ carga_actual.archivo.url }}" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline;">Ver archivo</a>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+{% endif %}
+
+<section class="panel chat-panel">
+  <div class="panel-head">
+    <div>
+      <h2>Mensajes</h2>
+      <p class="muted">Observaciones, rechazos, respuestas y acuerdos de fechas.</p>
+    </div>
+    <span class="badge badge-info">{{ mensajes|length }}</span>
+  </div>
+
+  <div class="chat-thread" id="chat-thread">
+    {% for msg in mensajes %}
+      <article class="chat-bubble {% if msg.es_consultor %}is-consultor{% else %}is-cliente{% endif %} tipo-{{ msg.tipo|lower }}">
+        <div class="chat-meta">
+          <strong>
+            {% if msg.es_consultor %}Consultor{% else %}Minera{% endif %}
+            {% if msg.autor %}
+              · {{ msg.autor.get_full_name|default:msg.autor.email }}
+            {% endif %}
+          </strong>
+          <span class="badge
+            {% if msg.tipo == 'RECHAZO' %}badge-off
+            {% elif msg.tipo == 'ACUERDO' %}badge-ok
+            {% else %}badge-info{% endif %}">
+            {{ msg.get_tipo_display }}
+          </span>
+          <time datetime="{{ msg.creado_en|date:'c' }}">{{ msg.creado_en|date:"d/m/Y H:i" }}</time>
+        </div>
+        <div class="chat-text">{{ msg.texto|linebreaksbr }}</div>
+        {% if msg.carga and msg.carga.archivo %}
+          <div class="chat-attach">
+            <a href="{{ msg.carga.archivo.url }}" target="_blank" rel="noopener">
+              Archivo: {{ msg.carga.nombre_original|default:msg.carga.archivo.name }}
+            </a>
+          </div>
+        {% endif %}
+      </article>
+    {% empty %}
+      <div class="empty-state">
+        <strong>Sin mensajes aún</strong>
+        Aquí aparecerá el historial de observaciones y acuerdos sobre este documento.
+      </div>
+    {% endfor %}
+  </div>
+
+  <form method="post" class="chat-composer" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div>{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-grid two-col">
+      <div class="form-row span-2">
+        <label for="id_texto">Nuevo mensaje</label>
+        {{ form.texto }}
+        {{ form.texto.errors }}
+      </div>
+      <div class="form-row">
+        <label for="id_tipo">Tipo</label>
+        {{ form.tipo }}
+      </div>
+      <div class="form-actions" style="align-self:end;">
+        <button type="submit" class="btn">Enviar mensaje</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<script>
+  (function () {
+    var thread = document.getElementById("chat-thread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  })();
+</script>
+{% endblock %}

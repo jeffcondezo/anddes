@@ -1,0 +1,69 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Monitoreo · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento · Monitoreo</p>
+    <h1>{{ empresa.nombre }}</h1>
+    <p class="page-desc">
+      Historial reciente de cargas, documentos del cliente, asociaciones de criterios y cambios de cobertura.
+      {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance por empresa</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Últimas actualizaciones</h2>
+      <p class="muted">Ordenadas de más reciente a más antigua.</p>
+    </div>
+    <span class="badge badge-info">{{ eventos|length }}</span>
+  </div>
+
+  {% if eventos %}
+    <ol class="timeline">
+      {% for evento in eventos %}
+        <li class="timeline-item timeline-{{ evento.tipo }}">
+          <div class="timeline-marker" aria-hidden="true"></div>
+          <div class="timeline-body">
+            <div class="timeline-meta">
+              <time datetime="{{ evento.fecha|date:'c' }}">{{ evento.fecha|date:"d/m/Y H:i" }}</time>
+              <span class="badge
+                {% if evento.tipo == 'carga' %}badge-ok
+                {% elif evento.tipo == 'vinculo' %}badge-info
+                {% elif evento.tipo == 'documento' %}badge-info
+                {% else %}badge-off{% endif %}">
+                {% if evento.tipo == 'carga' %}Carga
+                {% elif evento.tipo == 'vinculo' %}Criterio
+                {% elif evento.tipo == 'documento' %}Documento
+                {% else %}Cobertura{% endif %}
+              </span>
+              <span class="muted">Rev. {{ evento.revision_label }}</span>
+            </div>
+            <h3 class="timeline-title">{{ evento.titulo }}</h3>
+            <p class="timeline-detail">{{ evento.detalle }}</p>
+            <div class="timeline-footer">
+              <span class="muted">Por {{ evento.actor }}</span>
+              {% if evento.archivo_url %}
+                <a class="btn btn-ghost" href="{{ evento.archivo_url }}" target="_blank" rel="noopener">Ver archivo</a>
+              {% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <div class="empty-state">
+      <strong>Sin actividad registrada</strong>
+      Cuando el cliente suba evidencias o se asocien criterios, aparecerán aquí.
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

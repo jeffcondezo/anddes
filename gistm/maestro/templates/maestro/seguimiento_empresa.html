@@ -1,0 +1,282 @@
+{% extends "maestro/base.html" %}
+{% load l10n %}
+
+{% block title %}Seguimiento · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento</p>
+    <h1>{{ empresa.nombre }}</h1>
+    <p class="page-desc">
+      {% if revision %}
+        Revisión activa: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
+        Vista de avance con evidencias ya aprobadas.
+      {% else %}
+        No hay revisión activa.
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Volver</a>
+    {% if progreso %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">
+        Por revisar ({{ progreso.docs_por_revisar }})
+      </a>
+    {% endif %}
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+  </div>
+</header>
+
+{% if not revision %}
+  <div class="info-banner">
+    <div class="banner-icon" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    </div>
+    <div>
+      <h2>Sin revisión activa</h2>
+      <p>Activa o crea una revisión para esta empresa desde el módulo de Empresas.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="stat-grid">
+    <article class="stat-card">
+      <div class="stat-label">Documentos</div>
+      <div class="stat-value">{{ progreso.docs_pct }}%</div>
+      <div class="stat-hint">{{ progreso.docs_cargados }} / {{ progreso.docs_total }} aprobados</div>
+      <div class="meter" style="margin-top:0.75rem;">
+        <div class="meter-bar {% if progreso.docs_pct >= 100 %}is-ok{% elif progreso.docs_pct < 25 %}is-warn{% endif %}">
+          <span style="width: {{ progreso.docs_pct|unlocalize }}%;"></span>
+        </div>
+      </div>
+    </article>
+    <article class="stat-card neutral">
+      <div class="stat-label">Criterios</div>
+      <div class="stat-value">{{ progreso.criterios_pct }}%</div>
+      <div class="stat-hint">{{ progreso.criterios_completos }} / {{ progreso.criterios_total }} completos</div>
+      <div class="meter" style="margin-top:0.75rem;">
+        <div class="meter-bar {% if progreso.criterios_pct >= 100 %}is-ok{% elif progreso.criterios_pct < 25 %}is-warn{% endif %}">
+          <span style="width: {{ progreso.criterios_pct|unlocalize }}%;"></span>
+        </div>
+      </div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Requisitos</div>
+      <div class="stat-value">{{ progreso.requisitos_pct }}%</div>
+      <div class="stat-hint">{{ progreso.requisitos_completos }} / {{ progreso.requisitos_total }}</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Principios · Temas</div>
+      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-hint">Por revisar: {{ progreso.docs_por_revisar }}</div>
+    </article>
+  </div>
+
+  <div class="split-layout">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Documentos aprobados</h2>
+          <p class="muted">Solo evidencias validadas. Lo pendiente está en «Por revisar».</p>
+        </div>
+        <span class="badge badge-ok">{{ progreso.docs_cargados }}</span>
+      </div>
+
+      <nav class="coverage-tabs" aria-label="Origen de documentos aprobados">
+        <a href="?origen=precargados&docs=aprobados" class="{% if origen_tab == 'precargados' %}active{% endif %}">Precargados</a>
+        <a href="?origen=cliente&docs=aprobados" class="{% if origen_tab == 'cliente' %}active{% endif %}">Del cliente</a>
+        <a href="?origen=todos&docs=aprobados" class="{% if origen_tab == 'todos' and docs_tab == 'aprobados' %}active{% endif %}">Todos</a>
+        <a href="?origen={{ origen_tab }}&docs=todos" class="{% if docs_tab == 'todos' %}active{% endif %}">Incluir sin aprobar</a>
+      </nav>
+
+      {% if documentos_filtrados %}
+        <div class="doc-list">
+          {% for doc in documentos_filtrados %}
+            <div class="doc-row">
+              <div class="doc-row-main">
+                <strong>{{ doc.codigo }} · {{ doc.nombre }}</strong>
+                <div class="doc-row-meta">
+                  {% if doc.carga %}
+                    <span>{{ doc.carga.creado_en|date:"d/m/Y H:i" }}</span>
+                  {% endif %}
+                  {% if doc.vinculos %}
+                    <button
+                      type="button"
+                      class="criterios-toggle-btn"
+                      data-criterios-open="criterios-modal-{{ doc.id }}"
+                    >
+                      {{ doc.criterios_count }} criterio{{ doc.criterios_count|pluralize }}
+                    </button>
+                    <div
+                      class="modal-backdrop"
+                      id="criterios-modal-{{ doc.id }}"
+                      hidden
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="criterios-title-{{ doc.id }}"
+                    >
+                      <div class="modal-panel">
+                        <header>
+                          <div>
+                            <h3 id="criterios-title-{{ doc.id }}">Criterios de {{ doc.codigo }}</h3>
+                            <p class="muted">{{ doc.nombre }}</p>
+                          </div>
+                          <button type="button" class="modal-close" data-criterios-close>Cerrar</button>
+                        </header>
+                        <ul class="modal-criterios-list">
+                          {% for v in doc.vinculos %}
+                            <li>
+                              <div class="mono">{{ v.criterio.codigo }}</div>
+                              <p class="criterio-desc">{{ v.criterio.descripcion|default:"Sin descripción" }}</p>
+                              <p class="criterio-area">Área: {{ v.area.nombre }}</p>
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    </div>
+                  {% else %}
+                    <span>{{ doc.criterios_count }} criterio{{ doc.criterios_count|pluralize }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="doc-row-side">
+                {% if doc.es_catalogo %}
+                  <span class="badge badge-info">Precargado</span>
+                {% else %}
+                  <span class="badge badge-info">Del cliente</span>
+                {% endif %}
+                {% if doc.cargado %}
+                  <span class="badge badge-ok">Aprobado</span>
+                {% elif doc.pendiente_revision %}
+                  <span class="badge badge-off">Por revisar</span>
+                {% elif doc.rechazado %}
+                  <span class="badge badge-off">Rechazado</span>
+                {% else %}
+                  <span class="badge badge-off">Sin evidencia</span>
+                {% endif %}
+                {% if doc.carga and doc.carga.archivo and doc.cargado %}
+                  <a href="{{ doc.carga.archivo.url }}" target="_blank" rel="noopener">
+                    {{ doc.carga.nombre_original|default:"Descargar"|truncatechars:28 }}
+                  </a>
+                {% endif %}
+                {% if doc.rechazado or doc.pendiente_revision or doc.cargado %}
+                  <a
+                    class="btn btn-ghost"
+                    href="{% url 'maestro:documento_conversacion' doc.id %}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Mensajes
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <strong>Sin documentos en este filtro</strong>
+          {% if docs_tab == 'aprobados' %}
+            Todavía no hay evidencias aprobadas. Revisa la cola «Por revisar».
+          {% else %}
+            No hay documentos aplicables para este origen.
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Avance por tema</h2>
+          <p class="muted">Basado en criterios con evidencia aprobada.</p>
+        </div>
+      </div>
+
+      {% if not progreso.temas %}
+        <p class="muted" style="margin:0;">No hay criterios aplicables.</p>
+      {% else %}
+        <div class="theme-list">
+          {% for tema in progreso.temas %}
+            <details class="theme-block"{% if forloop.first %} open{% endif %}>
+              <summary>
+                <div>
+                  <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
+                  <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} principios completos</div>
+                </div>
+                <div class="meter" style="min-width:7.5rem;">
+                  <div class="meter-top">
+                    <span></span>
+                    <strong>{{ tema.pct }}%</strong>
+                  </div>
+                  <div class="meter-bar {% if tema.pct >= 100 %}is-ok{% elif tema.pct < 25 %}is-warn{% endif %}">
+                    <span style="width: {{ tema.pct|unlocalize }}%;"></span>
+                  </div>
+                </div>
+              </summary>
+              <div class="theme-body">
+                {% for principio in tema.children %}
+                  <div class="level-row is-principio">
+                    <div>
+                      <div class="level-label">Principio</div>
+                      <div class="level-code">{{ principio.codigo }}</div>
+                      <div class="muted" style="font-size:0.78rem;">{{ principio.completos }}/{{ principio.total }} requisitos</div>
+                    </div>
+                    <div class="level-pct">{{ principio.pct }}%</div>
+                  </div>
+                  {% for requisito in principio.children %}
+                    <div class="level-row is-requisito">
+                      <div>
+                        <div class="level-label">Requisito</div>
+                        <div class="level-code">{{ requisito.codigo }}</div>
+                        <div class="muted" style="font-size:0.78rem;">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
+                      </div>
+                      <div class="level-pct">{{ requisito.pct }}%</div>
+                    </div>
+                  {% endfor %}
+                {% endfor %}
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endif %}
+<script>
+  (function () {
+    function openModal(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = false;
+      el.classList.add("is-open");
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal(el) {
+      if (!el) return;
+      el.classList.remove("is-open");
+      el.hidden = true;
+      if (!document.querySelector(".modal-backdrop.is-open")) {
+        document.body.style.overflow = "";
+      }
+    }
+    document.querySelectorAll("[data-criterios-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openModal(btn.getAttribute("data-criterios-open"));
+      });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (e) {
+        if (e.target === backdrop) closeModal(backdrop);
+      });
+      backdrop.querySelectorAll("[data-criterios-close]").forEach(function (btn) {
+        btn.addEventListener("click", function () { closeModal(backdrop); });
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      document.querySelectorAll(".modal-backdrop.is-open").forEach(closeModal);
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "maestro/base.html" %}
+{% load l10n %}
+
+{% block title %}Seguimiento · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento</p>
+    <h1>Avance por empresa</h1>
+    <p class="page-desc">Progreso de evidencias en la revisión activa de cada empresa visible para ti.</p>
+  </div>
+</header>
+
+{% if filas %}
+  <div class="card-grid">
+    {% for fila in filas %}
+      <article class="entity-card">
+        <div class="entity-card-top">
+          <div>
+            <h3>{{ fila.empresa.nombre }}</h3>
+            <p class="entity-meta">
+              {% if fila.revision %}
+                Revisión {{ fila.revision.etiqueta }} · {{ fila.revision.anio }}
+              {% else %}
+                Sin revisión activa
+              {% endif %}
+            </p>
+          </div>
+          {% if fila.revision %}
+            <span class="badge badge-ok">Activa</span>
+          {% else %}
+            <span class="badge badge-off">Sin revisión</span>
+          {% endif %}
+        </div>
+
+        {% if fila.progreso %}
+          <div class="entity-metrics">
+            <div class="meter">
+              <div class="meter-top">
+                <span class="muted">Documentos</span>
+                <strong>{{ fila.progreso.docs_pct }}%</strong>
+              </div>
+              <div class="meter-bar {% if fila.progreso.docs_pct >= 100 %}is-ok{% elif fila.progreso.docs_pct < 25 %}is-warn{% endif %}">
+                <span style="width: {{ fila.progreso.docs_pct|unlocalize }}%;"></span>
+              </div>
+              <span class="muted" style="font-size:0.78rem;">{{ fila.progreso.docs_cargados }} / {{ fila.progreso.docs_total }}</span>
+            </div>
+            <div class="meter">
+              <div class="meter-top">
+                <span class="muted">Criterios</span>
+                <strong>{{ fila.progreso.criterios_pct }}%</strong>
+              </div>
+              <div class="meter-bar {% if fila.progreso.criterios_pct >= 100 %}is-ok{% elif fila.progreso.criterios_pct < 25 %}is-warn{% endif %}">
+                <span style="width: {{ fila.progreso.criterios_pct|unlocalize }}%;"></span>
+              </div>
+              <span class="muted" style="font-size:0.78rem;">{{ fila.progreso.criterios_completos }} / {{ fila.progreso.criterios_total }}</span>
+            </div>
+          </div>
+        {% else %}
+          <p class="muted" style="margin:0;">Activa una revisión para ver el avance de evidencias.</p>
+        {% endif %}
+
+        <div class="entity-card-actions">
+          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' fila.empresa.pk %}">
+            Por revisar{% if fila.progreso and fila.progreso.docs_por_revisar %} ({{ fila.progreso.docs_por_revisar }}){% endif %}
+          </a>
+          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' fila.empresa.pk %}">Monitoreo</a>
+          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}">Ver detalle</a>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="panel">
+    <div class="empty-state">
+      <strong>No hay empresas asignadas</strong>
+      Cuando tengas empresas visibles aparecerán aquí con su avance.
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

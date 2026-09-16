@@ -49,9 +49,17 @@
   </div>
 
   <section class="panel">
-    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Accesos rápidos</h2>
-    <p class="muted" style="margin:0;">Atajos a las funciones principales de administración.</p>
+    <div class="panel-head">
+      <div>
+        <h2>Accesos rápidos</h2>
+        <p class="muted">Atajos a las funciones principales de administración.</p>
+      </div>
+    </div>
     <div class="quick-links">
+      <a class="quick-link" href="{% url 'maestro:seguimiento_list' %}">
+        <strong>Seguimiento</strong>
+        <span>Avance de evidencias por empresa.</span>
+      </a>
       <a class="quick-link" href="{% url 'maestro:usuario_list' %}">
         <strong>Usuarios</strong>
         <span>Crear y administrar perfiles Anddes y clientes.</span>
@@ -66,6 +74,71 @@
       </a>
     </div>
   </section>
+
+{% elif es_cliente %}
+  {% if empresa %}
+    <div class="stat-grid">
+      {% if progreso %}
+        <article class="stat-card">
+          <div class="stat-label">Documentos</div>
+          <div class="stat-value">{{ progreso.docs_pct }}%</div>
+          <div class="stat-hint">{{ progreso.docs_cargados }} / {{ progreso.docs_total }} cargados</div>
+        </article>
+        <article class="stat-card neutral">
+          <div class="stat-label">Criterios</div>
+          <div class="stat-value">{{ progreso.criterios_pct }}%</div>
+          <div class="stat-hint">{{ progreso.criterios_completos }} / {{ progreso.criterios_total }} completos</div>
+        </article>
+        <article class="stat-card accent">
+          <div class="stat-label">Revisión</div>
+          <div class="stat-value" style="font-size:1.2rem; padding-top:0.45rem;">{{ revision.etiqueta }}</div>
+          <div class="stat-hint">{{ empresa.nombre }} · {{ revision.anio }}</div>
+        </article>
+      {% else %}
+        <article class="stat-card neutral">
+          <div class="stat-label">Empresa</div>
+          <div class="stat-value" style="font-size:1.2rem; padding-top:0.45rem;">{{ empresa.nombre }}</div>
+          <div class="stat-hint">Sin revisión activa</div>
+        </article>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <section class="panel" style="margin-top:1.25rem;">
+    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Tu portal</h2>
+    <p class="muted" style="margin:0 0 0.75rem;">Carga evidencias de la revisión activa y consulta el avance por tema.</p>
+    <div class="quick-links">
+      <a class="quick-link" href="{% url 'maestro:mi_empresa_dashboard' %}">
+        <strong>Avance</strong>
+        <span>Resumen por documentos, criterios, requisitos, principios y temas.</span>
+      </a>
+      <a class="quick-link" href="{% url 'maestro:mi_empresa_documentos' %}">
+        <strong>Mis documentos</strong>
+        <span>Lista de documentos configurados y carga de archivos.</span>
+      </a>
+    </div>
+  </section>
+
+{% elif es_gestor %}
+  <div class="stat-grid">
+    <article class="stat-card">
+      <div class="stat-label">Empresas asignadas</div>
+      <div class="stat-value">{{ total_empresas_asignadas }}</div>
+      <div class="stat-hint">Visibles en seguimiento</div>
+    </article>
+  </div>
+
+  <section class="panel" style="margin-top:1.25rem;">
+    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Seguimiento</h2>
+    <p class="muted" style="margin:0 0 0.75rem;">Consulta el avance de evidencias de las empresas a tu cargo.</p>
+    <div class="quick-links">
+      <a class="quick-link" href="{% url 'maestro:seguimiento_list' %}">
+        <strong>Ir a seguimiento</strong>
+        <span>Tabla de empresas y detalle de progreso.</span>
+      </a>
+    </div>
+  </section>
+
 {% else %}
   <div class="info-banner">
     <div class="banner-icon" aria-hidden="true">

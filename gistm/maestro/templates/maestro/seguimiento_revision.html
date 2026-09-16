@@ -1,0 +1,153 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Por revisar · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento · Por revisar</p>
+    <h1>{{ empresa.nombre }}</h1>
+    <p class="page-desc">
+      Evidencias subidas por el cliente que aún no han sido validadas.
+      {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+  </div>
+</header>
+
+{% if not revision %}
+  <div class="info-banner">
+    <div>
+      <h2>Sin revisión activa</h2>
+      <p>No hay evidencias pendientes porque no existe una revisión activa.</p>
+    </div>
+  </div>
+{% else %}
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Pendientes de revisión</h2>
+        <p class="muted">Aprueba o rechaza. En documentos del cliente, asocia criterios huérfanos antes de aprobar.</p>
+      </div>
+      <span class="badge badge-off">{{ pendientes|length }}</span>
+    </div>
+
+    {% if pendientes %}
+      <div class="stack-gap">
+        {% for doc in pendientes %}
+          <article class="review-card">
+            <div class="review-card-top">
+              <div>
+                <h3>{{ doc.codigo }} · {{ doc.nombre }}</h3>
+                <p class="muted" style="margin:0.25rem 0 0;">
+                  {% if doc.es_catalogo %}Precargado{% else %}Del cliente{% endif %}
+                  {% if doc.carga %} · {{ doc.carga.creado_en|date:"d/m/Y H:i" }}{% endif %}
+                  {% if doc.carga and doc.carga.subido_por %}
+                    · {{ doc.carga.subido_por.get_full_name|default:doc.carga.subido_por.email }}
+                  {% endif %}
+                </p>
+              </div>
+              <div class="review-card-badges">
+                {% if doc.es_catalogo %}
+                  <span class="badge badge-info">Precargado</span>
+                {% else %}
+                  <span class="badge badge-info">Del cliente</span>
+                {% endif %}
+                <span class="badge badge-off">Por revisar</span>
+              </div>
+            </div>
+
+            {% if doc.carga %}
+              <div class="review-file">
+                <div>
+                  <strong>{{ doc.carga.nombre_original|default:doc.carga.archivo.name }}</strong>
+                  {% if doc.carga.observaciones %}
+                    <p class="muted" style="margin:0.25rem 0 0;">Obs. cliente: {{ doc.carga.observaciones }}</p>
+                  {% endif %}
+                </div>
+                {% if doc.carga.archivo %}
+                  <a class="btn btn-ghost" href="{{ doc.carga.archivo.url }}" target="_blank" rel="noopener">Ver / descargar</a>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            <div class="review-criterios">
+              <h4>Criterios asociados</h4>
+              {% if doc.vinculos %}
+                <ul class="review-criterios-list">
+                  {% for v in doc.vinculos %}
+                    <li>
+                      <strong class="mono">{{ v.criterio.codigo }}</strong>
+                      <span class="muted">· {{ v.criterio.descripcion|truncatechars:90 }}</span>
+                      <span class="muted">({{ v.area.nombre }})</span>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="muted" style="margin:0;">
+                  Sin criterios todavía.
+                  {% if doc.es_propio %}Asócialos antes de aprobar.{% else %}Revisa la configuración de la revisión.{% endif %}
+                </p>
+              {% endif %}
+            </div>
+
+            <div class="review-actions">
+              <a
+                class="btn btn-ghost"
+                href="{% url 'maestro:documento_conversacion' doc.id %}"
+                target="_blank"
+                rel="noopener"
+              >
+                Mensajes
+              </a>
+              {% if doc.es_propio %}
+                <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_documento_asociar_criterios' empresa.pk doc.id %}">
+                  {% if doc.sin_criterios %}Asociar criterios huérfanos{% else %}Más criterios{% endif %}
+                </a>
+              {% endif %}
+              {% if doc.carga %}
+                <form method="post" action="{% url 'maestro:seguimiento_carga_aprobar' empresa.pk doc.carga.id %}" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn" {% if doc.es_propio and doc.sin_criterios %}disabled title="Asocia criterios primero"{% endif %}>
+                    Aprobar
+                  </button>
+                </form>
+                <details class="reject-box">
+                  <summary class="btn btn-ghost">Rechazar</summary>
+                  <form method="post" action="{% url 'maestro:seguimiento_carga_rechazar' empresa.pk doc.carga.id %}" class="form-grid" style="margin-top:0.75rem;">
+                    {% csrf_token %}
+                    <div class="form-row">
+                      <label for="motivo-{{ doc.carga.id }}">Motivo para la minera</label>
+                      <textarea
+                        class="input"
+                        name="motivo_rechazo"
+                        id="motivo-{{ doc.carga.id }}"
+                        rows="3"
+                        required
+                        minlength="10"
+                        placeholder="Explica por qué se rechaza esta evidencia…"
+                      ></textarea>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn" style="background:var(--danger); box-shadow:none;">Confirmar rechazo</button>
+                    </div>
+                  </form>
+                </details>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Nada pendiente</strong>
+        No hay evidencias por revisar. El detalle muestra solo lo ya aprobado.
+      </div>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

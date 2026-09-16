@@ -1,0 +1,195 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Mis documentos · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }}</p>
+    <h1>Mis documentos</h1>
+    <p class="page-desc">
+      {% if revision %}
+        Carga evidencias para los documentos de la revisión <strong>{{ revision.etiqueta }}</strong>.
+      {% else %}
+        No hay revisión activa.
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_dashboard' %}">Avance</a>
+    {% if revision and progreso.criterios_huerfanos_count %}
+      <a class="btn" href="{% url 'maestro:mi_empresa_documento_nuevo' %}">Documento adicional</a>
+    {% endif %}
+  </div>
+</header>
+
+{% if not revision %}
+  <div class="info-banner">
+    <div>
+      <h2>Sin revisión activa</h2>
+      <p>Cuando exista una revisión activa aparecerán aquí los documentos a cargar.</p>
+    </div>
+  </div>
+{% else %}
+  <section class="panel">
+    <nav class="coverage-tabs" aria-label="Estado de documentos">
+      <a href="?estado=por_subir" class="{% if estado_tab == 'por_subir' %}active{% endif %}">
+        Por subir
+        <span class="count">({{ progreso.docs_por_subir }})</span>
+      </a>
+      <a href="?estado=en_revision" class="{% if estado_tab == 'en_revision' %}active{% endif %}">
+        En revisión
+        <span class="count">({{ progreso.docs_en_revision }})</span>
+      </a>
+      <a href="?estado=aprobados" class="{% if estado_tab == 'aprobados' %}active{% endif %}">
+        Aprobados
+        <span class="count">({{ progreso.docs_cargados }})</span>
+      </a>
+      <a href="?estado=rechazados" class="{% if estado_tab == 'rechazados' %}active{% endif %}">
+        Rechazados
+        <span class="count">({{ progreso.docs_rechazados }})</span>
+      </a>
+      <a href="?estado=todos" class="{% if estado_tab == 'todos' %}active{% endif %}">
+        Todos
+        <span class="count">({{ progreso.docs_total }})</span>
+      </a>
+    </nav>
+
+    <div class="table-toolbar" style="margin-bottom:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+      <input type="search" id="doc-filter" class="input" placeholder="Filtrar por código o nombre…" style="max-width:280px;">
+      <span class="muted" id="doc-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="docs-table">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Origen</th>
+            <th>Estado</th>
+            <th>Archivo</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for doc in documentos %}
+            <tr data-filter="{{ doc.codigo }} {{ doc.nombre }}">
+              <td><strong>{{ doc.codigo }}</strong></td>
+              <td>{{ doc.nombre }}</td>
+              <td>{{ doc.origen }}</td>
+              <td>
+                {% if doc.cargado %}
+                  <span class="badge badge-ok">Aprobado</span>
+                {% elif doc.pendiente_revision %}
+                  <span class="badge badge-info">En revisión</span>
+                {% elif doc.rechazado %}
+                  <span class="badge badge-off">Rechazado</span>
+                {% else %}
+                  <span class="badge badge-off">Por subir</span>
+                {% endif %}
+              </td>
+              <td class="muted">
+                {% if doc.carga %}
+                  {{ doc.carga.nombre_original|default:doc.carga.archivo.name }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="actions">
+                {% if doc.rechazado or doc.pendiente_revision or doc.cargado %}
+                  <a
+                    class="link-btn"
+                    href="{% url 'maestro:documento_conversacion' doc.id %}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    {% if doc.rechazado %}Ver conversación{% else %}Mensajes{% endif %}
+                  </a>
+                {% endif %}
+                <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documento_cargar' doc.id %}">
+                  {% if doc.cargado or doc.pendiente_revision %}Reemplazar{% elif doc.rechazado %}Volver a cargar{% else %}Cargar{% endif %}
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr class="js-empty-row">
+              <td colspan="6">
+                <div class="empty-state">
+                  {% if estado_tab == 'aprobados' %}
+                    <strong>Sin documentos aprobados</strong>
+                    Cuando el consultor valide tus evidencias aparecerán aquí.
+                  {% elif estado_tab == 'en_revision' %}
+                    <strong>Nada en revisión</strong>
+                    No hay evidencias esperando validación del consultor.
+                  {% elif estado_tab == 'rechazados' %}
+                    <strong>Sin rechazos</strong>
+                    No hay evidencias rechazadas en esta revisión.
+                  {% elif estado_tab == 'por_subir' %}
+                    <strong>Todo cargado</strong>
+                    No faltan documentos por subir en esta lista.
+                  {% else %}
+                    <strong>Sin documentos</strong>
+                    No hay documentos configurados en esta revisión.
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="docs-pager" class="table-pager" style="margin-top:0.75rem; display:flex; gap:0.5rem; align-items:center;"></div>
+  </section>
+
+  <script>
+    (function () {
+      var rows = Array.prototype.slice.call(document.querySelectorAll("#docs-table tbody tr[data-filter]"));
+      var filter = document.getElementById("doc-filter");
+      var countEl = document.getElementById("doc-count");
+      var pager = document.getElementById("docs-pager");
+      var pageSize = 15;
+      var page = 1;
+
+      function visibleRows() {
+        var q = (filter.value || "").trim().toLowerCase();
+        return rows.filter(function (r) {
+          return !q || (r.getAttribute("data-filter") || "").toLowerCase().indexOf(q) !== -1;
+        });
+      }
+
+      function render() {
+        var vis = visibleRows();
+        var totalPages = Math.max(1, Math.ceil(vis.length / pageSize));
+        if (page > totalPages) page = totalPages;
+        rows.forEach(function (r) { r.style.display = "none"; });
+        var start = (page - 1) * pageSize;
+        vis.slice(start, start + pageSize).forEach(function (r) { r.style.display = ""; });
+        countEl.textContent = vis.length + " documento(s)";
+        pager.innerHTML = "";
+        if (vis.length <= pageSize) return;
+        var prev = document.createElement("button");
+        prev.type = "button";
+        prev.className = "btn btn-ghost";
+        prev.textContent = "Anterior";
+        prev.disabled = page <= 1;
+        prev.onclick = function () { page -= 1; render(); };
+        var info = document.createElement("span");
+        info.className = "muted";
+        info.textContent = "Pág. " + page + " / " + totalPages;
+        var next = document.createElement("button");
+        next.type = "button";
+        next.className = "btn btn-ghost";
+        next.textContent = "Siguiente";
+        next.disabled = page >= totalPages;
+        next.onclick = function () { page += 1; render(); };
+        pager.appendChild(prev);
+        pager.appendChild(info);
+        pager.appendChild(next);
+      }
+
+      if (filter) filter.addEventListener("input", function () { page = 1; render(); });
+      render();
+    })();
+  </script>
+{% endif %}
+{% endblock %}
