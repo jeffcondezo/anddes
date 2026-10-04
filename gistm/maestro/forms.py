@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -712,11 +713,12 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
         obj.documento = None
         obj.origen = OrigenEmpresaDocumento.PROPIO
         obj.activo = True
+        self._carga_creada = None
         if commit:
             obj.save()
             from .models import EstadoRevisionCarga
 
-            DocumentoCarga.objects.create(
+            self._carga_creada = DocumentoCarga.objects.create(
                 empresa_documento=obj,
                 archivo=self.cleaned_data["archivo"],
                 observaciones=(self.cleaned_data.get("observaciones") or "").strip(),
@@ -725,3 +727,147 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
                 estado_revision=EstadoRevisionCarga.PENDIENTE,
             )
         return obj
+
+
+class ActividadForm(forms.ModelForm):
+    documentos = forms.ModelMultipleChoiceField(
+        queryset=EmpresaDocumento.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Documentos relacionados",
+    )
+
+    class Meta:
+        from .models import Actividad
+
+        model = Actividad
+        fields = (
+            "titulo",
+            "descripcion",
+            "alcance",
+            "empresa",
+            "inicio",
+            "fin",
+            "enlace_reunion",
+            "documentos",
+        )
+        widgets = {
+            "titulo": forms.TextInput(attrs={"class": "input"}),
+            "descripcion": forms.Textarea(
+                attrs={
+                    "class": "input",
+                    "rows": 4,
+                    "placeholder": "Tenor de la reunión, agenda o notas…",
+                }
+            ),
+            "alcance": forms.Select(attrs={"class": "input", "id": "id_alcance"}),
+            "empresa": forms.Select(attrs={"class": "input", "id": "id_empresa"}),
+            "inicio": forms.DateTimeInput(
+                attrs={"class": "input", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+            "fin": forms.DateTimeInput(
+                attrs={"class": "input", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+            "enlace_reunion": forms.URLInput(
+                attrs={
+                    "class": "input",
+                    "placeholder": "https://teams.microsoft.com/…",
+                }
+            ),
+        }
+
+    def __init__(self, *args, empresas_qs=None, documentos_qs=None, **kwargs):
+        from .models import Actividad, AlcanceActividad
+
+        super().__init__(*args, **kwargs)
+        self.fields["inicio"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
+        self.fields["fin"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
+        self.fields["empresa"].queryset = empresas_qs or Empresa.objects.none()
+        self.fields["empresa"].required = False
+        self.fields["empresa"].empty_label = "— Sin empresa —"
+        self.fields["documentos"].queryset = documentos_qs or EmpresaDocumento.objects.none()
+        self.fields["documentos"].label_from_instance = (
+            lambda d: f"{d.codigo} · {d.nombre}"
+        )
+        self.fields["alcance"].choices = AlcanceActividad.choices
+        if not self.is_bound and not self.instance.pk:
+            # default inicio: próxima hora en punto
+            from django.utils import timezone as tz
+
+            now = tz.localtime(tz.now()).replace(minute=0, second=0, microsecond=0)
+            self.initial.setdefault("inicio", (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"))
+
+    def clean(self):
+        from .models import AlcanceActividad
+
+        cleaned = super().clean()
+        alcance = cleaned.get("alcance")
+        empresa = cleaned.get("empresa")
+        if alcance == AlcanceActividad.CON_CLIENTE and not empresa:
+            self.add_error("empresa", "Selecciona la empresa del cliente.")
+        return cleaned
+
+
+class AcuerdoForm(forms.Form):
+    titulo = forms.CharField(
+        label="Título del acuerdo",
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "Ej. Entrega de D012, D013 y D014"}),
+    )
+    descripcion = forms.CharField(
+        label="Detalle del acuerdo",
+        widget=forms.Textarea(
+            attrs={
+                "class": "input",
+                "rows": 3,
+                "placeholder": "Qué se acordó…",
+            }
+        ),
+        required=False,
+    )
+    fecha_compromiso = forms.DateTimeField(
+        label="Fecha compromiso",
+        required=False,
+        widget=forms.DateTimeInput(
+            attrs={"class": "input", "type": "datetime-local"},
+            format="%Y-%m-%dT%H:%M",
+        ),
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"],
+    )
+    documentos = forms.ModelMultipleChoiceField(
+        queryset=EmpresaDocumento.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Documentos",
+    )
+
+    def __init__(self, *args, documentos_qs=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["documentos"].queryset = documentos_qs or EmpresaDocumento.objects.none()
+        self.fields["documentos"].label_from_instance = (
+            lambda d: f"{d.codigo} · {d.nombre}"
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        if not (cleaned.get("descripcion") or "").strip() and not cleaned.get("documentos"):
+            raise ValidationError(
+                "Indica un texto del acuerdo y/o selecciona al menos un documento."
+            )
+        return cleaned
+
+
+class AcuerdoRecordatorioForm(forms.Form):
+    mensaje = forms.CharField(
+        label="Mensaje adicional (opcional)",
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "input",
+                "rows": 2,
+                "placeholder": "Nota breve para el recordatorio…",
+            }
+        ),
+    )

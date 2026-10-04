@@ -311,6 +311,179 @@
       border-radius: 0.28rem;
       display: block;
     }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin-left: auto;
+    }
+    .topbar-user {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      max-width: 16rem;
+    }
+    .topbar-user .user-avatar {
+      width: 2rem;
+      height: 2rem;
+      font-size: 0.75rem;
+    }
+    .topbar-user-meta {
+      min-width: 0;
+      line-height: 1.2;
+    }
+    .topbar-user-name {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #243038;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .topbar-user-role {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .notif-wrap {
+      position: relative;
+    }
+    .notif-btn {
+      position: relative;
+      width: 2.35rem;
+      height: 2.35rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: #425059;
+      display: inline-grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      padding: 0;
+    }
+    .notif-btn:hover,
+    .notif-wrap.open .notif-btn {
+      color: var(--primary);
+      border-color: #c9e3f2;
+      background: var(--primary-soft);
+    }
+    .notif-btn svg {
+      width: 1.15rem;
+      height: 1.15rem;
+    }
+    .notif-count {
+      position: absolute;
+      top: -0.2rem;
+      right: -0.2rem;
+      min-width: 1.1rem;
+      height: 1.1rem;
+      padding: 0 0.28rem;
+      border-radius: 999px;
+      background: var(--danger);
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      border: 2px solid #fff;
+    }
+    .notif-panel {
+      display: none;
+      position: absolute;
+      top: calc(100% + 0.45rem);
+      right: 0;
+      width: min(360px, calc(100vw - 2rem));
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 12px 30px rgba(25, 40, 55, 0.12);
+      z-index: 50;
+      overflow: hidden;
+    }
+    .notif-wrap.open .notif-panel { display: block; }
+    .notif-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+    }
+    .notif-panel-head strong {
+      font-size: 0.92rem;
+      color: #243038;
+    }
+    .notif-panel-head a {
+      font-size: 0.8rem;
+      font-weight: 650;
+      color: var(--primary);
+    }
+    .notif-panel-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 22rem;
+      overflow-y: auto;
+    }
+    .notif-panel-list > li > form { margin: 0; }
+    .notif-panel-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.8rem 1rem;
+      border: 0;
+      border-bottom: 1px solid #eef2f5;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .notif-panel-item:hover { background: #f7fafc; }
+    .notif-panel-item.is-unread { background: var(--primary-soft); }
+    .notif-panel-item.is-unread:hover { background: var(--primary-soft-2); }
+    .notif-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.55rem;
+      align-items: center;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+    .notif-item-title {
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: #243038;
+      margin: 0 0 0.15rem;
+      line-height: 1.3;
+    }
+    .notif-item-detail {
+      margin: 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .notif-empty {
+      padding: 1.25rem 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+    .notif-panel-foot {
+      padding: 0.7rem 1rem;
+      border-top: 1px solid var(--border);
+      background: #fafbfc;
+      text-align: center;
+    }
+    .notif-panel-foot a {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -346,6 +519,16 @@
       border-radius: 12px;
       padding: 0.55rem 0.7rem;
       box-shadow: var(--shadow-sm);
+    }
+    .mobile-bar-right {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .mobile-bar .notif-panel {
+      right: 0;
+      left: auto;
     }
     .menu-toggle {
       border: 0;
@@ -750,6 +933,73 @@
     .timeline-item.timeline-desactivacion .timeline-marker {
       background: var(--danger);
       box-shadow: 0 0 0 2px #f0c4c4;
+    }
+    .timeline-item.timeline-aprobacion .timeline-marker {
+      background: var(--ok);
+      box-shadow: 0 0 0 2px #bfe5d2;
+    }
+    .timeline-item.timeline-rechazo .timeline-marker {
+      background: var(--danger);
+      box-shadow: 0 0 0 2px #f0c4c4;
+    }
+    .badge-warn {
+      border-color: #f0d59a;
+      color: #9a6b00;
+      background: #fff8e8;
+    }
+    .nav-badge {
+      margin-left: auto;
+      min-width: 1.35rem;
+      height: 1.35rem;
+      padding: 0 0.35rem;
+      border-radius: 999px;
+      background: var(--danger);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .aviso-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.65rem;
+    }
+    .aviso-item {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 0.9rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fbfcfd;
+    }
+    .aviso-item.is-unread {
+      border-color: #c9e3f2;
+      background: var(--primary-soft);
+    }
+    .aviso-main { min-width: 0; flex: 1; }
+    .aviso-actions { flex-shrink: 0; }
+    .modal-dialog {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem 1.2rem;
+      width: min(480px, calc(100% - 2rem));
+      box-shadow: var(--shadow-card);
+    }
+    .modal-dialog::backdrop { background: rgba(20, 30, 40, 0.35); }
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
     }
     .timeline-meta {
       display: flex;
@@ -1258,6 +1508,102 @@
       align-items: flex-start;
       gap: 0.5rem;
     }
+    .cal-wrap {
+      display: grid;
+      gap: 1rem;
+    }
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .cal-nav h2 {
+      font-size: 1.2rem;
+      margin: 0;
+    }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 0.35rem;
+    }
+    .cal-dow {
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0.35rem 0;
+    }
+    .cal-day {
+      min-height: 6.2rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      padding: 0.35rem 0.4rem 0.45rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .cal-day.is-out {
+      background: #f7f9fb;
+      opacity: 0.65;
+    }
+    .cal-day.is-today {
+      border-color: #9ec9e4;
+      box-shadow: inset 0 0 0 1px rgba(0, 105, 170, 0.15);
+    }
+    .cal-day-num {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #425059;
+    }
+    .cal-event {
+      display: block;
+      font-size: 0.7rem;
+      line-height: 1.25;
+      padding: 0.2rem 0.35rem;
+      border-radius: 6px;
+      background: var(--primary-soft);
+      color: var(--primary-dark);
+      font-weight: 650;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cal-event.is-cliente {
+      background: #eef9f3;
+      color: #1f7a52;
+    }
+    .cal-event.is-acuerdo {
+      background: #fff6e5;
+      color: #8a6400;
+    }
+    .cal-event.is-recordatorio {
+      background: #fff5f5;
+      color: #b03a3a;
+    }
+    .cal-event.is-done {
+      opacity: 0.55;
+      text-decoration: line-through;
+    }
+    .doc-pick-group {
+      margin-bottom: 0.85rem;
+    }
+    .doc-pick-group h3 {
+      font-size: 0.88rem;
+      margin: 0 0 0.45rem;
+    }
+    .doc-pick-group .checkbox-list {
+      max-height: 14rem;
+    }
+    @media (max-width: 860px) {
+      .cal-day { min-height: 4.5rem; }
+      .cal-event { font-size: 0.64rem; }
+    }
+
     .empty-state {
       text-align: center;
       padding: 2.4rem 1.25rem;
@@ -1364,9 +1710,17 @@
         {% endif %}
         {% if es_administrador or es_gestor %}
           <div class="nav-section-label">Operación</div>
-          <a href="{% url 'maestro:seguimiento_list' %}" class="{% if request.resolver_match.url_name == 'seguimiento_list' or request.resolver_match.url_name == 'seguimiento_empresa_detail' %}active{% endif %}">
+          <a href="{% url 'maestro:seguimiento_list' %}" class="{% if request.resolver_match.url_name == 'seguimiento_list' or request.resolver_match.url_name == 'seguimiento_empresa_detail' or request.resolver_match.url_name == 'seguimiento_empresa_pendientes' or request.resolver_match.url_name == 'seguimiento_empresa_revision' or request.resolver_match.url_name == 'seguimiento_empresa_monitoreo' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16V9"/><path d="M12 16V5"/><path d="M17 16v-3"/></svg>
             Seguimiento
+          </a>
+          <a href="{% url 'maestro:actividad_calendario' %}" class="{% if request.resolver_match.url_name == 'actividad_calendario' or request.resolver_match.url_name == 'actividad_crear' or request.resolver_match.url_name == 'actividad_detalle' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Actividades
+          </a>
+          <a href="{% url 'maestro:acuerdo_bandeja' %}" class="{% if request.resolver_match.url_name == 'acuerdo_bandeja' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Acuerdos
           </a>
         {% endif %}
         {% if es_administrador %}
@@ -1439,9 +1793,19 @@
           <img src="{% static 'maestro/img/isotipo.png' %}" alt="" class="top-isotipo">
           GISTM Monitoring Platform
         </div>
-        <div class="status-pill">
-          <span class="dot" aria-hidden="true"></span>
-          {% if perfil %}{{ perfil.get_tipo_display }}{% else %}Sesión activa{% endif %}
+        <div class="topbar-actions">
+          {% include "maestro/partials/notif_bell.html" %}
+          <div class="topbar-user">
+            <div class="user-avatar">
+              {% with full=user.get_full_name %}
+                {% if full %}{{ full|make_list|first }}{% else %}{{ user.email|default:user.username|make_list|first|upper }}{% endif %}
+              {% endwith %}
+            </div>
+            <div class="topbar-user-meta">
+              <div class="topbar-user-name">{{ user.get_full_name|default:user.email|default:user.username }}</div>
+              <div class="topbar-user-role">{% if perfil %}{{ perfil.get_tipo_display }}{% else %}Usuario{% endif %}</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="main-inner">
@@ -1451,6 +1815,9 @@
             <img src="{% static 'maestro/img/isotipo.png' %}" alt="">
             <strong>GISTM</strong>
           </span>
+          <div class="mobile-bar-right">
+            {% include "maestro/partials/notif_bell.html" %}
+          </div>
         </div>
 {% else %}
   <div class="shell">
@@ -1481,6 +1848,30 @@
           btn.classList.toggle("open", isOpen);
           btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
         });
+      });
+
+      function closeAllNotifs(except) {
+        document.querySelectorAll("[data-notif-wrap].open").forEach(function (wrap) {
+          if (except && wrap === except) return;
+          wrap.classList.remove("open");
+          var btn = wrap.querySelector("[data-notif-toggle]");
+          if (btn) btn.setAttribute("aria-expanded", "false");
+        });
+      }
+      document.querySelectorAll("[data-notif-toggle]").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var wrap = btn.closest("[data-notif-wrap]");
+          if (!wrap) return;
+          var willOpen = !wrap.classList.contains("open");
+          closeAllNotifs(wrap);
+          wrap.classList.toggle("open", willOpen);
+          btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+      });
+      document.addEventListener("click", function () { closeAllNotifs(); });
+      document.querySelectorAll(".notif-panel").forEach(function (panel) {
+        panel.addEventListener("click", function (e) { e.stopPropagation(); });
       });
     })();
   </script>

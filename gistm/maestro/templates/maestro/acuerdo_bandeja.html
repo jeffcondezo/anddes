@@ -1,0 +1,180 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Acuerdos · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Operación</p>
+    <h1>Bandeja de acuerdos</h1>
+    <p class="page-desc">
+      Compromisos abiertos, vencidos y cumplidos de tus empresas.
+      {% if contadores.vencidos %}
+        <strong>{{ contadores.vencidos }} vencido{{ contadores.vencidos|pluralize }}</strong>.
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Calendario</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <form method="get" class="filters-row" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;">
+    <label style="display:grid;gap:0.25rem;min-width:9rem;">
+      <span class="muted" style="font-size:0.8rem;">Estado</span>
+      <select name="estado" class="input" onchange="this.form.submit()">
+        <option value="abiertos" {% if estado == 'abiertos' %}selected{% endif %}>Abiertos ({{ contadores.abiertos }})</option>
+        <option value="cumplidos" {% if estado == 'cumplidos' %}selected{% endif %}>Cumplidos</option>
+        <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
+      </select>
+    </label>
+    <label style="display:grid;gap:0.25rem;min-width:9rem;">
+      <span class="muted" style="font-size:0.8rem;">Filtro</span>
+      <select name="filtro" class="input" onchange="this.form.submit()">
+        <option value="todos" {% if filtro == 'todos' %}selected{% endif %}>Sin filtro</option>
+        <option value="vencidos" {% if filtro == 'vencidos' %}selected{% endif %}>Vencidos</option>
+        <option value="hoy" {% if filtro == 'hoy' %}selected{% endif %}>Compromiso hoy</option>
+        <option value="proximos" {% if filtro == 'proximos' %}selected{% endif %}>Próximos 7 días</option>
+      </select>
+    </label>
+    <label style="display:grid;gap:0.25rem;min-width:12rem;flex:1;">
+      <span class="muted" style="font-size:0.8rem;">Empresa</span>
+      <select name="empresa" class="input" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for emp in empresas %}
+          <option value="{{ emp.pk }}" {% if empresa_q == emp.pk|stringformat:"s" %}selected{% endif %}>{{ emp.nombre }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Acuerdo</th>
+          <th>Empresa</th>
+          <th>Compromiso</th>
+          <th>Estado</th>
+          <th>Docs</th>
+          <th>Creado por</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in acuerdos %}
+          {% with emp=a.empresa|default:a.actividad.empresa %}
+          <tr>
+            <td>
+              <strong>{{ a.titulo }}</strong>
+              <div class="muted" style="font-size:0.8rem;margin-top:0.15rem;">
+                {{ a.actividad.titulo }}
+                {% if a.descripcion %} · {{ a.descripcion|truncatechars:70 }}{% endif %}
+              </div>
+            </td>
+            <td>{% if emp %}{{ emp.nombre }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td style="white-space:nowrap;">
+              {% if a.fecha_compromiso %}
+                {{ a.fecha_compromiso|date:"d/m/Y H:i" }}
+              {% else %}
+                <span class="muted">Sin fecha</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if a.estado == 'ABIERTO' %}
+                {% if a.fecha_compromiso and a.fecha_compromiso < now %}
+                  <span class="badge badge-off">Vencido</span>
+                {% else %}
+                  <span class="badge badge-info">Abierto</span>
+                {% endif %}
+              {% elif a.estado == 'CUMPLIDO' %}
+                <span class="badge badge-ok">Cumplido</span>
+              {% else %}
+                <span class="badge badge-off">{{ a.get_estado_display }}</span>
+              {% endif %}
+            </td>
+            <td class="mono" style="font-size:0.8rem;">
+              {% with docs=a.documentos.all %}
+                {% if docs %}
+                  {% for d in docs %}{{ d.codigo }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              {% endwith %}
+            </td>
+            <td>{{ a.creado_por.get_full_name|default:a.creado_por.email }}</td>
+            <td class="actions" style="white-space:nowrap;">
+              {% if a.actividad.creado_por_id == request.user.id %}
+                <a href="{% url 'maestro:actividad_detalle' a.actividad_id %}">Actividad</a>
+              {% endif %}
+              {% if a.estado == 'ABIERTO' %}
+                {% if emp %}
+                  <button type="button" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;" data-open-recordatorio="{{ a.pk }}">Recordar</button>
+                {% endif %}
+                <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline;margin:0;">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;">Cumplido</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endwith %}
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <strong>No hay acuerdos con estos filtros</strong>
+                Crea acuerdos desde el detalle de una actividad con cliente.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="modal-recordatorio" class="modal-dialog">
+  <form method="post" id="form-recordatorio">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <header class="modal-head">
+      <h2>Enviar recordatorio</h2>
+      <button type="button" class="btn btn-ghost" data-close-recordatorio>Cerrar</button>
+    </header>
+    <p class="muted" style="margin:0 0 0.75rem;">Nota opcional para el cliente (se incluye en el correo).</p>
+    <label style="display:grid;gap:0.35rem;">
+      <span>Nota</span>
+      <textarea name="mensaje" class="input" rows="4" placeholder="Ej.: Recordamos el compromiso de esta semana…"></textarea>
+    </label>
+    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+      <button type="button" class="btn btn-ghost" data-close-recordatorio>Cancelar</button>
+      <button type="submit" class="btn">Enviar correo</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  const modal = document.getElementById("modal-recordatorio");
+  const form = document.getElementById("form-recordatorio");
+  if (!modal || !form) return;
+  document.querySelectorAll("[data-open-recordatorio]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const id = btn.getAttribute("data-open-recordatorio");
+      form.action = "{% url 'maestro:acuerdo_enviar_recordatorio' 0 %}".replace("/0/", "/" + id + "/");
+      if (typeof modal.showModal === "function") modal.showModal();
+    });
+  });
+  document.querySelectorAll("[data-close-recordatorio]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (typeof modal.close === "function") modal.close();
+    });
+  });
+})();
+</script>
+{% endblock %}

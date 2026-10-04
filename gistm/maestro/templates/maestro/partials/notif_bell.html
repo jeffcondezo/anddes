@@ -1,0 +1,54 @@
+{% if es_administrador or es_gestor %}
+<div class="notif-wrap" data-notif-wrap>
+  <button
+    type="button"
+    class="notif-btn"
+    data-notif-toggle
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-label="Avisos{% if avisos_no_leidos %} ({{ avisos_no_leidos }} sin leer){% endif %}"
+    title="Avisos"
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+      <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+    </svg>
+    {% if avisos_no_leidos %}
+      <span class="notif-count">{{ avisos_no_leidos }}</span>
+    {% endif %}
+  </button>
+  <div class="notif-panel" role="menu">
+    <div class="notif-panel-head">
+      <strong>Avisos</strong>
+      <a href="{% url 'maestro:aviso_list' %}">Ver todos</a>
+    </div>
+    {% if avisos_preview %}
+      <ul class="notif-panel-list">
+        {% for aviso in avisos_preview %}
+          <li>
+            <form method="post" action="{% url 'maestro:aviso_marcar_leido' aviso.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="notif-panel-item {% if not aviso.leido %}is-unread{% endif %}" role="menuitem">
+                <div class="notif-item-meta">
+                  <span>{{ aviso.creado_en|date:"d/m H:i" }}</span>
+                  <span>{{ aviso.empresa.nombre }}</span>
+                  {% if not aviso.leido %}<span class="badge badge-off">Nuevo</span>{% endif %}
+                </div>
+                <p class="notif-item-title">{{ aviso.titulo|cut:"[Demo] "|cut:"[Demo]" }}</p>
+                {% if aviso.detalle %}
+                  <p class="notif-item-detail">{{ aviso.detalle|truncatechars:90 }}</p>
+                {% endif %}
+              </button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="notif-empty">No hay avisos por ahora.</div>
+    {% endif %}
+    <div class="notif-panel-foot">
+      <a href="{% url 'maestro:aviso_list' %}?solo=nuevos">Ir a la bandeja de avisos</a>
+    </div>
+  </div>
+</div>
+{% endif %}

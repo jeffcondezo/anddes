@@ -62,6 +62,9 @@
         {% endif %}
 
         <div class="entity-card-actions">
+          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' fila.empresa.pk %}">
+            Pendientes{% if fila.progreso and fila.progreso.docs_pendientes_entrega %} ({{ fila.progreso.docs_pendientes_entrega }}){% endif %}
+          </a>
           <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' fila.empresa.pk %}">
             Por revisar{% if fila.progreso and fila.progreso.docs_por_revisar %} ({{ fila.progreso.docs_por_revisar }}){% endif %}
           </a>

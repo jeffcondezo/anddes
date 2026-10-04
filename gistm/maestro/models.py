@@ -688,6 +688,230 @@ class TipoDocumentoMensaje(models.TextChoices):
     SISTEMA = "SISTEMA", "Sistema"
 
 
+class AlcanceActividad(models.TextChoices):
+    PERSONAL = "PERSONAL", "Solo consultor"
+    CON_CLIENTE = "CON_CLIENTE", "Con empresa / cliente"
+
+
+class TipoActividad(models.TextChoices):
+    GENERAL = "GENERAL", "General"
+    ACUERDO = "ACUERDO", "Acuerdo"
+    RECORDATORIO = "RECORDATORIO", "Recordatorio"
+
+
+class EstadoActividad(models.TextChoices):
+    PROGRAMADA = "PROGRAMADA", "Programada"
+    COMPLETADA = "COMPLETADA", "Completada"
+    CANCELADA = "CANCELADA", "Cancelada"
+
+
+class Actividad(models.Model):
+    """Tarea o reunión programada por el consultor (personal o con una empresa)."""
+
+    titulo = models.CharField(max_length=255)
+    descripcion = models.TextField(
+        blank=True,
+        help_text="Tenor / agenda / notas de la actividad.",
+    )
+    tipo = models.CharField(
+        max_length=16,
+        choices=TipoActividad.choices,
+        default=TipoActividad.GENERAL,
+    )
+    alcance = models.CharField(
+        max_length=16,
+        choices=AlcanceActividad.choices,
+        default=AlcanceActividad.PERSONAL,
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="actividades",
+        help_text="Obligatoria si la actividad es con el cliente.",
+    )
+    actividad_padre = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="hijas",
+        help_text="Actividad origen (reunión) de la que nace un acuerdo o recordatorio.",
+    )
+    inicio = models.DateTimeField()
+    fin = models.DateTimeField(null=True, blank=True)
+    enlace_reunion = models.URLField(
+        blank=True,
+        help_text="Enlace externo (Teams, Meet, Zoom, etc.).",
+    )
+    documentos = models.ManyToManyField(
+        EmpresaDocumento,
+        blank=True,
+        related_name="actividades",
+    )
+    enviar_correo = models.BooleanField(
+        default=False,
+        help_text="Se marca automáticamente cuando el alcance es con cliente.",
+    )
+    correo_enviado_en = models.DateTimeField(null=True, blank=True)
+    estado = models.CharField(
+        max_length=16,
+        choices=EstadoActividad.choices,
+        default=EstadoActividad.PROGRAMADA,
+    )
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="actividades_creadas",
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["inicio"]
+        verbose_name = "Actividad"
+        verbose_name_plural = "Actividades"
+
+    def __str__(self) -> str:
+        return f"{self.titulo} · {self.inicio:%d/%m/%Y %H:%M}"
+
+    @property
+    def es_con_cliente(self) -> bool:
+        return self.alcance == AlcanceActividad.CON_CLIENTE
+
+    @property
+    def es_acuerdo(self) -> bool:
+        return self.tipo == TipoActividad.ACUERDO
+
+    @property
+    def es_recordatorio(self) -> bool:
+        return self.tipo == TipoActividad.RECORDATORIO
+
+    def clean(self) -> None:
+        if self.alcance == AlcanceActividad.CON_CLIENTE and not self.empresa_id:
+            raise ValidationError({"empresa": "Selecciona la empresa del cliente."})
+        if self.fin and self.inicio and self.fin < self.inicio:
+            raise ValidationError({"fin": "La hora de fin no puede ser anterior al inicio."})
+
+
+class EstadoAcuerdo(models.TextChoices):
+    ABIERTO = "ABIERTO", "Abierto"
+    CUMPLIDO = "CUMPLIDO", "Cumplido"
+    CANCELADO = "CANCELADO", "Cancelado"
+
+
+class Acuerdo(models.Model):
+    """
+    Compromiso derivado de una actividad (no es una actividad del calendario).
+    Puede asociar documentos y/o un texto libre.
+    """
+
+    actividad = models.ForeignKey(
+        Actividad,
+        on_delete=models.CASCADE,
+        related_name="acuerdos",
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name="acuerdos",
+        null=True,
+        blank=True,
+    )
+    titulo = models.CharField(max_length=255)
+    descripcion = models.TextField(
+        blank=True,
+        help_text="Qué se acordó realizar.",
+    )
+    fecha_compromiso = models.DateTimeField(null=True, blank=True)
+    documentos = models.ManyToManyField(
+        EmpresaDocumento,
+        blank=True,
+        related_name="acuerdos",
+    )
+    estado = models.CharField(
+        max_length=16,
+        choices=EstadoAcuerdo.choices,
+        default=EstadoAcuerdo.ABIERTO,
+    )
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="acuerdos_creados",
+    )
+    correo_enviado_en = models.DateTimeField(null=True, blank=True)
+    ultimo_recordatorio_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+        verbose_name = "Acuerdo"
+        verbose_name_plural = "Acuerdos"
+
+    def __str__(self) -> str:
+        return self.titulo
+
+    @property
+    def es_solo_texto(self) -> bool:
+        return not self.documentos.exists()
+
+
+class TipoAvisoConsultor(models.TextChoices):
+    CARGA = "CARGA", "Nueva evidencia"
+    MENSAJE = "MENSAJE", "Mensaje del cliente"
+    DOCUMENTO_PROPIO = "DOCUMENTO_PROPIO", "Documento del cliente"
+
+
+class AvisoConsultor(models.Model):
+    """Aviso in-app para gestores/administradores (cargas, mensajes, docs propios)."""
+
+    destinatario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="avisos_consultor",
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name="avisos_consultor",
+    )
+    tipo = models.CharField(max_length=24, choices=TipoAvisoConsultor.choices)
+    titulo = models.CharField(max_length=255)
+    detalle = models.TextField(blank=True)
+    url = models.CharField(max_length=500, blank=True)
+    empresa_documento = models.ForeignKey(
+        EmpresaDocumento,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="avisos_consultor",
+    )
+    carga = models.ForeignKey(
+        DocumentoCarga,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="avisos_consultor",
+    )
+    leido = models.BooleanField(default=False)
+    leido_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+        verbose_name = "Aviso al consultor"
+        verbose_name_plural = "Avisos al consultor"
+        indexes = [
+            models.Index(fields=["destinatario", "leido", "-creado_en"]),
+        ]
+
+    def __str__(self) -> str:
+        estado = "leído" if self.leido else "nuevo"
+        return f"{self.titulo} · {estado}"
+
+
 class DocumentoMensaje(models.Model):
     """Hilo de comunicación consultor ↔ minera sobre un documento de la revisión."""
 

@@ -1,0 +1,296 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ actividad.titulo }} · Actividades · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Actividades</p>
+    <h1>{{ actividad.titulo }}</h1>
+    <p class="page-desc">
+      {{ actividad.get_alcance_display }}
+      {% if actividad.empresa %} · {{ actividad.empresa.nombre }}{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Calendario</a>
+    {% if actividad.estado == 'PROGRAMADA' %}
+      <form method="post" action="{% url 'maestro:actividad_completar' actividad.pk %}" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" class="btn">Marcar completada</button>
+      </form>
+      <form method="post" action="{% url 'maestro:actividad_cancelar' actividad.pk %}" style="display:inline;" onsubmit="return confirm('¿Cancelar esta actividad?');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-ghost">Cancelar</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+<div class="stat-grid" style="margin-bottom:1.25rem;">
+  <article class="stat-card">
+    <div class="stat-label">Inicio</div>
+    <div class="stat-value" style="font-size:1.2rem; padding-top:0.35rem;">{{ actividad.inicio|date:"d/m/Y H:i" }}</div>
+  </article>
+  <article class="stat-card">
+    <div class="stat-label">Fin</div>
+    <div class="stat-value" style="font-size:1.2rem; padding-top:0.35rem;">
+      {% if actividad.fin %}{{ actividad.fin|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+    </div>
+  </article>
+  <article class="stat-card">
+    <div class="stat-label">Estado</div>
+    <div class="stat-value" style="font-size:1.2rem; padding-top:0.35rem;">{{ actividad.get_estado_display }}</div>
+  </article>
+</div>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <div class="panel-head">
+    <div><h2>Detalle</h2></div>
+    {% if actividad.es_con_cliente %}
+      <span class="badge badge-ok">Con cliente</span>
+    {% else %}
+      <span class="badge badge-info">Solo consultor</span>
+    {% endif %}
+  </div>
+  {% if actividad.descripcion %}
+    <p style="white-space:pre-wrap; margin:0 0 1rem;">{{ actividad.descripcion }}</p>
+  {% else %}
+    <p class="muted">Sin tenor / agenda.</p>
+  {% endif %}
+  {% if actividad.enlace_reunion %}
+    <p style="margin:0 0 0.75rem;">
+      <strong>Enlace de reunión:</strong>
+      <a href="{{ actividad.enlace_reunion }}" target="_blank" rel="noopener">{{ actividad.enlace_reunion }}</a>
+    </p>
+  {% endif %}
+  {% if actividad.correo_enviado_en %}
+    <p class="muted" style="margin:0;">Correo de actividad enviado el {{ actividad.correo_enviado_en|date:"d/m/Y H:i" }}.</p>
+  {% endif %}
+</section>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Documentos</h2>
+      <p class="muted">Evidencias vinculadas a esta actividad.</p>
+    </div>
+    <span class="badge badge-info">{{ actividad.documentos.count }}</span>
+  </div>
+  {% with docs=actividad.documentos.all %}
+    {% if docs %}
+      <div class="doc-list">
+        {% for doc in docs %}
+          <div class="doc-row">
+            <div class="doc-row-main">
+              <strong>{{ doc.codigo }} · {{ doc.nombre }}</strong>
+            </div>
+            <div class="doc-row-side">
+              {% if actividad.empresa %}
+                <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' doc.id %}" target="_blank" rel="noopener">Mensajes</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Sin documentos</strong>
+        No hay evidencias asociadas.
+      </div>
+    {% endif %}
+  {% endwith %}
+</section>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Acuerdos</h2>
+      <p class="muted">Compromisos de esta actividad.</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:0.5rem;">
+      <span class="badge badge-ok">{{ acuerdos|length }}</span>
+      {% if puede_derivar %}
+        <button type="button" class="btn" data-acuerdo-modal="acuerdo-nuevo-modal">Nuevo acuerdo</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if acuerdos %}
+    <div class="stack-gap">
+      {% for a in acuerdos %}
+        <article class="review-card">
+          <div class="review-card-top">
+            <div>
+              <h3 style="margin:0; font-size:1.05rem;">{{ a.titulo }}</h3>
+              <p class="muted" style="margin:0.3rem 0 0;">
+                {% if a.fecha_compromiso %}Compromiso {{ a.fecha_compromiso|date:"d/m/Y H:i" }}{% endif %}
+                {% if a.ultimo_recordatorio_en %} · último envío {{ a.ultimo_recordatorio_en|date:"d/m/Y H:i" }}{% endif %}
+              </p>
+            </div>
+            <div class="review-card-badges" style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; justify-content:flex-end;">
+              <span class="badge {% if a.estado == 'CUMPLIDO' %}badge-ok{% else %}badge-info{% endif %}">{{ a.get_estado_display }}</span>
+              {% if a.estado == 'ABIERTO' %}
+                {% if a.empresa_id or actividad.empresa_id %}
+                  <button
+                    type="button"
+                    class="btn btn-ghost"
+                    data-acuerdo-modal="acuerdo-remind-{{ a.id }}"
+                  >
+                    Enviar recordatorio
+                  </button>
+                {% endif %}
+                <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline; margin:0;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-ghost">Cumplido</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+          {% if a.descripcion %}
+            <p style="white-space:pre-wrap; margin:0.65rem 0 0;">{{ a.descripcion }}</p>
+          {% endif %}
+          {% with adocs=a.documentos.all %}
+            {% if adocs %}
+              <p class="muted" style="margin:0.5rem 0 0; font-size:0.84rem;">
+                Documentos:
+                {% for d in adocs %}{{ d.codigo }}{% if not forloop.last %}, {% endif %}{% endfor %}
+              </p>
+            {% endif %}
+          {% endwith %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <strong>Sin acuerdos</strong>
+      Usa «Nuevo acuerdo» para registrar el primero.
+    </div>
+  {% endif %}
+</section>
+
+{% if puede_derivar %}
+  <div
+    class="modal-backdrop"
+    id="acuerdo-nuevo-modal"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="acuerdo-nuevo-title"
+  >
+    <div class="modal-panel" style="max-width:min(640px, 100%);">
+      <header>
+        <div>
+          <h3 id="acuerdo-nuevo-title">Nuevo acuerdo</h3>
+          <p class="muted">{{ actividad.titulo }}</p>
+        </div>
+        <button type="button" class="modal-close" data-acuerdo-modal-close>Cerrar</button>
+      </header>
+      <form method="post" action="{% url 'maestro:actividad_crear_acuerdo' actividad.pk %}" novalidate>
+        {% csrf_token %}
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="id_titulo">Título</label>
+            {{ acuerdo_form.titulo }}
+          </div>
+          <div class="form-row">
+            <label for="id_descripcion">Detalle</label>
+            {{ acuerdo_form.descripcion }}
+          </div>
+          <div class="form-row">
+            <label for="id_fecha_compromiso">Fecha compromiso</label>
+            {{ acuerdo_form.fecha_compromiso }}
+          </div>
+          {% if acuerdo_form.documentos.field.queryset %}
+            <div class="form-row">
+              <label>Documentos</label>
+              <div class="checkbox-list">{{ acuerdo_form.documentos }}</div>
+            </div>
+          {% endif %}
+        </div>
+        <div class="form-actions" style="margin-top:1rem;">
+          <button type="submit" class="btn">Guardar acuerdo</button>
+          <button type="button" class="btn btn-ghost" data-acuerdo-modal-close>Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+{% for a in acuerdos %}
+  {% if a.estado == 'ABIERTO' and a.empresa_id or a.estado == 'ABIERTO' and actividad.empresa_id %}
+    <div
+      class="modal-backdrop"
+      id="acuerdo-remind-{{ a.id }}"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="acuerdo-remind-title-{{ a.id }}"
+    >
+      <div class="modal-panel">
+        <header>
+          <div>
+            <h3 id="acuerdo-remind-title-{{ a.id }}">Enviar recordatorio</h3>
+            <p class="muted">{{ a.titulo }}</p>
+          </div>
+          <button type="button" class="modal-close" data-acuerdo-modal-close>Cerrar</button>
+        </header>
+        <form method="post" action="{% url 'maestro:acuerdo_enviar_recordatorio' a.pk %}">
+          {% csrf_token %}
+          <div class="form-row">
+            <label for="mensaje-{{ a.id }}">Nota</label>
+            <textarea
+              class="input"
+              name="mensaje"
+              id="mensaje-{{ a.id }}"
+              rows="3"
+              placeholder="Texto que acompañará el correo…"
+            ></textarea>
+          </div>
+          <div class="form-actions" style="margin-top:1rem;">
+            <button type="submit" class="btn">Enviar correo</button>
+            <button type="button" class="btn btn-ghost" data-acuerdo-modal-close>Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+{% endfor %}
+
+<script>
+  (function () {
+    function openModal(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = false;
+      el.classList.add("is-open");
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal(el) {
+      if (!el) return;
+      el.classList.remove("is-open");
+      el.hidden = true;
+      if (!document.querySelector(".modal-backdrop.is-open")) {
+        document.body.style.overflow = "";
+      }
+    }
+    document.querySelectorAll("[data-acuerdo-modal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openModal(btn.getAttribute("data-acuerdo-modal"));
+      });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (e) {
+        if (e.target === backdrop) closeModal(backdrop);
+      });
+      backdrop.querySelectorAll("[data-acuerdo-modal-close]").forEach(function (btn) {
+        btn.addEventListener("click", function () { closeModal(backdrop); });
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      document.querySelectorAll(".modal-backdrop.is-open").forEach(closeModal);
+    });
+  })();
+</script>
+{% endblock %}

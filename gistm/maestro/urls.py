@@ -146,6 +146,11 @@ urlpatterns = [
         name="seguimiento_empresa_revision",
     ),
     path(
+        "seguimiento/empresas/<int:pk>/pendientes/",
+        views.seguimiento_empresa_pendientes,
+        name="seguimiento_empresa_pendientes",
+    ),
+    path(
         "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/aprobar/",
         views.seguimiento_carga_aprobar,
         name="seguimiento_carga_aprobar",
@@ -159,5 +164,46 @@ urlpatterns = [
         "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/asociar-criterios/",
         views.seguimiento_documento_asociar_criterios,
         name="seguimiento_documento_asociar_criterios",
+    ),
+    # Actividades / acuerdos / avisos (consultor)
+    path("actividades/", views.actividad_calendario, name="actividad_calendario"),
+    path("actividades/nueva/", views.actividad_crear, name="actividad_crear"),
+    path("actividades/<int:pk>/", views.actividad_detalle, name="actividad_detalle"),
+    path(
+        "actividades/<int:pk>/acuerdo/",
+        views.actividad_crear_acuerdo,
+        name="actividad_crear_acuerdo",
+    ),
+    path("acuerdos/", views.acuerdo_bandeja, name="acuerdo_bandeja"),
+    path(
+        "acuerdos/<int:pk>/recordatorio/",
+        views.acuerdo_enviar_recordatorio,
+        name="acuerdo_enviar_recordatorio",
+    ),
+    path(
+        "acuerdos/<int:pk>/cumplido/",
+        views.acuerdo_marcar_cumplido,
+        name="acuerdo_marcar_cumplido",
+    ),
+    path("avisos/", views.aviso_list, name="aviso_list"),
+    path(
+        "avisos/<int:pk>/leer/",
+        views.aviso_marcar_leido,
+        name="aviso_marcar_leido",
+    ),
+    path(
+        "avisos/leer-todos/",
+        views.aviso_marcar_todos,
+        name="aviso_marcar_todos",
+    ),
+    path(
+        "actividades/<int:pk>/completar/",
+        views.actividad_completar,
+        name="actividad_completar",
+    ),
+    path(
+        "actividades/<int:pk>/cancelar/",
+        views.actividad_cancelar,
+        name="actividad_cancelar",
     ),
 ]

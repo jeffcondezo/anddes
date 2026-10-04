@@ -1,0 +1,96 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Actividades · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Operación</p>
+    <h1>Actividades</h1>
+    <p class="page-desc">
+      Calendario de tareas y reuniones del consultor: personales o con empresas asociadas.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:actividad_crear' %}">Nueva actividad</a>
+  </div>
+</header>
+
+<div class="split-layout">
+  <section class="panel cal-wrap">
+    <div class="cal-nav">
+      <a class="btn btn-ghost" href="?anio={{ prev_anio }}&mes={{ prev_mes }}">← Anterior</a>
+      <h2>{{ mes_nombre }} {{ anio }}</h2>
+      <a class="btn btn-ghost" href="?anio={{ next_anio }}&mes={{ next_mes }}">Siguiente →</a>
+    </div>
+
+    <div class="cal-grid" aria-label="Calendario de actividades">
+      <div class="cal-dow">Lun</div>
+      <div class="cal-dow">Mar</div>
+      <div class="cal-dow">Mié</div>
+      <div class="cal-dow">Jue</div>
+      <div class="cal-dow">Vie</div>
+      <div class="cal-dow">Sáb</div>
+      <div class="cal-dow">Dom</div>
+      {% for week in semanas %}
+        {% for day in week %}
+          <div class="cal-day {% if not day.in_month %}is-out{% endif %} {% if day.is_today %}is-today{% endif %}">
+            <div class="cal-day-num">{{ day.date.day }}</div>
+            {% for act in day.activities %}
+              <a
+                class="cal-event {% if act.tipo == 'ACUERDO' %}is-acuerdo{% elif act.tipo == 'RECORDATORIO' %}is-recordatorio{% elif act.es_con_cliente %}is-cliente{% endif %} {% if act.estado == 'COMPLETADA' %}is-done{% endif %}"
+                href="{% url 'maestro:actividad_detalle' act.pk %}"
+                title="{{ act.get_tipo_display }} · {{ act.titulo }}"
+              >
+                {{ act.inicio|date:"H:i" }}{% if act.tipo == 'ACUERDO' %} · Acu.{% elif act.tipo == 'RECORDATORIO' %} · Rec.{% endif %} {{ act.titulo }}
+              </a>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Próximas</h2>
+        <p class="muted">Actividades programadas a partir de ahora.</p>
+      </div>
+    </div>
+    {% if proximas %}
+      <div class="doc-list">
+        {% for act in proximas %}
+          <div class="doc-row">
+            <div class="doc-row-main">
+              <strong>
+                <a href="{% url 'maestro:actividad_detalle' act.pk %}">{{ act.titulo }}</a>
+              </strong>
+              <div class="doc-row-meta">
+                <span>{{ act.inicio|date:"d/m/Y H:i" }}</span>
+                {% if act.empresa %}
+                  <span>· {{ act.empresa.nombre }}</span>
+                {% else %}
+                  <span>· Solo consultor</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="doc-row-side">
+              {% if act.es_con_cliente %}
+                <span class="badge badge-ok">Con cliente</span>
+              {% else %}
+                <span class="badge badge-info">Personal</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <strong>Sin próximas actividades</strong>
+        Crea una para planificar revisiones o reuniones con la minera.
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

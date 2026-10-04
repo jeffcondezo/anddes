@@ -1,0 +1,63 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Avisos · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Operación</p>
+    <h1>Avisos</h1>
+    <p class="page-desc">Nuevas evidencias, documentos del cliente y mensajes que requieren tu atención.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="?solo=nuevos" {% if solo == 'nuevos' %}aria-current="page"{% endif %}>Nuevos</a>
+    <a class="btn btn-ghost" href="?solo=todos" {% if solo == 'todos' %}aria-current="page"{% endif %}>Todos</a>
+    {% if avisos %}
+      <form method="post" action="{% url 'maestro:aviso_marcar_todos' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-ghost">Marcar todos leídos</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+<section class="panel">
+  {% if avisos %}
+    <ul class="aviso-list">
+      {% for aviso in avisos %}
+        <li class="aviso-item {% if not aviso.leido %}is-unread{% endif %}">
+          <div class="aviso-main">
+            <div class="timeline-meta">
+              <time datetime="{{ aviso.creado_en|date:'c' }}">{{ aviso.creado_en|date:"d/m/Y H:i" }}</time>
+              <span class="badge
+                {% if aviso.tipo == 'CARGA' %}badge-ok
+                {% elif aviso.tipo == 'MENSAJE' %}badge-info
+                {% else %}badge-warn{% endif %}">
+                {{ aviso.get_tipo_display }}
+              </span>
+              <span class="muted">{{ aviso.empresa.nombre }}</span>
+              {% if not aviso.leido %}<span class="badge badge-off">Nuevo</span>{% endif %}
+            </div>
+            <h3 class="timeline-title">{{ aviso.titulo }}</h3>
+            {% if aviso.detalle %}
+              <p class="timeline-detail">{{ aviso.detalle }}</p>
+            {% endif %}
+          </div>
+          <div class="aviso-actions">
+            <form method="post" action="{% url 'maestro:aviso_marcar_leido' aviso.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{% url 'maestro:aviso_list' %}?solo={{ solo }}">
+              <button type="submit" class="btn">{% if aviso.url %}Abrir{% else %}Marcar leído{% endif %}</button>
+            </form>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty-state">
+      <strong>{% if solo == 'nuevos' %}Sin avisos nuevos{% else %}Sin avisos{% endif %}</strong>
+      Cuando el cliente cargue evidencias o escriba en la conversación, aparecerán aquí.
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

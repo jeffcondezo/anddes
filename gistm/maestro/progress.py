@@ -95,6 +95,7 @@ class ProgresoRevision:
     temas_completos: int
     temas_pct: float
     criterios_huerfanos_count: int
+    criterios_huerfanos: list = field(default_factory=list)
     documentos: list[DocumentoProgreso] = field(default_factory=list)
     documentos_propios_todos: list[DocumentoProgreso] = field(default_factory=list)
     documentos_sin_criterios_config: list[DocumentoProgreso] = field(default_factory=list)
@@ -175,6 +176,15 @@ class ProgresoRevision:
     @property
     def docs_por_subir(self) -> int:
         return len(self.documentos_por_subir)
+
+    @property
+    def documentos_pendientes_entrega(self) -> list[DocumentoProgreso]:
+        """Sin entregar (sin evidencia) + rechazados. Para backlog de revisión."""
+        return self.documentos_por_subir + self.documentos_rechazados
+
+    @property
+    def docs_pendientes_entrega(self) -> int:
+        return len(self.documentos_pendientes_entrega)
 
 
 def _pct(parte: int, total: int) -> float:
@@ -273,14 +283,15 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     )
 
     criterio_completo: dict[int, bool] = {}
-    huerfanos = 0
+    criterios_huerfanos: list[Criterio] = []
     for criterio in criterios_aplicables:
         doc_id = vinculos.get(criterio.pk)
         if not doc_id:
-            huerfanos += 1
+            criterios_huerfanos.append(criterio)
             criterio_completo[criterio.pk] = False
             continue
         criterio_completo[criterio.pk] = doc_id in docs_con_carga_ids
+    huerfanos = len(criterios_huerfanos)
 
     criterios_total = len(criterios_aplicables)
     criterios_completos = sum(1 for ok in criterio_completo.values() if ok)
@@ -401,6 +412,7 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         temas_completos=temas_completos,
         temas_pct=_pct(temas_completos, temas_total),
         criterios_huerfanos_count=huerfanos,
+        criterios_huerfanos=criterios_huerfanos,
         documentos=documentos,
         documentos_propios_todos=documentos_propios_todos,
         documentos_sin_criterios_config=documentos_sin_criterios_config,

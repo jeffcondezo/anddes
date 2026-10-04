@@ -8,12 +8,14 @@
     <p class="page-kicker">Seguimiento · Monitoreo</p>
     <h1>{{ empresa.nombre }}</h1>
     <p class="page-desc">
-      Historial reciente de cargas, documentos del cliente, asociaciones de criterios y cambios de cobertura.
+      Historial reciente de cargas, aprobaciones, rechazos, documentos del cliente, asociaciones de criterios y cambios de cobertura.
       {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
     </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance por empresa</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}">Pendientes</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Por revisar</a>
     <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
   </div>
 </header>
@@ -37,10 +39,14 @@
               <time datetime="{{ evento.fecha|date:'c' }}">{{ evento.fecha|date:"d/m/Y H:i" }}</time>
               <span class="badge
                 {% if evento.tipo == 'carga' %}badge-ok
+                {% elif evento.tipo == 'aprobacion' %}badge-ok
+                {% elif evento.tipo == 'rechazo' %}badge-off
                 {% elif evento.tipo == 'vinculo' %}badge-info
                 {% elif evento.tipo == 'documento' %}badge-info
                 {% else %}badge-off{% endif %}">
                 {% if evento.tipo == 'carga' %}Carga
+                {% elif evento.tipo == 'aprobacion' %}Aprobación
+                {% elif evento.tipo == 'rechazo' %}Rechazo
                 {% elif evento.tipo == 'vinculo' %}Criterio
                 {% elif evento.tipo == 'documento' %}Documento
                 {% else %}Cobertura{% endif %}
@@ -62,7 +68,7 @@
   {% else %}
     <div class="empty-state">
       <strong>Sin actividad registrada</strong>
-      Cuando el cliente suba evidencias o se asocien criterios, aparecerán aquí.
+      Cuando el cliente suba evidencias, se apruebe o rechace, o se asocien criterios, aparecerán aquí.
     </div>
   {% endif %}
 </section>

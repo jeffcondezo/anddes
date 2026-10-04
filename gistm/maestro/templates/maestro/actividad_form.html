@@ -1,0 +1,155 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Nueva actividad · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Actividades</p>
+    <h1>Nueva actividad</h1>
+    <p class="page-desc">
+      Programa una tarea solo para ti, o una reunión / seguimiento con una empresa.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Calendario</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" novalidate id="actividad-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="info-banner" style="margin-bottom:1rem;">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="form-grid two-col">
+      <div class="form-row span-2">
+        <label for="id_titulo">Título</label>
+        {{ form.titulo }}
+        {{ form.titulo.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_alcance">Alcance</label>
+        {{ form.alcance }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          «Solo consultor» para tareas propias. «Con empresa / cliente» para reuniones o acuerdos con la minera.
+        </p>
+        {{ form.alcance.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_empresa">Empresa</label>
+        {{ form.empresa }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          Opcional en «Solo consultor» (para asociar documentos). Obligatoria si el alcance es «Con empresa / cliente» — en ese caso se notificará por correo a los usuarios cliente.
+        </p>
+        {{ form.empresa.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_inicio">Inicio</label>
+        {{ form.inicio }}
+        {{ form.inicio.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_fin">Fin (opcional)</label>
+        {{ form.fin }}
+        {{ form.fin.errors }}
+      </div>
+
+      <div class="form-row span-2">
+        <label for="id_descripcion">Tenor / agenda / notas</label>
+        {{ form.descripcion }}
+        {{ form.descripcion.errors }}
+      </div>
+
+      <div class="form-row span-2">
+        <label for="id_enlace_reunion">Enlace de reunión (opcional)</label>
+        {{ form.enlace_reunion }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          Teams, Meet, Zoom u otro. La reunión no se hace dentro de GISTM.
+        </p>
+        {{ form.enlace_reunion.errors }}
+      </div>
+
+    </div>
+
+    <div style="margin-top:1.25rem;">
+      <h2 style="font-size:1.05rem; margin:0 0 0.35rem;">Documentos relacionados</h2>
+      <p class="muted" style="margin:0 0 0.75rem;">
+        Elige empresa para cargar pendientes y por revisar. Opcional: puedes crear la actividad sin documentos.
+      </p>
+
+      {% if docs_por_revisar or docs_pendientes %}
+        {% if docs_por_revisar %}
+          <div class="doc-pick-group">
+            <h3>Por revisar</h3>
+            <div class="checkbox-list">
+              <ul>
+                {% for doc in docs_por_revisar %}
+                  <li>
+                    <label>
+                      <input type="checkbox" name="documentos" value="{{ doc.pk }}" {% if doc.pk in selected_doc_ids %}checked{% endif %}>
+                      {{ doc.codigo }} · {{ doc.nombre }}
+                    </label>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        {% endif %}
+        {% if docs_pendientes %}
+          <div class="doc-pick-group">
+            <h3>Pendientes de entrega / rechazados</h3>
+            <div class="checkbox-list">
+              <ul>
+                {% for doc in docs_pendientes %}
+                  <li>
+                    <label>
+                      <input type="checkbox" name="documentos" value="{{ doc.pk }}" {% if doc.pk in selected_doc_ids %}checked{% endif %}>
+                      {{ doc.codigo }} · {{ doc.nombre }}
+                    </label>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="empty-state" style="padding:1.2rem;">
+          <strong>Sin documentos para seleccionar</strong>
+          Elige una empresa con revisión activa, o deja la actividad sin documentos.
+        </div>
+      {% endif %}
+      {{ form.documentos.errors }}
+    </div>
+
+    <div class="form-actions" style="margin-top:1.25rem;">
+      <button type="submit" class="btn">Guardar actividad</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<script>
+  (function () {
+    var empresa = document.getElementById("id_empresa");
+    function reloadForEmpresa() {
+      if (!empresa) return;
+      var url = new URL(window.location.href);
+      if (empresa.value) url.searchParams.set("empresa", empresa.value);
+      else url.searchParams.delete("empresa");
+      // Conservar el alcance elegido al recargar docs
+      var alcance = document.getElementById("id_alcance");
+      if (alcance && alcance.value) url.searchParams.set("alcance", alcance.value);
+      window.location.href = url.toString();
+    }
+    if (empresa) {
+      empresa.addEventListener("change", reloadForEmpresa);
+    }
+  })();
+</script>
+{% endblock %}

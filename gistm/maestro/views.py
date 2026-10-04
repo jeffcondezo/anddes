@@ -14,8 +14,22 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .entra import build_auth_url, claims_from_id_token, exchange_code_for_token, new_oauth_state
+from .actividad_mail import (
+    enviar_correo_actividad,
+    enviar_correo_acuerdo,
+    publicar_mensajes_acuerdo,
+)
+from .avisos import (
+    avisar_documento_propio,
+    avisar_mensaje_cliente,
+    avisar_nueva_carga,
+)
+from .calendar_utils import mes_anterior, mes_calendario, mes_siguiente, parse_anio_mes
 from .forms import (
     ActivarDocumentosCatalogoForm,
+    ActividadForm,
+    AcuerdoForm,
+    AcuerdoRecordatorioForm,
     AplicarEstandarRevisionForm,
     AreaFormSet,
     ClienteDocumentoPropioCargaForm,
@@ -35,7 +49,13 @@ from .forms import (
     UsuarioForm,
 )
 from .models import (
+    Actividad,
+    Acuerdo,
+    AlcanceActividad,
+    AvisoConsultor,
     Criterio,
+    EstadoAcuerdo,
+    TipoActividad,
     Documento,
     DocumentoCarga,
     DocumentoCriterio,
@@ -43,6 +63,7 @@ from .models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EstadoActividad,
     EstadoRevisionCarga,
     IntentoAcceso,
     MotivoIntentoAcceso,
@@ -1446,6 +1467,10 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
             tipo=TipoDocumentoMensaje.RESPUESTA,
             carga=carga,
         )
+        try:
+            avisar_nueva_carga(carga=carga, actor=request.user)
+        except Exception:  # noqa: BLE001
+            pass
         messages.success(
             request,
             f"Archivo cargado para {documento.codigo}. Quedó en revisión del consultor.",
@@ -1507,13 +1532,23 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
             TipoDocumentoMensaje.RESPUESTA,
         }:
             tipo = TipoDocumentoMensaje.OBSERVACION
+        texto_msg = form.cleaned_data["texto"]
         registrar_mensaje(
             empresa_documento=documento,
-            texto=form.cleaned_data["texto"],
+            texto=texto_msg,
             autor=request.user,
             es_consultor=es_consultor,
             tipo=tipo,
         )
+        if es_cliente and not es_consultor:
+            try:
+                avisar_mensaje_cliente(
+                    documento=documento,
+                    texto=texto_msg,
+                    actor=request.user,
+                )
+            except Exception:  # noqa: BLE001
+                pass
         messages.success(request, "Mensaje enviado.")
         return redirect("maestro:documento_conversacion", doc_id=documento.pk)
 
@@ -1563,7 +1598,16 @@ def mi_empresa_documento_nuevo(request: HttpRequest) -> HttpResponse:
         revision=revision,
     )
     if request.method == "POST" and form.is_valid():
-        form.save(user=request.user)
+        documento = form.save(user=request.user)
+        carga = getattr(form, "_carga_creada", None)
+        try:
+            avisar_documento_propio(
+                documento=documento,
+                carga=carga,
+                actor=request.user,
+            )
+        except Exception:  # noqa: BLE001
+            pass
         messages.success(
             request,
             "Documento propio creado con su evidencia. El consultor asociará los criterios después.",
@@ -1716,6 +1760,31 @@ def seguimiento_empresa_revision(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @gestor_o_admin_required
+@require_GET
+def seguimiento_empresa_pendientes(request: HttpRequest, pk: int) -> HttpResponse:
+    """Backlog: documentos sin entregar / rechazados y criterios sin documento."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:seguimiento_list")
+    revision = revision_activa_empresa(empresa.pk)
+    progreso = calcular_progreso_revision(revision) if revision else None
+    documentos = progreso.documentos_pendientes_entrega if progreso else []
+    criterios_huerfanos = progreso.criterios_huerfanos if progreso else []
+    return render(
+        request,
+        "maestro/seguimiento_pendientes.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "progreso": progreso,
+            "documentos": documentos,
+            "criterios_huerfanos": criterios_huerfanos,
+        },
+    )
+
+
+@gestor_o_admin_required
 @require_http_methods(["POST"])
 def seguimiento_carga_aprobar(request: HttpRequest, pk: int, carga_id: int) -> HttpResponse:
     empresa = get_object_or_404(Empresa, pk=pk)
@@ -1829,7 +1898,7 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
     revision = revision_activa_empresa(empresa.pk)
     progreso = calcular_progreso_revision(revision) if revision else None
     docs_tab = (request.GET.get("docs") or "aprobados").strip().lower()
-    if docs_tab not in {"aprobados", "todos"}:
+    if docs_tab not in {"aprobados", "todos", "pendientes"}:
         docs_tab = "aprobados"
     origen_tab = (request.GET.get("origen") or "todos").strip().lower()
     if origen_tab not in {"todos", "precargados", "cliente"}:
@@ -1838,9 +1907,12 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
     documentos_filtrados: list = []
     if progreso:
         # Detalle limpio: solo documentos aplicables (con criterios).
-        base = list(progreso.documentos)
-        if docs_tab == "aprobados":
-            base = [d for d in base if d.cargado]
+        if docs_tab == "pendientes":
+            base = list(progreso.documentos_pendientes_entrega)
+        else:
+            base = list(progreso.documentos)
+            if docs_tab == "aprobados":
+                base = [d for d in base if d.cargado]
         if origen_tab == "precargados":
             documentos_filtrados = [d for d in base if d.es_catalogo]
         elif origen_tab == "cliente":
@@ -1860,3 +1932,479 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "documentos_filtrados": documentos_filtrados,
         },
     )
+
+
+def _documentos_para_actividad(empresa: Empresa | None) -> list:
+    """Devuelve docs pendientes de entrega y por revisar de la revisión activa."""
+    if not empresa:
+        return []
+    revision = revision_activa_empresa(empresa.pk)
+    if not revision:
+        return []
+    progreso = calcular_progreso_revision(revision)
+    # Unir sin duplicar: por revisar + sin entregar + rechazados
+    seen: set[int] = set()
+    docs: list = []
+    for d in (
+        list(progreso.documentos_por_revisar)
+        + list(progreso.documentos_pendientes_entrega)
+    ):
+        if d.id in seen:
+            continue
+        seen.add(d.id)
+        docs.append(d)
+    ids = [d.id for d in docs]
+    return list(
+        EmpresaDocumento.objects.filter(pk__in=ids, activo=True).order_by("codigo")
+    )
+
+
+@gestor_o_admin_required
+@require_GET
+def actividad_calendario(request: HttpRequest) -> HttpResponse:
+    anio, mes = parse_anio_mes(request.GET)
+    empresas = empresas_visibles(request.user)
+    qs = (
+        Actividad.objects.filter(creado_por=request.user)
+        .filter(Q(empresa__isnull=True) | Q(empresa__in=empresas))
+        .select_related("empresa", "creado_por")
+        .prefetch_related("documentos")
+        .exclude(estado=EstadoActividad.CANCELADA)
+    )
+    prev_y, prev_m = mes_anterior(anio, mes)
+    next_y, next_m = mes_siguiente(anio, mes)
+    # Cargar actividades del mes visible (+ bordes del grid)
+    inicio_rango = timezone.make_aware(datetime(prev_y, prev_m, 15))
+    fin_rango = timezone.make_aware(datetime(next_y, next_m, 15)) + timedelta(days=20)
+    actividades_mes = list(qs.filter(inicio__gte=inicio_rango, inicio__lt=fin_rango))
+    semanas = mes_calendario(anio, mes, actividades_mes)
+    proximas = list(
+        qs.filter(inicio__gte=timezone.now(), estado=EstadoActividad.PROGRAMADA).order_by(
+            "inicio"
+        )[:12]
+    )
+    nombres_mes = [
+        "",
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre",
+    ]
+    return render(
+        request,
+        "maestro/actividad_calendario.html",
+        {
+            "anio": anio,
+            "mes": mes,
+            "mes_nombre": nombres_mes[mes],
+            "semanas": semanas,
+            "proximas": proximas,
+            "prev_anio": prev_y,
+            "prev_mes": prev_m,
+            "next_anio": next_y,
+            "next_mes": next_m,
+        },
+    )
+
+
+@gestor_o_admin_required
+@require_http_methods(["GET", "POST"])
+def actividad_crear(request: HttpRequest) -> HttpResponse:
+    empresas = empresas_visibles(request.user).filter(activo=True)
+    empresa_id = (request.POST.get("empresa") or request.GET.get("empresa") or "").strip()
+    empresa = None
+    if empresa_id.isdigit():
+        empresa = empresas.filter(pk=int(empresa_id)).first()
+
+    docs_qs = EmpresaDocumento.objects.filter(
+        pk__in=[d.pk for d in _documentos_para_actividad(empresa)]
+    ).order_by("codigo")
+
+    form = ActividadForm(
+        request.POST or None,
+        empresas_qs=empresas,
+        documentos_qs=docs_qs,
+    )
+    if request.method == "GET":
+        if empresa:
+            form.initial["empresa"] = empresa.pk
+        alcance_q = (request.GET.get("alcance") or "").strip()
+        if alcance_q in {AlcanceActividad.PERSONAL, AlcanceActividad.CON_CLIENTE}:
+            form.initial["alcance"] = alcance_q
+
+    if request.method == "POST" and form.is_valid():
+        actividad = form.save(commit=False)
+        actividad.creado_por = request.user
+        actividad.tipo = TipoActividad.GENERAL
+        actividad.estado = EstadoActividad.PROGRAMADA
+        # Correo automático solo si es con cliente (sin checkbox).
+        actividad.enviar_correo = actividad.alcance == AlcanceActividad.CON_CLIENTE
+        actividad.save()
+        form.save_m2m()
+
+        if actividad.enviar_correo:
+            try:
+                ok, msg = enviar_correo_actividad(actividad)
+                if ok:
+                    messages.success(request, f"Actividad creada. {msg}")
+                else:
+                    messages.warning(request, f"Actividad creada. Correo no enviado: {msg}")
+            except Exception as exc:  # noqa: BLE001
+                messages.warning(
+                    request,
+                    f"Actividad creada, pero falló el correo: {exc}",
+                )
+        else:
+            messages.success(request, "Actividad creada.")
+        return redirect("maestro:actividad_detalle", pk=actividad.pk)
+
+    docs_por_revisar = []
+    docs_pendientes = []
+    if empresa:
+        revision = revision_activa_empresa(empresa.pk)
+        if revision:
+            prog = calcular_progreso_revision(revision)
+            ids_ok = set(docs_qs.values_list("pk", flat=True))
+            docs_por_revisar = [
+                d for d in docs_qs if d.pk in {x.id for x in prog.documentos_por_revisar} and d.pk in ids_ok
+            ]
+            docs_pendientes = [
+                d
+                for d in docs_qs
+                if d.pk in {x.id for x in prog.documentos_pendientes_entrega} and d.pk in ids_ok
+            ]
+
+    selected_doc_ids: set[int] = set()
+    if form.is_bound:
+        selected_doc_ids = {int(x) for x in request.POST.getlist("documentos") if str(x).isdigit()}
+
+    return render(
+        request,
+        "maestro/actividad_form.html",
+        {
+            "form": form,
+            "empresa_sel": empresa,
+            "docs_por_revisar": docs_por_revisar,
+            "docs_pendientes": docs_pendientes,
+            "selected_doc_ids": selected_doc_ids,
+            "modo": "crear",
+        },
+    )
+
+
+@gestor_o_admin_required
+@require_GET
+def actividad_detalle(request: HttpRequest, pk: int) -> HttpResponse:
+    actividad = get_object_or_404(
+        Actividad.objects.select_related("empresa", "creado_por", "actividad_padre")
+        .prefetch_related("documentos", "acuerdos__documentos"),
+        pk=pk,
+        creado_por=request.user,
+    )
+    if actividad.empresa_id and not puede_ver_empresa(request.user, actividad.empresa):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return redirect("maestro:actividad_calendario")
+
+    docs_qs = actividad.documentos.all().order_by("codigo")
+    now_local = timezone.localtime(timezone.now())
+    default_dt = (now_local + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
+    acuerdo_form = AcuerdoForm(
+        documentos_qs=docs_qs,
+        initial={
+            "fecha_compromiso": default_dt,
+            "titulo": actividad.titulo,
+        },
+    )
+    acuerdos = list(
+        actividad.acuerdos.exclude(estado=EstadoAcuerdo.CANCELADO)
+        .prefetch_related("documentos")
+        .order_by("-creado_en")
+    )
+    return render(
+        request,
+        "maestro/actividad_detalle.html",
+        {
+            "actividad": actividad,
+            "acuerdo_form": acuerdo_form,
+            "acuerdos": acuerdos,
+            "recordatorio_form": AcuerdoRecordatorioForm(),
+            "puede_derivar": actividad.estado != EstadoActividad.CANCELADA,
+        },
+    )
+
+
+def _actividad_padre_ok(request: HttpRequest, pk: int) -> Actividad | None:
+    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    if actividad.empresa_id and not puede_ver_empresa(request.user, actividad.empresa):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return None
+    if actividad.estado == EstadoActividad.CANCELADA:
+        messages.error(request, "No se puede derivar desde una actividad cancelada.")
+        return None
+    return actividad
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def actividad_crear_acuerdo(request: HttpRequest, pk: int) -> HttpResponse:
+    """Crea un Acuerdo (modelo propio), no una actividad del calendario."""
+    padre = _actividad_padre_ok(request, pk)
+    if padre is None:
+        return redirect("maestro:actividad_calendario")
+
+    form = AcuerdoForm(request.POST, documentos_qs=padre.documentos.all())
+    if not form.is_valid():
+        messages.error(request, "Indica un detalle o selecciona documentos.")
+        return redirect("maestro:actividad_detalle", pk=padre.pk)
+
+    docs = form.cleaned_data.get("documentos") or []
+    empresa = padre.empresa
+    acuerdo = Acuerdo.objects.create(
+        actividad=padre,
+        empresa=empresa,
+        titulo=form.cleaned_data["titulo"],
+        descripcion=form.cleaned_data.get("descripcion") or "",
+        fecha_compromiso=form.cleaned_data.get("fecha_compromiso"),
+        estado=EstadoAcuerdo.ABIERTO,
+        creado_por=request.user,
+    )
+    if docs:
+        acuerdo.documentos.set(docs)
+
+    if padre.empresa_id:
+        try:
+            ok, mail_msg = enviar_correo_acuerdo(acuerdo, es_recordatorio=False)
+            publicar_mensajes_acuerdo(acuerdo, request.user)
+            if ok:
+                messages.success(request, "Acuerdo guardado y notificado.")
+            else:
+                messages.warning(request, f"Acuerdo guardado. {mail_msg}")
+        except Exception as exc:  # noqa: BLE001
+            messages.warning(request, f"Acuerdo guardado, pero no se pudo notificar: {exc}")
+    else:
+        messages.success(request, "Acuerdo guardado.")
+
+    return redirect("maestro:actividad_detalle", pk=padre.pk)
+
+
+def _acuerdo_accesible(request: HttpRequest, pk: int) -> Acuerdo | None:
+    acuerdo = get_object_or_404(
+        Acuerdo.objects.select_related("actividad", "empresa", "creado_por"),
+        pk=pk,
+    )
+    if not acuerdo.empresa_id and acuerdo.actividad.empresa_id:
+        acuerdo.empresa = acuerdo.actividad.empresa
+        acuerdo.save(update_fields=["empresa", "actualizado_en"])
+    empresa = acuerdo.empresa or acuerdo.actividad.empresa
+    if empresa and not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a este acuerdo.")
+        return None
+    if not empresa and acuerdo.creado_por_id != request.user.pk:
+        messages.error(request, "No tienes acceso a este acuerdo.")
+        return None
+    return acuerdo
+
+
+def _redirect_acuerdo(request: HttpRequest, acuerdo: Acuerdo) -> HttpResponse:
+    next_url = (request.POST.get("next") or request.GET.get("next") or "").strip()
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
+    return redirect("maestro:actividad_detalle", pk=acuerdo.actividad_id)
+
+
+@gestor_o_admin_required
+@require_GET
+def acuerdo_bandeja(request: HttpRequest) -> HttpResponse:
+    """Bandeja global de acuerdos de las empresas visibles."""
+    empresas = empresas_visibles(request.user)
+    estado = (request.GET.get("estado") or "abiertos").strip().lower()
+    filtro = (request.GET.get("filtro") or "todos").strip().lower()
+    empresa_q = (request.GET.get("empresa") or "").strip()
+
+    qs = (
+        Acuerdo.objects.filter(
+            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas)
+        )
+        .exclude(estado=EstadoAcuerdo.CANCELADO)
+        .select_related("empresa", "actividad", "actividad__empresa", "creado_por")
+        .prefetch_related("documentos")
+        .order_by("fecha_compromiso", "-creado_en")
+    )
+    if estado == "abiertos":
+        qs = qs.filter(estado=EstadoAcuerdo.ABIERTO)
+    elif estado == "cumplidos":
+        qs = qs.filter(estado=EstadoAcuerdo.CUMPLIDO)
+    elif estado != "todos":
+        estado = "abiertos"
+        qs = qs.filter(estado=EstadoAcuerdo.ABIERTO)
+
+    if empresa_q.isdigit():
+        qs = qs.filter(
+            Q(empresa_id=int(empresa_q)) | Q(actividad__empresa_id=int(empresa_q))
+        )
+
+    now = timezone.now()
+    hoy = timezone.localdate()
+    if filtro == "vencidos":
+        qs = qs.filter(estado=EstadoAcuerdo.ABIERTO, fecha_compromiso__lt=now)
+    elif filtro == "hoy":
+        qs = qs.filter(
+            estado=EstadoAcuerdo.ABIERTO,
+            fecha_compromiso__date=hoy,
+        )
+    elif filtro == "proximos":
+        qs = qs.filter(
+            estado=EstadoAcuerdo.ABIERTO,
+            fecha_compromiso__gte=now,
+            fecha_compromiso__date__lte=hoy + timedelta(days=7),
+        )
+    elif filtro != "todos":
+        filtro = "todos"
+
+    acuerdos = list(qs[:300])
+    contadores = {
+        "abiertos": Acuerdo.objects.filter(
+            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas),
+            estado=EstadoAcuerdo.ABIERTO,
+        ).count(),
+        "vencidos": Acuerdo.objects.filter(
+            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas),
+            estado=EstadoAcuerdo.ABIERTO,
+            fecha_compromiso__lt=now,
+        ).count(),
+    }
+    return render(
+        request,
+        "maestro/acuerdo_bandeja.html",
+        {
+            "acuerdos": acuerdos,
+            "estado": estado,
+            "filtro": filtro,
+            "empresa_q": empresa_q,
+            "empresas": empresas.filter(activo=True),
+            "contadores": contadores,
+            "now": now,
+            "recordatorio_form": AcuerdoRecordatorioForm(),
+        },
+    )
+
+
+@gestor_o_admin_required
+@require_GET
+def aviso_list(request: HttpRequest) -> HttpResponse:
+    solo = (request.GET.get("solo") or "nuevos").strip().lower()
+    qs = (
+        AvisoConsultor.objects.filter(destinatario=request.user)
+        .select_related("empresa", "empresa_documento")
+        .order_by("-creado_en")
+    )
+    if solo == "nuevos":
+        qs = qs.filter(leido=False)
+    elif solo != "todos":
+        solo = "nuevos"
+        qs = qs.filter(leido=False)
+    avisos = list(qs[:200])
+    return render(
+        request,
+        "maestro/aviso_list.html",
+        {"avisos": avisos, "solo": solo},
+    )
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def aviso_marcar_leido(request: HttpRequest, pk: int) -> HttpResponse:
+    aviso = get_object_or_404(AvisoConsultor, pk=pk, destinatario=request.user)
+    if not aviso.leido:
+        aviso.leido = True
+        aviso.leido_en = timezone.now()
+        aviso.save(update_fields=["leido", "leido_en"])
+    next_url = (request.POST.get("next") or "").strip()
+    if aviso.url and aviso.url.startswith("/") and not aviso.url.startswith("//"):
+        return redirect(aviso.url)
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
+    return redirect("maestro:aviso_list")
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def aviso_marcar_todos(request: HttpRequest) -> HttpResponse:
+    AvisoConsultor.objects.filter(destinatario=request.user, leido=False).update(
+        leido=True,
+        leido_en=timezone.now(),
+    )
+    messages.success(request, "Todos los avisos se marcaron como leídos.")
+    return redirect("maestro:aviso_list")
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def acuerdo_enviar_recordatorio(request: HttpRequest, pk: int) -> HttpResponse:
+    acuerdo = _acuerdo_accesible(request, pk)
+    if acuerdo is None:
+        return redirect("maestro:acuerdo_bandeja")
+
+    if acuerdo.estado != EstadoAcuerdo.ABIERTO:
+        messages.error(request, "Solo se puede recordar acuerdos abiertos.")
+        return _redirect_acuerdo(request, acuerdo)
+    if not acuerdo.empresa_id:
+        messages.error(request, "Este acuerdo no tiene empresa para notificar.")
+        return _redirect_acuerdo(request, acuerdo)
+
+    form = AcuerdoRecordatorioForm(request.POST)
+    nota = form.cleaned_data.get("mensaje", "").strip() if form.is_valid() else ""
+
+    try:
+        ok, mail_msg = enviar_correo_acuerdo(
+            acuerdo, es_recordatorio=True, mensaje_extra=nota
+        )
+        publicar_mensajes_acuerdo(acuerdo, request.user, solo_pendientes=True)
+        if ok:
+            messages.success(request, "Recordatorio enviado.")
+        else:
+            messages.info(request, mail_msg)
+    except Exception as exc:  # noqa: BLE001
+        messages.warning(request, f"No se pudo enviar el recordatorio: {exc}")
+
+    return _redirect_acuerdo(request, acuerdo)
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def acuerdo_marcar_cumplido(request: HttpRequest, pk: int) -> HttpResponse:
+    acuerdo = _acuerdo_accesible(request, pk)
+    if acuerdo is None:
+        return redirect("maestro:acuerdo_bandeja")
+    acuerdo.estado = EstadoAcuerdo.CUMPLIDO
+    acuerdo.save(update_fields=["estado", "actualizado_en"])
+    messages.success(request, "Acuerdo marcado como cumplido.")
+    return _redirect_acuerdo(request, acuerdo)
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def actividad_completar(request: HttpRequest, pk: int) -> HttpResponse:
+    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    actividad.estado = EstadoActividad.COMPLETADA
+    actividad.save(update_fields=["estado", "actualizado_en"])
+    messages.success(request, "Actividad marcada como completada.")
+    return redirect("maestro:actividad_detalle", pk=actividad.pk)
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def actividad_cancelar(request: HttpRequest, pk: int) -> HttpResponse:
+    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    actividad.estado = EstadoActividad.CANCELADA
+    actividad.save(update_fields=["estado", "actualizado_en"])
+    messages.success(request, "Actividad cancelada.")
+    return redirect("maestro:actividad_calendario")

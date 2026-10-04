@@ -1,7 +1,10 @@
 from django.contrib import admin
 
 from .models import (
+    Actividad,
+    Acuerdo,
     Area,
+    AvisoConsultor,
     Criterio,
     Documento,
     DocumentoCarga,
@@ -136,6 +139,59 @@ class DocumentoMensajeAdmin(admin.ModelAdmin):
     )
     raw_id_fields = ("empresa_documento", "autor", "carga")
     readonly_fields = ("creado_en",)
+
+
+@admin.register(AvisoConsultor)
+class AvisoConsultorAdmin(admin.ModelAdmin):
+    list_display = (
+        "titulo",
+        "tipo",
+        "empresa",
+        "destinatario",
+        "leido",
+        "creado_en",
+    )
+    list_filter = ("tipo", "leido", "empresa")
+    search_fields = ("titulo", "detalle", "empresa__nombre", "destinatario__email")
+    raw_id_fields = ("destinatario", "empresa", "empresa_documento", "carga")
+    readonly_fields = ("creado_en", "leido_en")
+
+
+@admin.register(Actividad)
+class ActividadAdmin(admin.ModelAdmin):
+    list_display = (
+        "titulo",
+        "tipo",
+        "alcance",
+        "empresa",
+        "inicio",
+        "estado",
+        "creado_por",
+        "enviar_correo",
+    )
+    list_filter = ("tipo", "alcance", "estado", "enviar_correo")
+    search_fields = ("titulo", "descripcion", "empresa__nombre", "creado_por__email")
+    raw_id_fields = ("empresa", "creado_por", "actividad_padre")
+    filter_horizontal = ("documentos",)
+    readonly_fields = ("correo_enviado_en", "creado_en", "actualizado_en")
+
+
+@admin.register(Acuerdo)
+class AcuerdoAdmin(admin.ModelAdmin):
+    list_display = (
+        "titulo",
+        "actividad",
+        "empresa",
+        "estado",
+        "fecha_compromiso",
+        "creado_por",
+        "ultimo_recordatorio_en",
+    )
+    list_filter = ("estado",)
+    search_fields = ("titulo", "descripcion", "empresa__nombre", "actividad__titulo")
+    raw_id_fields = ("actividad", "empresa", "creado_por")
+    filter_horizontal = ("documentos",)
+    readonly_fields = ("correo_enviado_en", "ultimo_recordatorio_en", "creado_en", "actualizado_en")
 
 
 @admin.register(PerfilUsuario)

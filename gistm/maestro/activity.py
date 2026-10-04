@@ -7,6 +7,7 @@ from .models import (
     DocumentoCarga,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EstadoRevisionCarga,
     Revision,
     RevisionCriterioDesactivado,
 )
@@ -39,15 +40,18 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
         return []
 
     eventos: list[EventoMonitoreo] = []
+    # Pedimos más filas por tipo porque aprobación/rechazo salen del mismo set de cargas.
+    fetch = max(limite, 80)
 
     cargas = (
         DocumentoCarga.objects.filter(empresa_documento__revision_id__in=revision_ids)
         .select_related(
             "subido_por",
+            "revisado_por",
             "empresa_documento",
             "empresa_documento__revision",
         )
-        .order_by("-creado_en")[:limite]
+        .order_by("-creado_en")[:fetch]
     )
     for carga in cargas:
         doc = carga.empresa_documento
@@ -72,6 +76,33 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
             )
         )
 
+        if carga.revisado_en and carga.estado_revision in {
+            EstadoRevisionCarga.APROBADO,
+            EstadoRevisionCarga.RECHAZADO,
+        }:
+            es_aprobacion = carga.estado_revision == EstadoRevisionCarga.APROBADO
+            eventos.append(
+                EventoMonitoreo(
+                    fecha=carga.revisado_en,
+                    tipo="aprobacion" if es_aprobacion else "rechazo",
+                    titulo=(
+                        f"Evidencia {'aprobada' if es_aprobacion else 'rechazada'} · {doc.codigo}"
+                    ),
+                    detalle=(
+                        f"Se {'aprobó' if es_aprobacion else 'rechazó'} «{nombre_archivo}» "
+                        f"del documento {doc.nombre}."
+                        + (
+                            f" Motivo: {carga.motivo_rechazo}"
+                            if (not es_aprobacion and carga.motivo_rechazo)
+                            else ""
+                        )
+                    ),
+                    actor=_actor_label(carga.revisado_por),
+                    revision_label=rev.etiqueta if rev else "—",
+                    archivo_url=carga.archivo.url if carga.archivo else None,
+                )
+            )
+
     vinculos = (
         EmpresaDocumentoCriterio.objects.filter(
             empresa_documento__revision_id__in=revision_ids
@@ -82,7 +113,7 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
             "empresa_documento",
             "empresa_documento__revision",
         )
-        .order_by("-creado_en")[:limite]
+        .order_by("-creado_en")[:fetch]
     )
     for vinculo in vinculos:
         doc = vinculo.empresa_documento
@@ -107,7 +138,7 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
             origen="PROPIO",
         )
         .select_related("revision")
-        .order_by("-creado_en")[:limite]
+        .order_by("-creado_en")[:fetch]
     )
     for doc in docs_propios:
         eventos.append(
@@ -124,7 +155,7 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
     desactivaciones = (
         RevisionCriterioDesactivado.objects.filter(revision_id__in=revision_ids)
         .select_related("criterio", "revision")
-        .order_by("-creado_en")[:limite]
+        .order_by("-creado_en")[:fetch]
     )
     for des in desactivaciones:
         eventos.append(

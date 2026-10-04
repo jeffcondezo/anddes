@@ -1,0 +1,154 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Pendientes · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento · Pendientes</p>
+    <h1>{{ empresa.nombre }}</h1>
+    <p class="page-desc">
+      Documentos aún no entregados o rechazados, y criterios sin documento asociado.
+      {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance</a>
+    <a class="btn" href="{% url 'maestro:actividad_crear' %}?empresa={{ empresa.pk }}">Nueva actividad</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">
+      Por revisar{% if progreso %} ({{ progreso.docs_por_revisar }}){% endif %}
+    </a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+  </div>
+</header>
+
+{% if not revision %}
+  <div class="info-banner">
+    <div>
+      <h2>Sin revisión activa</h2>
+      <p>No hay backlog de pendientes porque no existe una revisión activa.</p>
+    </div>
+  </div>
+{% else %}
+  <div class="stat-grid" style="margin-bottom:1.25rem;">
+    <article class="stat-card">
+      <div class="stat-label">Sin entregar</div>
+      <div class="stat-value">{{ progreso.docs_por_subir }}</div>
+      <div class="stat-hint">Documentos aplicables sin evidencia</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Rechazados</div>
+      <div class="stat-value">{{ progreso.docs_rechazados }}</div>
+      <div class="stat-hint">Requieren nueva carga del cliente</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Criterios sin documento</div>
+      <div class="stat-value">{{ progreso.criterios_huerfanos_count }}</div>
+      <div class="stat-hint">Sin evidencia precargada ni propia</div>
+    </article>
+  </div>
+
+  <div class="split-layout">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Documentos pendientes</h2>
+          <p class="muted">Sin evidencia o con rechazo. No incluye la cola «Por revisar».</p>
+        </div>
+        <span class="badge badge-off">{{ documentos|length }}</span>
+      </div>
+
+      {% if documentos %}
+        <div class="doc-list">
+          {% for doc in documentos %}
+            <div class="doc-row">
+              <div class="doc-row-main">
+                <strong>{{ doc.codigo }} · {{ doc.nombre }}</strong>
+                <div class="doc-row-meta">
+                  <span>{{ doc.criterios_count }} criterio{{ doc.criterios_count|pluralize }}</span>
+                  {% if doc.rechazado and doc.carga and doc.carga.motivo_rechazo %}
+                    <span class="muted">· {{ doc.carga.motivo_rechazo|truncatechars:90 }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="doc-row-side">
+                {% if doc.es_catalogo %}
+                  <span class="badge badge-info">Precargado</span>
+                {% else %}
+                  <span class="badge badge-info">Del cliente</span>
+                {% endif %}
+                {% if doc.rechazado %}
+                  <span class="badge badge-off">Rechazado</span>
+                {% else %}
+                  <span class="badge badge-off">Sin evidencia</span>
+                {% endif %}
+                {% if doc.rechazado %}
+                  <a
+                    class="btn btn-ghost"
+                    href="{% url 'maestro:documento_conversacion' doc.id %}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Mensajes
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <strong>Sin documentos pendientes</strong>
+          No hay evidencias por entregar ni rechazadas en esta revisión.
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Criterios sin documento</h2>
+          <p class="muted">Criterios aplicables sin documento precargado ni propio asociado.</p>
+        </div>
+        <span class="badge badge-off">{{ criterios_huerfanos|length }}</span>
+      </div>
+
+      {% if criterios_huerfanos %}
+        <div class="doc-list">
+          {% for c in criterios_huerfanos %}
+            <div class="doc-row">
+              <div class="doc-row-main">
+                <strong class="mono">{{ c.codigo }}</strong>
+                <div class="doc-row-meta">
+                  <span>{{ c.descripcion|default:"Sin descripción"|truncatechars:120 }}</span>
+                </div>
+                <div class="doc-row-meta" style="margin-top:0.25rem;">
+                  <span class="muted">
+                    {{ c.tema.codigo }} · {{ c.principio.codigo }} · {{ c.requisito.codigo }}
+                  </span>
+                </div>
+              </div>
+              <div class="doc-row-side">
+                <span class="badge badge-off">Sin documento</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        {% if es_administrador %}
+          <p style="margin:1rem 0 0;">
+            <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}?tab=huerfanos">
+              Configurar documentos / huérfanos
+            </a>
+          </p>
+        {% endif %}
+      {% else %}
+        <div class="empty-state">
+          <strong>Sin criterios huérfanos</strong>
+          Todos los criterios aplicables tienen un documento asociado.
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endif %}
+{% endblock %}
