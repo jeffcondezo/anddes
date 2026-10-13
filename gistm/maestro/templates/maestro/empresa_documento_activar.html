@@ -28,6 +28,16 @@
         </div>
         {{ form.documentos.errors }}
       </div>
+      <div class="form-row" style="margin-top:1rem;">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+          {{ form.prioritario }}
+          <span>{{ form.prioritario.label }}</span>
+        </label>
+        {% if form.prioritario.help_text %}
+          <p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">{{ form.prioritario.help_text }}</p>
+        {% endif %}
+        {{ form.prioritario.errors }}
+      </div>
       <div class="form-actions" style="margin-top:1.1rem;">
         <button type="submit" class="btn">Activar seleccionados</button>
         <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>

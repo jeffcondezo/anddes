@@ -1,0 +1,154 @@
+{% load l10n %}
+{% if not progreso %}
+  <div class="empty-state">
+    <strong>Sin revisión activa</strong>
+    Activa una revisión para ver el resumen de indicadores.
+  </div>
+{% else %}
+  <div class="stat-grid">
+    <article class="stat-card">
+      <div class="stat-label">Documentos</div>
+      <div class="stat-value">{{ progreso.docs_pct }}%</div>
+      <div class="stat-hint">{{ progreso.docs_cargados }} / {{ progreso.docs_total }}</div>
+    </article>
+    <article class="stat-card neutral">
+      <div class="stat-label">Criterios</div>
+      <div class="stat-value">{{ progreso.criterios_pct }}%</div>
+      <div class="stat-hint">{{ progreso.criterios_completos }} / {{ progreso.criterios_total }}</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Requisitos</div>
+      <div class="stat-value">{{ progreso.requisitos_pct }}%</div>
+      <div class="stat-hint">{{ progreso.requisitos_completos }} / {{ progreso.requisitos_total }}</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Principios · Temas</div>
+      <div class="stat-value" style="font-size:1.35rem;padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-hint">{{ progreso.principios_completos }}/{{ progreso.principios_total }} · {{ progreso.temas_completos }}/{{ progreso.temas_total }}</div>
+    </article>
+  </div>
+
+  <div class="stat-grid" style="margin-top:1rem;">
+    <article class="stat-card neutral">
+      <div class="stat-label">Por revisar</div>
+      <div class="stat-value">{{ progreso.docs_por_revisar }}</div>
+      <div class="stat-hint">Evidencias pendientes de aprobación</div>
+    </article>
+    <article class="stat-card danger">
+      <div class="stat-label">Pendientes entrega</div>
+      <div class="stat-value">{{ progreso.docs_pendientes_entrega }}</div>
+      <div class="stat-hint">Sin cargar o rechazados</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Criterios huérfanos</div>
+      <div class="stat-value">{{ progreso.criterios_huerfanos_count }}</div>
+      <div class="stat-hint">Sin documento asignado</div>
+    </article>
+  </div>
+
+  <div class="ind-charts" style="margin-top:1.25rem;">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Avance de documentos</h2>
+          <p class="muted">Aprobados vs pendientes de completar.</p>
+        </div>
+      </div>
+      <div class="ind-chart-box ind-chart-box--sm">
+        <canvas id="chart-docs-donut"></canvas>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Cumplimiento por tema</h2>
+          <p class="muted">Porcentaje de cumplimiento por tema (misma medida que Seguimiento).</p>
+        </div>
+      </div>
+      <div class="ind-chart-box ind-chart-box--sm">
+        <canvas id="chart-temas-barras"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <div class="ind-progreso-top" style="margin-top:1.25rem;">
+    <section class="panel ind-panel-chart">
+      <div class="panel-head">
+        <div>
+          <h2>Curva avance</h2>
+          <p class="muted">
+            {% if revision.fecha_inicio and revision.fecha_fin %}
+              % Plan, % Real y % Forecast · {{ revision.fecha_inicio|date:"d/m/Y" }} → {{ revision.fecha_fin|date:"d/m/Y" }}
+            {% else %}
+              Define fecha inicio y fin en la revisión para calcular Plan y Forecast.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      {% if revision.fecha_inicio and revision.fecha_fin %}
+        <div class="ind-chart-box ind-chart-box--sm">
+          <canvas id="chart-curva-avance"></canvas>
+        </div>
+      {% else %}
+        <div class="ind-panel-body--sm">
+          <div class="empty-state">
+            <strong>Sin periodo definido</strong>
+            Edita la revisión activa y carga fecha inicio / fecha fin.
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel ind-panel-prio">
+      <div class="panel-head">
+        <div>
+          <h2>Documentos prioritarios</h2>
+          <p class="muted">Marcados como prioritarios en la revisión.</p>
+        </div>
+      </div>
+      <div class="ind-panel-body--sm">
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Área</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in docs_prioritarios %}
+                <tr>
+                  <td>
+                    <a href="{% url 'maestro:documento_conversacion' d.id %}">{{ d.nombre }}</a>
+                    <div class="muted" style="font-size:0.75rem;">{{ d.codigo }} · {{ d.estado_label }}</div>
+                  </td>
+                  <td>{{ d.area }}</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="2">
+                    <div class="empty-state">
+                      <strong>Sin pendientes prioritarios</strong>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="page-actions" style="margin-top:1rem;">
+    {% if revision %}
+      <a class="btn" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">Por revisar</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}?rev={{ revision.pk }}">Pendientes</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Detalle seguimiento</a>
+    {% else %}
+      <a class="btn" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Por revisar</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}">Pendientes</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Detalle seguimiento</a>
+    {% endif %}
+  </div>
+{% endif %}

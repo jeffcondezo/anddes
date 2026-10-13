@@ -59,6 +59,11 @@ urlpatterns = [
         name="empresa_documento_toggle_activo",
     ),
     path(
+        "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/<int:doc_id>/toggle-prioritario/",
+        views.empresa_documento_toggle_prioritario,
+        name="empresa_documento_toggle_prioritario",
+    ),
+    path(
         "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/<int:doc_id>/criterios/",
         views.empresa_documento_criterios,
         name="empresa_documento_criterios",
@@ -73,6 +78,17 @@ urlpatterns = [
     path("catalogo/temas/", views.tema_list, name="tema_list"),
     path("catalogo/temas/nuevo/", views.tema_create, name="tema_create"),
     path("catalogo/temas/<int:pk>/editar/", views.tema_edit, name="tema_edit"),
+    path("catalogo/glosario/", views.glosario_termino_list, name="glosario_termino_list"),
+    path(
+        "catalogo/glosario/nuevo/",
+        views.glosario_termino_create,
+        name="glosario_termino_create",
+    ),
+    path(
+        "catalogo/glosario/<int:pk>/editar/",
+        views.glosario_termino_edit,
+        name="glosario_termino_edit",
+    ),
     path("catalogo/principios/", views.principio_list, name="principio_list"),
     path("catalogo/principios/nuevo/", views.principio_create, name="principio_create"),
     path("catalogo/principios/<int:pk>/editar/", views.principio_edit, name="principio_edit"),
@@ -106,9 +122,19 @@ urlpatterns = [
         name="documento_criterio_delete",
     ),
     path(
+        "catalogo/relacion-estandar/plantilla/",
+        views.documento_criterio_plantilla,
+        name="documento_criterio_plantilla",
+    ),
+    path(
         "catalogo/relacion-estandar/importar/",
         views.documento_criterio_importar,
         name="documento_criterio_importar",
+    ),
+    path(
+        "catalogo/relacion-estandar/borrar-todas/",
+        views.documento_criterio_borrar_todas,
+        name="documento_criterio_borrar_todas",
     ),
     # Portal cliente
     path("mi-empresa/", views.mi_empresa_dashboard, name="mi_empresa_dashboard"),
@@ -151,6 +177,11 @@ urlpatterns = [
         name="seguimiento_empresa_pendientes",
     ),
     path(
+        "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/revisar/",
+        views.seguimiento_carga_revisar,
+        name="seguimiento_carga_revisar",
+    ),
+    path(
         "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/aprobar/",
         views.seguimiento_carga_aprobar,
         name="seguimiento_carga_aprobar",
@@ -164,6 +195,13 @@ urlpatterns = [
         "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/asociar-criterios/",
         views.seguimiento_documento_asociar_criterios,
         name="seguimiento_documento_asociar_criterios",
+    ),
+    # Indicadores (dashboards internos)
+    path("indicadores/", views.indicadores_list, name="indicadores_list"),
+    path(
+        "indicadores/empresas/<int:pk>/",
+        views.indicadores_empresa,
+        name="indicadores_empresa",
     ),
     # Actividades / acuerdos / avisos (consultor)
     path("actividades/", views.actividad_calendario, name="actividad_calendario"),

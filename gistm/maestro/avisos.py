@@ -127,6 +127,9 @@ def avisar_nueva_carga(*, carga: DocumentoCarga, actor=None) -> list[AvisoConsul
         "maestro:seguimiento_empresa_revision",
         args=[empresa.pk],
     )
+    revision = getattr(doc, "revision", None)
+    if revision is not None:
+        url = f"{url}?rev={revision.pk}"
     nombre = carga.nombre_original or (
         carga.archivo.name.rsplit("/", 1)[-1] if carga.archivo else "archivo"
     )

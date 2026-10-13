@@ -260,6 +260,7 @@
           <th>Origen</th>
           <th>Criterios</th>
           <th>Estado</th>
+          <th>Prioritario</th>
           <th></th>
         </tr>
       </thead>
@@ -286,8 +287,21 @@
                 <span class="badge badge-off">Inactivo</span>
               {% endif %}
             </td>
+            <td>
+              {% if doc.prioritario %}
+                <span class="badge badge-ok">Sí</span>
+              {% else %}
+                <span class="muted">No</span>
+              {% endif %}
+            </td>
             <td class="actions">
               <a href="{% url 'maestro:empresa_documento_criterios' empresa.pk revision.pk doc.pk %}">Criterios</a>
+              <form method="post" action="{% url 'maestro:empresa_documento_toggle_prioritario' empresa.pk revision.pk doc.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if doc.prioritario %}Quitar prioritario{% else %}Prioritario{% endif %}
+                </button>
+              </form>
               <form method="post" action="{% url 'maestro:empresa_documento_toggle_activo' empresa.pk revision.pk doc.pk %}" style="display:inline;">
                 {% csrf_token %}
                 <button type="submit" class="link-btn">
@@ -298,7 +312,7 @@
           </tr>
         {% empty %}
           <tr class="js-empty-row">
-            <td colspan="7">
+            <td colspan="8">
               <div class="empty-state">
                 {% if filtro_doc_q or filtro_doc_estado %}
                   <strong>Sin resultados</strong>

@@ -63,6 +63,11 @@
             {% else %}badge-info{% endif %}">
             {{ msg.get_tipo_display }}
           </span>
+          {% if msg.criterio %}
+            <span class="badge badge-info mono" title="{{ msg.criterio.descripcion|default:'' }}">
+              Criterio {{ msg.criterio.codigo }}
+            </span>
+          {% endif %}
           <time datetime="{{ msg.creado_en|date:'c' }}">{{ msg.creado_en|date:"d/m/Y H:i" }}</time>
         </div>
         <div class="chat-text">{{ msg.texto|linebreaksbr }}</div>

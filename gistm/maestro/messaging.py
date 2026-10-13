@@ -20,6 +20,7 @@ def registrar_mensaje(
     es_consultor: bool | None = None,
     tipo: str = TipoDocumentoMensaje.OBSERVACION,
     carga: DocumentoCarga | None = None,
+    criterio=None,
 ) -> DocumentoMensaje:
     texto = (texto or "").strip()
     if not texto:
@@ -33,6 +34,7 @@ def registrar_mensaje(
         tipo=tipo,
         texto=texto,
         carga=carga,
+        criterio=criterio,
     )
 
 

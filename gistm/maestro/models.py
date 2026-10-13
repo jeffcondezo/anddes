@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import DecimalField, Sum
+from django.utils import timezone
 
 
 class Empresa(models.Model):
@@ -180,6 +181,24 @@ class Tema(models.Model):
 
     def __str__(self) -> str:
         return f"{self.codigo} · {self.nombre}"
+
+
+class GlosarioTermino(models.Model):
+    """Término del glosario mostrado en Indicadores → Glosario."""
+
+    concepto = models.CharField(max_length=255, unique=True)
+    descripcion = models.TextField()
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["concepto"]
+        verbose_name = "Término de glosario"
+        verbose_name_plural = "Términos de glosario"
+
+    def __str__(self) -> str:
+        return self.concepto
 
 
 class Principio(models.Model):
@@ -400,6 +419,15 @@ class OrigenEmpresaDocumento(models.TextChoices):
     PROPIO = "PROPIO", "Propio"
 
 
+class EstadoInstalacionRevision(models.TextChoices):
+    NUEVA = "NUEVA", "Nueva"
+    EXISTENTE = "EXISTENTE", "Existente"
+    PROYECTO = "PROYECTO", "Proyecto"
+    CONSTRUCCION = "CONSTRUCCION", "Construcción"
+    OPERACION = "OPERACION", "Operación"
+    CIERRE = "CIERRE", "Cierre"
+
+
 class Revision(models.Model):
     empresa = models.ForeignKey(
         Empresa,
@@ -408,6 +436,29 @@ class Revision(models.Model):
     )
     anio = models.PositiveSmallIntegerField()
     nombre = models.CharField(max_length=255, blank=True)
+    instalacion_deposito = models.CharField(
+        "Instalación o depósito",
+        max_length=255,
+        blank=True,
+    )
+    estado = models.CharField(
+        max_length=16,
+        choices=EstadoInstalacionRevision.choices,
+        blank=True,
+        default="",
+    )
+    capacidad = models.CharField(max_length=128, blank=True)
+    vida_util = models.CharField("Vida útil", max_length=128, blank=True)
+    fecha_inicio = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Inicio del periodo planificado (curva Plan / Forecast).",
+    )
+    fecha_fin = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Fin del periodo planificado (meta 100%).",
+    )
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -425,6 +476,12 @@ class Revision(models.Model):
     @property
     def etiqueta(self) -> str:
         return self.nombre or str(self.anio)
+
+    def clean(self) -> None:
+        if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+            raise ValidationError(
+                {"fecha_fin": "La fecha fin no puede ser anterior a la fecha inicio."}
+            )
 
 
 class EmpresaDocumento(models.Model):
@@ -448,6 +505,10 @@ class EmpresaDocumento(models.Model):
         max_length=16,
         choices=OrigenEmpresaDocumento.choices,
         default=OrigenEmpresaDocumento.PROPIO,
+    )
+    prioritario = models.BooleanField(
+        default=False,
+        help_text="Si está marcado, aparece en Documentos prioritarios del dashboard de Indicadores.",
     )
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(auto_now_add=True)
@@ -487,6 +548,12 @@ class EmpresaDocumento(models.Model):
             )
 
 
+class EstadoRevisionCriterio(models.TextChoices):
+    PENDIENTE = "PENDIENTE", "Pendiente"
+    APROBADO = "APROBADO", "Aprobado"
+    OBSERVADO = "OBSERVADO", "Observado"
+
+
 class EmpresaDocumentoCriterio(models.Model):
     empresa_documento = models.ForeignKey(
         EmpresaDocumento,
@@ -509,6 +576,24 @@ class EmpresaDocumentoCriterio(models.Model):
         on_delete=models.PROTECT,
         related_name="vinculos_empresa_documento",
     )
+    estado_revision = models.CharField(
+        max_length=16,
+        choices=EstadoRevisionCriterio.choices,
+        default=EstadoRevisionCriterio.PENDIENTE,
+        help_text="Aprobación parcial por criterio: solo APROBADO suma al avance.",
+    )
+    observacion = models.TextField(
+        blank=True,
+        help_text="Última observación del consultor para este criterio.",
+    )
+    revisado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="criterios_documento_revisados",
+    )
+    revisado_en = models.DateTimeField(null=True, blank=True)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -603,6 +688,7 @@ def documento_carga_upload_to(instance: "DocumentoCarga", filename: str) -> str:
 
 class EstadoRevisionCarga(models.TextChoices):
     PENDIENTE = "PENDIENTE", "Pendiente de revisión"
+    PARCIAL = "PARCIAL", "Aprobación parcial"
     APROBADO = "APROBADO", "Aprobado"
     RECHAZADO = "RECHAZADO", "Rechazado"
 
@@ -633,7 +719,11 @@ class DocumentoCarga(models.Model):
         max_length=16,
         choices=EstadoRevisionCarga.choices,
         default=EstadoRevisionCarga.PENDIENTE,
-        help_text="Solo las cargas APROBADO cuentan en el avance del cliente.",
+        help_text=(
+            "APROBADO = todos los criterios del documento aprobados; "
+            "PARCIAL = algunos criterios aprobados; el avance de criterios "
+            "usa el estado de cada vínculo documento–criterio."
+        ),
     )
     motivo_rechazo = models.TextField(
         blank=True,
@@ -660,6 +750,10 @@ class DocumentoCarga(models.Model):
     @property
     def esta_pendiente(self) -> bool:
         return self.estado_revision == EstadoRevisionCarga.PENDIENTE
+
+    @property
+    def esta_parcial(self) -> bool:
+        return self.estado_revision == EstadoRevisionCarga.PARCIAL
 
     @property
     def esta_aprobado(self) -> bool:
@@ -945,6 +1039,14 @@ class DocumentoMensaje(models.Model):
         related_name="mensajes",
         help_text="Carga asociada, si el mensaje nace de un rechazo o una nueva evidencia.",
     )
+    criterio = models.ForeignKey(
+        Criterio,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="mensajes_documento",
+        help_text="Criterio al que apunta la observación (aprobación parcial).",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -955,6 +1057,76 @@ class DocumentoMensaje(models.Model):
     def __str__(self) -> str:
         lado = "Consultor" if self.es_consultor else "Cliente"
         return f"{self.empresa_documento.codigo} · {lado} · {self.creado_en:%d/%m/%Y}"
+
+
+def sincronizar_estado_carga_documento(
+    empresa_documento: EmpresaDocumento,
+    *,
+    revisado_por=None,
+) -> DocumentoCarga | None:
+    """
+    Ajusta el estado de la carga activa según los vínculos criterio:
+    todos APROBADO → APROBADO; algunos APROBADO → PARCIAL; ninguno → PENDIENTE
+    (si no está RECHAZADO sin aprobados).
+    """
+    carga = (
+        DocumentoCarga.objects.filter(empresa_documento=empresa_documento, activo=True)
+        .order_by("-creado_en")
+        .first()
+    )
+    if carga is None:
+        return None
+
+    estados = list(
+        EmpresaDocumentoCriterio.objects.filter(
+            empresa_documento=empresa_documento
+        ).values_list("estado_revision", flat=True)
+    )
+    if not estados:
+        # Documento sin criterios: no cambiar lógica especial aquí.
+        return carga
+
+    total = len(estados)
+    aprobados = sum(1 for e in estados if e == EstadoRevisionCriterio.APROBADO)
+
+    if aprobados == total:
+        nuevo = EstadoRevisionCarga.APROBADO
+    elif aprobados > 0:
+        nuevo = EstadoRevisionCarga.PARCIAL
+    elif carga.estado_revision == EstadoRevisionCarga.RECHAZADO:
+        nuevo = EstadoRevisionCarga.RECHAZADO
+    else:
+        nuevo = EstadoRevisionCarga.PENDIENTE
+
+    if carga.estado_revision != nuevo:
+        carga.estado_revision = nuevo
+        update_fields = ["estado_revision"]
+        if revisado_por is not None:
+            carga.revisado_por = revisado_por
+            carga.revisado_en = timezone.now()
+            update_fields.extend(["revisado_por", "revisado_en"])
+        elif nuevo in (EstadoRevisionCarga.APROBADO, EstadoRevisionCarga.PARCIAL):
+            carga.revisado_en = timezone.now()
+            update_fields.append("revisado_en")
+        if nuevo != EstadoRevisionCarga.RECHAZADO:
+            carga.motivo_rechazo = ""
+            update_fields.append("motivo_rechazo")
+        carga.save(update_fields=update_fields)
+    return carga
+
+
+def resetear_criterios_no_aprobados(empresa_documento: EmpresaDocumento) -> int:
+    """Al subir nueva evidencia: OBSERVADO/PENDIENTE → PENDIENTE; APROBADO se mantiene."""
+    return (
+        EmpresaDocumentoCriterio.objects.filter(empresa_documento=empresa_documento)
+        .exclude(estado_revision=EstadoRevisionCriterio.APROBADO)
+        .update(
+            estado_revision=EstadoRevisionCriterio.PENDIENTE,
+            observacion="",
+            revisado_por=None,
+            revisado_en=None,
+        )
+    )
 
 
 def ponderaciones_revision(revision: Revision) -> dict[int, Decimal]:

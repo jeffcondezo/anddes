@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from django.db.models import Count, Exists, OuterRef, Prefetch
+from django.db.models import Count, Prefetch
 
 from .models import (
     Criterio,
@@ -10,6 +10,7 @@ from .models import (
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
     EstadoRevisionCarga,
+    EstadoRevisionCriterio,
     OrigenEmpresaDocumento,
     Principio,
     Revision,
@@ -38,11 +39,13 @@ class DocumentoProgreso:
     codigo: str
     nombre: str
     origen: str
-    cargado: bool  # evidencia APROBADA (cuenta en avance)
+    cargado: bool  # todos los criterios del doc APROBADOS (cuenta en avance documentos)
     criterios_count: int = 0
+    criterios_aprobados: int = 0
     carga: DocumentoCarga | None = None
     estado_revision: str = ""
     pendiente_revision: bool = False
+    parcial: bool = False
     rechazado: bool = False
     vinculos: list = field(default_factory=list)
 
@@ -68,6 +71,8 @@ class DocumentoProgreso:
     def estado_label(self) -> str:
         if self.cargado:
             return "Aprobado"
+        if self.parcial:
+            return "Parcial"
         if self.pendiente_revision:
             return "Por revisar"
         if self.rechazado:
@@ -193,12 +198,31 @@ def _pct(parte: int, total: int) -> float:
     return round(100.0 * parte / total, 1)
 
 
-def revision_activa_empresa(empresa_id: int) -> Revision | None:
-    return (
-        Revision.objects.filter(empresa_id=empresa_id, activo=True)
-        .order_by("-anio", "-creado_en")
-        .first()
+def revisiones_activas_empresa(empresa_id: int):
+    """Todas las revisiones activas de la empresa (pueden coexistir en paralelo)."""
+    return Revision.objects.filter(empresa_id=empresa_id, activo=True).order_by(
+        "-anio", "-creado_en"
     )
+
+
+def revision_activa_empresa(empresa_id: int) -> Revision | None:
+    """Primera revisión activa (año más reciente / más reciente creada)."""
+    return revisiones_activas_empresa(empresa_id).first()
+
+
+def revision_activa_por_id(
+    empresa_id: int, rev_id: int | None = None
+) -> Revision | None:
+    """
+    Resuelve una revisión activa concreta. Si rev_id no aplica o es None,
+    usa la primera activa.
+    """
+    qs = revisiones_activas_empresa(empresa_id)
+    if rev_id is not None:
+        elegida = qs.filter(pk=rev_id).first()
+        if elegida is not None:
+            return elegida
+    return qs.first()
 
 
 def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
@@ -208,15 +232,9 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         )
     )
 
-    carga_aprobada = DocumentoCarga.objects.filter(
-        empresa_documento_id=OuterRef("pk"),
-        activo=True,
-        estado_revision=EstadoRevisionCarga.APROBADO,
-    )
     documentos_qs = (
         EmpresaDocumento.objects.filter(revision=revision, activo=True)
         .annotate(
-            tiene_carga_aprobada=Exists(carga_aprobada),
             criterios_count=Count("vinculos_criterio", distinct=True),
         )
         .prefetch_related(
@@ -228,7 +246,7 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             Prefetch(
                 "vinculos_criterio",
                 queryset=EmpresaDocumentoCriterio.objects.select_related(
-                    "criterio", "area"
+                    "criterio", "criterio__tema", "area"
                 ).order_by("criterio__codigo"),
                 to_attr="vinculos_list",
             ),
@@ -236,12 +254,34 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         .order_by("codigo")
     )
     documentos_all: list[DocumentoProgreso] = []
-    docs_con_carga_ids: set[int] = set()
+    docs_completos_ids: set[int] = set()
     for doc in documentos_qs:
         carga = doc.cargas_vigentes[0] if getattr(doc, "cargas_vigentes", None) else None
         estado = carga.estado_revision if carga else ""
-        aprobado = bool(carga and carga.estado_revision == EstadoRevisionCarga.APROBADO)
-        pendiente = bool(carga and carga.estado_revision == EstadoRevisionCarga.PENDIENTE)
+        vinculos_list = list(getattr(doc, "vinculos_list", []))
+        crit_count = int(doc.criterios_count or 0)
+        crit_aprobados = sum(
+            1
+            for v in vinculos_list
+            if v.estado_revision == EstadoRevisionCriterio.APROBADO
+        )
+        # Documento completo = todos sus criterios aprobados (o carga APROBADO sin vínculos).
+        if crit_count > 0:
+            aprobado = crit_aprobados == crit_count
+        else:
+            aprobado = bool(carga and carga.estado_revision == EstadoRevisionCarga.APROBADO)
+        parcial = bool(
+            carga
+            and (
+                carga.estado_revision == EstadoRevisionCarga.PARCIAL
+                or (crit_count > 0 and 0 < crit_aprobados < crit_count)
+            )
+        )
+        pendiente = bool(
+            carga
+            and carga.estado_revision
+            in (EstadoRevisionCarga.PENDIENTE, EstadoRevisionCarga.PARCIAL)
+        )
         rechazado = bool(carga and carga.estado_revision == EstadoRevisionCarga.RECHAZADO)
         item = DocumentoProgreso(
             id=doc.pk,
@@ -249,27 +289,29 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             nombre=doc.nombre,
             origen=doc.origen,
             cargado=aprobado,
-            criterios_count=int(doc.criterios_count or 0),
+            criterios_count=crit_count,
+            criterios_aprobados=crit_aprobados,
             carga=carga,
             estado_revision=estado,
             pendiente_revision=pendiente,
+            parcial=parcial,
             rechazado=rechazado,
-            vinculos=list(getattr(doc, "vinculos_list", [])),
+            vinculos=vinculos_list,
         )
         documentos_all.append(item)
-        if aprobado and item.criterios_count > 0:
-            docs_con_carga_ids.add(doc.pk)
+        if aprobado and crit_count > 0:
+            docs_completos_ids.add(doc.pk)
 
     documentos = [d for d in documentos_all if d.criterios_count > 0]
     documentos_sin_criterios_config = [d for d in documentos_all if d.sin_criterios]
     documentos_propios_todos = [d for d in documentos_all if d.es_propio]
 
     docs_total = len(documentos)
-    docs_cargados = len(docs_con_carga_ids)
+    docs_cargados = len(docs_completos_ids)
 
-    # Criterio → documento de la revisión (uno solo por unique constraint)
-    vinculos = {
-        edc.criterio_id: edc.empresa_documento_id
+    # Criterio → vínculo (estado de aprobación parcial)
+    vinculos_por_criterio = {
+        edc.criterio_id: edc
         for edc in EmpresaDocumentoCriterio.objects.filter(
             revision=revision,
             empresa_documento__activo=True,
@@ -285,12 +327,14 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     criterio_completo: dict[int, bool] = {}
     criterios_huerfanos: list[Criterio] = []
     for criterio in criterios_aplicables:
-        doc_id = vinculos.get(criterio.pk)
-        if not doc_id:
+        vinculo = vinculos_por_criterio.get(criterio.pk)
+        if not vinculo:
             criterios_huerfanos.append(criterio)
             criterio_completo[criterio.pk] = False
             continue
-        criterio_completo[criterio.pk] = doc_id in docs_con_carga_ids
+        criterio_completo[criterio.pk] = (
+            vinculo.estado_revision == EstadoRevisionCriterio.APROBADO
+        )
     huerfanos = len(criterios_huerfanos)
 
     criterios_total = len(criterios_aplicables)
@@ -382,14 +426,21 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
                     children=requisitos_nivel,
                 )
             )
-        prins_ok = sum(1 for n in principios_nivel if n.completo)
+        # Cumplimiento del tema = criterios con evidencia aprobada / criterios del tema.
+        # (Misma unidad que el dashboard "Cumplimiento por tema".)
+        crits_total = 0
+        crits_ok = 0
+        for prin in principios_nivel:
+            for req in prin.children:
+                crits_total += req.total
+                crits_ok += req.completos
         temas_nivel.append(
             NivelProgreso(
                 codigo=tema.codigo,
                 nombre=tema.nombre,
-                total=len(principios_nivel),
-                completos=prins_ok,
-                pct=_pct(prins_ok, len(principios_nivel)),
+                total=crits_total,
+                completos=crits_ok,
+                pct=_pct(crits_ok, crits_total),
                 children=principios_nivel,
             )
         )

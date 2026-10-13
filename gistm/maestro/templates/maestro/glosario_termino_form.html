@@ -1,0 +1,46 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Glosario</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">El concepto es único y se muestra en Indicadores → Glosario.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:glosario_termino_list' %}">Volver al listado</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row span-2">
+      <label for="id_concepto">Concepto</label>
+      {{ form.concepto }}
+      {{ form.concepto.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_descripcion">Descripción</label>
+      {{ form.descripcion }}
+      {{ form.descripcion.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+        {{ form.activo }}
+        <span>Activo</span>
+      </label>
+      {{ form.activo.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:glosario_termino_list' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

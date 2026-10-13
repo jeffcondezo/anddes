@@ -1,0 +1,91 @@
+{% if not progreso %}
+  <div class="empty-state">
+    <strong>Sin revisión activa</strong>
+    No hay documentos de revisión para mostrar.
+  </div>
+{% else %}
+  <div class="coverage-tabs" style="margin-bottom:1rem;">
+    <a href="?tab=documentos&docs=todos{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'todos' %}active{% endif %}">
+      Todos <span class="count">{{ docs_count_todos|default:0 }}</span>
+    </a>
+    <a href="?tab=documentos&docs=referenciales{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'referenciales' %}active{% endif %}">
+      Referenciales <span class="count">{{ docs_count_ref|default:0 }}</span>
+    </a>
+    <a href="?tab=documentos&docs=multidisciplinario{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'multidisciplinario' %}active{% endif %}">
+      Multidisciplinario <span class="count">{{ docs_count_multi|default:0 }}</span>
+    </a>
+    <a href="?tab=documentos&docs=multiprincipio{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'multiprincipio' %}active{% endif %}">
+      Multiprincipio <span class="count">{{ docs_count_multiprincipio|default:0 }}</span>
+    </a>
+  </div>
+
+  <section class="panel panel-flush">
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Documento</th>
+            <th>Origen</th>
+            <th>Estado</th>
+            <th>Áreas</th>
+            <th>Principios</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in documentos_ind %}
+            <tr>
+              <td>
+                <strong class="mono">{{ d.codigo }}</strong>
+                <div class="muted" style="font-size:0.82rem;">{{ d.nombre }}</div>
+              </td>
+              <td>
+                <span class="badge {% if d.clasificacion == 'referenciales' %}badge-info{% else %}badge-warn{% endif %}">
+                  {{ d.origen_label }}
+                </span>
+                {% if d.es_multiprincipio %}
+                  <span class="badge badge-info" title="Criterios de distintos principios">Multiprincipio</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge
+                  {% if d.estado_label == 'Aprobado' %}badge-ok
+                  {% elif d.estado_label == 'Por revisar' %}badge-info
+                  {% elif d.estado_label == 'Rechazado' %}badge-off
+                  {% else %}badge-off{% endif %}">
+                  {{ d.estado_label }}
+                </span>
+              </td>
+              <td style="font-size:0.82rem;">{% if d.areas %}{{ d.areas|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td class="mono" style="font-size:0.8rem;">{% if d.principios %}{{ d.principios|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td>
+                <details class="ind-doc-detail">
+                  <summary>Detalle</summary>
+                  <div class="ind-doc-detail-body">
+                    <p><strong>Tipo:</strong> {{ d.tipo_documento|default:"—" }}</p>
+                    <p><strong>Principios:</strong> {% if d.principios %}{{ d.principios|join:", " }}{% else %}—{% endif %}</p>
+                    <p><strong>Áreas:</strong> {% if d.areas %}{{ d.areas|join:", " }}{% else %}—{% endif %}</p>
+                    <p><strong>Criterios:</strong> {% if d.criterios %}<span class="mono">{{ d.criterios|join:", " }}</span>{% else %}—{% endif %}</p>
+                    <p><strong>Consultores (empresa):</strong> {% if d.consultores %}{{ d.consultores|join:", " }}{% else %}—{% endif %}</p>
+                    <p><strong>Revisado por:</strong> {{ d.revisado_por|default:"—" }}</p>
+                    <p style="margin-top:0.5rem;">
+                      <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' d.id %}">Conversación</a>
+                    </p>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6">
+                <div class="empty-state">
+                  <strong>Sin documentos en este filtro</strong>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endif %}

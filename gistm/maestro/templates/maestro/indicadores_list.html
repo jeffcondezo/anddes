@@ -1,0 +1,85 @@
+{% extends "maestro/base.html" %}
+{% load l10n %}
+
+{% block title %}Indicadores · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Operación</p>
+    <h1>Indicadores</h1>
+    <p class="page-desc">Dashboards de avance GISTM por revisión activa (pueden coexistir varias por empresa).</p>
+  </div>
+</header>
+
+{% if filas %}
+  <div class="card-grid">
+    {% for fila in filas %}
+      <article class="entity-card">
+        <div class="entity-card-top">
+          <div>
+            <h3>{{ fila.empresa.nombre }}</h3>
+            <p class="entity-meta">
+              {% if fila.revision %}
+                Revisión {{ fila.revision.etiqueta }} · {{ fila.revision.anio }}
+                {% if fila.revision.instalacion_deposito %}
+                  · {{ fila.revision.instalacion_deposito }}
+                {% endif %}
+              {% else %}
+                Sin revisión activa
+              {% endif %}
+            </p>
+          </div>
+          {% if fila.revision %}
+            <span class="badge badge-ok">Activa</span>
+          {% else %}
+            <span class="badge badge-off">Sin revisión</span>
+          {% endif %}
+        </div>
+
+        {% if fila.progreso %}
+          <div class="entity-metrics">
+            <div class="meter">
+              <div class="meter-top">
+                <span class="muted">Documentos</span>
+                <strong>{{ fila.progreso.docs_pct }}%</strong>
+              </div>
+              <div class="meter-bar {% if fila.progreso.docs_pct >= 100 %}is-ok{% elif fila.progreso.docs_pct < 25 %}is-warn{% endif %}">
+                <span style="width: {{ fila.progreso.docs_pct|unlocalize }}%;"></span>
+              </div>
+            </div>
+            <div class="meter">
+              <div class="meter-top">
+                <span class="muted">Criterios</span>
+                <strong>{{ fila.progreso.criterios_pct }}%</strong>
+              </div>
+              <div class="meter-bar {% if fila.progreso.criterios_pct >= 100 %}is-ok{% elif fila.progreso.criterios_pct < 25 %}is-warn{% endif %}">
+                <span style="width: {{ fila.progreso.criterios_pct|unlocalize }}%;"></span>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <p class="muted" style="margin:0;">Activa una revisión para ver indicadores.</p>
+        {% endif %}
+
+        <div class="entity-card-actions">
+          {% if fila.revision %}
+            <a class="btn" href="{% url 'maestro:indicadores_empresa' fila.empresa.pk %}?rev={{ fila.revision.pk }}">Ver dashboard</a>
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}?rev={{ fila.revision.pk }}">Seguimiento</a>
+          {% else %}
+            <a class="btn" href="{% url 'maestro:indicadores_empresa' fila.empresa.pk %}">Ver dashboard</a>
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}">Seguimiento</a>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="panel">
+    <div class="empty-state">
+      <strong>No hay empresas asignadas</strong>
+      Cuando tengas empresas visibles aparecerán aquí con sus indicadores.
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

@@ -13,13 +13,74 @@
     </p>
   </div>
   <div class="page-actions">
-    <form method="post" action="{% url 'maestro:documento_criterio_importar' %}" style="display:inline;">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-ghost">Importar desde Excel</button>
-    </form>
+    <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Plantilla</a>
+    <button type="button" class="btn btn-ghost" data-open-importar-excel>Importar desde Excel</button>
+    {% if total_relaciones %}
+      <button type="button" class="btn btn-ghost" data-open-borrar-relaciones>Borrar relaciones actuales</button>
+    {% endif %}
     <a class="btn" href="{% url 'maestro:documento_criterio_create' %}">+ Nueva relación</a>
   </div>
 </header>
+
+<dialog id="modal-importar-excel" class="modal-dialog">
+  <form
+    method="post"
+    action="{% url 'maestro:documento_criterio_importar' %}"
+    enctype="multipart/form-data"
+    id="form-importar-excel"
+  >
+    {% csrf_token %}
+    <header class="modal-head">
+      <h2>Importar desde Excel</h2>
+      <button type="button" class="btn btn-ghost" data-close-importar-excel>Cerrar</button>
+    </header>
+    <p class="muted" style="margin:0 0 0.75rem;">
+      Sube un archivo <span class="mono">.xlsx</span> con la hoja
+      <span class="mono">Documento_x_Criterio</span>
+      (columnas <span class="mono">ID_Documento</span> e <span class="mono">ID_Criterio</span>).
+      Puedes descargar la plantilla si aún no la tienes.
+    </p>
+    <label class="form-row" style="display:grid;gap:0.35rem;">
+      <span>Archivo Excel</span>
+      <input
+        type="file"
+        name="archivo"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        class="input"
+        required
+      >
+    </label>
+    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+      <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Descargar plantilla</a>
+      <button type="button" class="btn btn-ghost" data-close-importar-excel>Cancelar</button>
+      <button type="submit" class="btn">Importar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-borrar-relaciones" class="modal-dialog">
+  <form method="post" action="{% url 'maestro:documento_criterio_borrar_todas' %}">
+    {% csrf_token %}
+    <header class="modal-head">
+      <h2>¿Borrar relaciones actuales?</h2>
+      <button type="button" class="btn btn-ghost" data-close-borrar-relaciones>Cerrar</button>
+    </header>
+    <p style="margin:0 0 0.5rem;">
+      Se eliminarán <strong>{{ total_relaciones }}</strong> relación(es) Documento ↔ Criterio
+      del estándar.
+    </p>
+    <p class="muted" style="margin:0 0 0.75rem;">
+      Esta acción no se puede deshacer. Las revisiones de empresa que ya aplicaron el estándar
+      no se modifican automáticamente.
+    </p>
+    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+      <button type="button" class="btn btn-ghost" data-close-borrar-relaciones>Cancelar</button>
+      <button type="submit" class="btn" style="background:var(--danger);border-color:var(--danger);">
+        Sí, borrar todas
+      </button>
+    </div>
+  </form>
+</dialog>
 
 <section class="panel" style="margin-bottom:1rem;">
   <form method="get" class="form-grid two-col">
@@ -98,7 +159,7 @@
             <td colspan="5">
               <div class="empty-state">
                 <strong>No hay relaciones estándar</strong>
-                Crea pares documento–criterio o importa desde el Excel.
+                Crea pares documento–criterio, descarga la plantilla o importa un Excel.
               </div>
             </td>
           </tr>
@@ -107,4 +168,25 @@
     </table>
   </div>
 </section>
+
+<script>
+(function () {
+  function wireModal(openAttr, closeAttr, modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    document.querySelectorAll("[" + openAttr + "]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (typeof modal.showModal === "function") modal.showModal();
+      });
+    });
+    document.querySelectorAll("[" + closeAttr + "]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (typeof modal.close === "function") modal.close();
+      });
+    });
+  }
+  wireModal("data-open-importar-excel", "data-close-importar-excel", "modal-importar-excel");
+  wireModal("data-open-borrar-relaciones", "data-close-borrar-relaciones", "modal-borrar-relaciones");
+})();
+</script>
 {% endblock %}

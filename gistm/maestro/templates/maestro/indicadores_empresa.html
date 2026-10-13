@@ -1,0 +1,1075 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Indicadores · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block extra_head %}
+<style>
+  .ind-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1.15rem;
+    padding: 0.35rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .ind-tabs a {
+    padding: 0.5rem 0.9rem;
+    border-radius: 8px;
+    font-weight: 650;
+    font-size: 0.9rem;
+    color: #4d5860;
+  }
+  .ind-tabs a:hover { background: #f3f6f8; color: var(--primary); }
+  .ind-tabs a.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
+  .ind-charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 1rem;
+  }
+  .ind-charts .panel,
+  .ind-progreso-top .panel {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .ind-charts .panel-head,
+  .ind-progreso-top .panel-head {
+    padding-bottom: 0.35rem;
+  }
+  .ind-progreso-top {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    align-items: stretch;
+  }
+  .ind-chart-box {
+    position: relative;
+    max-width: 100%;
+  }
+  .ind-chart-box--sm {
+    height: 240px;
+    flex: 0 0 240px;
+    padding: 0 1rem 0.65rem;
+    box-sizing: border-box;
+  }
+  .ind-chart-box--sm canvas {
+    max-height: 100%;
+  }
+  .ind-panel-body--sm {
+    height: 240px;
+    flex: 0 0 240px;
+    padding: 0 0.75rem 0.65rem;
+    box-sizing: border-box;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .ind-panel-body--sm .table-wrap {
+    height: 100%;
+    overflow: auto;
+    margin: 0;
+  }
+  .ind-panel-body--sm .empty-state {
+    padding: 1rem 0.5rem;
+  }
+  @media (max-width: 1100px) {
+    .ind-progreso-top { grid-template-columns: 1fr; }
+  }
+  .ind-doc-detail summary {
+    cursor: pointer;
+    color: var(--primary);
+    font-weight: 650;
+    font-size: 0.84rem;
+  }
+  .ind-doc-detail-body {
+    margin-top: 0.55rem;
+    padding: 0.75rem;
+    background: #f7fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 0.86rem;
+  }
+  .ind-doc-detail-body p { margin: 0.2rem 0; }
+  @media (max-width: 900px) {
+    .ind-charts { grid-template-columns: 1fr; }
+  }
+  .ind-tablero-progreso {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1.15fr) minmax(0, 1.35fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+  .ind-tablero-progreso .panel { margin: 0; }
+  .ind-temas-rail {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem 0.55rem 1rem;
+    background: #eef2f5;
+  }
+  .ind-temas-rail-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #5a6570;
+    text-align: center;
+    margin-bottom: 0.65rem;
+  }
+  .ind-temas-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .ind-tema-btn {
+    border: 0;
+    border-radius: 8px;
+    padding: 0.7rem 0.35rem;
+    font-weight: 800;
+    font-size: 0.95rem;
+    color: #fff;
+    background: #b7c0c7;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .ind-tema-btn:hover { background: #9aa6af; }
+  .ind-tema-btn.is-active {
+    background: #2f363c;
+  }
+  .ind-tablero-chart {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #eef2f5;
+  }
+  .ind-tablero-canvas {
+    height: 320px;
+    flex: 1 1 auto;
+    min-height: 280px;
+    padding: 0 0.85rem 0.85rem;
+    box-sizing: border-box;
+  }
+  .ind-tablero-tablas {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+  .ind-tablero-tablas .panel { margin: 0; }
+  .ind-tabla-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+  }
+  .ind-tabla-title {
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-align: center;
+    padding: 0.85rem 0.75rem 0.55rem;
+    color: #2f363c;
+  }
+  .ind-tabla-scroll {
+    max-height: 360px;
+    overflow: auto;
+    margin: 0 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .ind-tabla-zebra tbody tr:nth-child(even) { background: #f3f6f8; }
+  .ind-tabla-zebra th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .ind-tabla-zebra td { font-size: 0.82rem; vertical-align: top; }
+  .ind-estado {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+  }
+  .ind-estado-dot {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 999px;
+    border: 2px solid #8a96a0;
+    background: #fff;
+    flex: 0 0 auto;
+  }
+  .ind-estado-dot.is-iniciado {
+    background: conic-gradient(#5a6570 0 40%, #fff 0);
+  }
+  .ind-estado-dot.is-rev0 { background: #1f4e79; border-color: #1f4e79; }
+  .ind-estado-dot.is-reva { background: #5b9bd5; border-color: #5b9bd5; }
+  .ind-estado-dot.is-revb { background: #2f363c; border-color: #2f363c; }
+  .ind-estado-dot.is-ok { background: #2f9e6b; border-color: #2f9e6b; }
+  .ind-estado-dot.is-pendiente { background: #fff; }
+  .ind-avance {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0.4rem;
+    align-items: center;
+    min-width: 5.5rem;
+  }
+  .ind-avance-bar {
+    height: 0.45rem;
+    background: #e3ebf0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .ind-avance-bar > span {
+    display: block;
+    height: 100%;
+    background: #2f9e6b;
+  }
+  .ind-estandar-board {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+    margin-bottom: 1.25rem;
+  }
+  .ind-estandar-board .panel { margin: 0; }
+  .ind-estandar-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #eef2f5;
+  }
+  .ind-estandar-tema-head {
+    padding: 1rem 1.1rem 0.65rem;
+  }
+  .ind-estandar-tema-head h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .ind-estandar-princ-wrap {
+    margin: 0 0.85rem 0.85rem;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+  }
+  .ind-estandar-princ-wrap tr {
+    cursor: pointer;
+  }
+  .ind-estandar-princ-wrap tr.is-active {
+    background: #e8f3fa;
+  }
+  .ind-estandar-princ-wrap tr:hover {
+    background: #f3f8fb;
+  }
+  .ind-estandar-detalle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+  .ind-estandar-detalle .panel { margin: 0; }
+  .ind-estandar-cards-panel {
+    background: #fff;
+    min-height: 220px;
+  }
+  .ind-estandar-cards {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0 0.85rem 1rem;
+    max-height: 360px;
+    overflow: auto;
+  }
+  .ind-estandar-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.85rem;
+    background: #fff;
+    font-size: 0.86rem;
+    line-height: 1.35;
+    cursor: pointer;
+  }
+  .ind-estandar-card.is-active,
+  .ind-estandar-card.is-related {
+    background: #e5f4ea;
+    border-color: #b7dfc4;
+  }
+  .ind-estandar-card strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+  }
+  .ind-glosario-search {
+    display: flex;
+    gap: 0.65rem;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+  .ind-glosario-search-field {
+    position: relative;
+    flex: 1;
+    min-width: 14rem;
+  }
+  .ind-glosario-search-field .input {
+    padding-left: 2.35rem;
+  }
+  .ind-glosario-search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #8a96a0;
+    display: inline-flex;
+  }
+  .ind-glosario-board {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.9fr) minmax(0, 1.4fr);
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 420px;
+  }
+  .ind-glosario-board .panel { margin: 0; }
+  .ind-glosario-list-panel,
+  .ind-glosario-detail-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .ind-glosario-col-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    padding: 0.9rem 1rem 0.45rem;
+    color: #2f363c;
+  }
+  .ind-glosario-list {
+    overflow: auto;
+    max-height: 520px;
+    padding: 0 0.55rem 0.85rem;
+    display: grid;
+    gap: 0.15rem;
+  }
+  .ind-glosario-item {
+    display: grid;
+    grid-template-columns: 1.1rem 1fr;
+    gap: 0.55rem;
+    align-items: start;
+    padding: 0.45rem 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
+  .ind-glosario-item:hover { background: #f3f6f8; }
+  .ind-glosario-item.is-active { background: #eef3f7; }
+  .ind-glosario-item input { margin-top: 0.2rem; }
+  .ind-glosario-detail-panel {
+    padding: 1.5rem 1.5rem 1.25rem;
+  }
+  .ind-glosario-detail-title {
+    margin: 0;
+    text-align: center;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #2f363c;
+  }
+  .ind-glosario-divider {
+    border: 0;
+    border-top: 1px solid #d7dee4;
+    margin: 1rem 0 1.15rem;
+  }
+  .ind-glosario-detail-body {
+    margin: 0;
+    font-size: 0.98rem;
+    line-height: 1.55;
+    color: #3d4750;
+  }
+  @media (max-width: 1100px) {
+    .ind-tablero-progreso { grid-template-columns: 1fr; }
+    .ind-temas-list { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+    .ind-tema-btn { min-width: 2.75rem; }
+    .ind-tablero-tablas { grid-template-columns: 1fr; }
+    .ind-estandar-board { grid-template-columns: 1fr; }
+    .ind-estandar-detalle { grid-template-columns: 1fr; }
+    .ind-glosario-board { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Indicadores</p>
+    <h1>{{ empresa.nombre }}</h1>
+    <p class="page-desc">
+      {% if revision %}
+        Revisión: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
+      {% else %}
+        No hay una revisión activa para esta empresa.
+      {% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:indicadores_list' %}">Todas las empresas</a>
+    {% if revision %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Seguimiento</a>
+    {% else %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Seguimiento</a>
+    {% endif %}
+  </div>
+</header>
+
+{% include "maestro/partials/seguimiento_rev_switcher.html" %}
+
+<nav class="ind-tabs" aria-label="Pestañas de indicadores">
+  <a href="?tab=general{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if tab == 'general' %}active{% endif %}">General</a>
+  <a href="?tab=progreso{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if tab == 'progreso' %}active{% endif %}">Progreso</a>
+  <a href="?tab=documentos{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if tab == 'documentos' %}active{% endif %}">Documentos</a>
+  <a href="?tab=estandar{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if tab == 'estandar' %}active{% endif %}">Estándar GISTM</a>
+  <a href="?tab=glosario{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if tab == 'glosario' %}active{% endif %}">Glosario</a>
+</nav>
+
+{% if tab == 'general' %}
+  {% include "maestro/partials/indicadores_general.html" %}
+{% elif tab == 'progreso' %}
+  {% include "maestro/partials/indicadores_progreso.html" %}
+{% elif tab == 'documentos' %}
+  {% include "maestro/partials/indicadores_documentos.html" %}
+{% elif tab == 'estandar' %}
+  {% include "maestro/partials/indicadores_estandar.html" %}
+{% elif tab == 'glosario' %}
+  {% include "maestro/partials/indicadores_glosario.html" %}
+{% endif %}
+
+{% if tab == 'general' or tab == 'progreso' %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const colors = {
+    primary: "#0069aa",
+    ok: "#2f9e6b",
+    warn: "#c99500",
+    danger: "#d64545",
+    muted: "#a8b3bb",
+    soft: ["#0069aa", "#6bc2dc", "#eeb500", "#d64545", "#2f9e6b"],
+  };
+
+  {% if tab == 'general' and progreso %}
+  const curva = {{ chart_curva_json|safe }};
+  const curvaEl = document.getElementById("chart-curva-avance");
+  if (curvaEl && curva.labels && curva.labels.length && !curva.sin_fechas) {
+    new Chart(curvaEl, {
+      type: "line",
+      data: {
+        labels: curva.labels,
+        datasets: [
+          {
+            label: "% Plan",
+            data: curva.plan,
+            borderColor: "#6bc2dc",
+            backgroundColor: "transparent",
+            tension: 0.25,
+            pointRadius: 2,
+            borderWidth: 2,
+          },
+          {
+            label: "% Real",
+            data: curva.real,
+            borderColor: "#0069aa",
+            backgroundColor: "transparent",
+            tension: 0.25,
+            pointRadius: 3,
+            borderWidth: 2.5,
+            spanGaps: false,
+          },
+          {
+            label: "% Forecast",
+            data: curva.forecast,
+            borderColor: "#e8913a",
+            backgroundColor: "transparent",
+            borderDash: [6, 4],
+            tension: 0.25,
+            pointRadius: 2,
+            borderWidth: 2,
+            spanGaps: false,
+          },
+        ],
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { boxWidth: 10, padding: 8, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                const v = ctx.parsed.y;
+                return ctx.dataset.label + ": " + (v == null ? "—" : v.toFixed(2) + "%");
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { callback: (v) => v + "%", font: { size: 10 } },
+          },
+          x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } } },
+        },
+      },
+    });
+  }
+
+  const general = {{ chart_general_json|safe }};
+  const donutEl = document.getElementById("chart-docs-donut");
+  if (donutEl && general.docs_donut) {
+    new Chart(donutEl, {
+      type: "doughnut",
+      data: {
+        labels: general.docs_donut.labels,
+        datasets: [{
+          data: general.docs_donut.values,
+          backgroundColor: [colors.ok, colors.muted],
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { boxWidth: 10, padding: 8, font: { size: 11 } },
+          },
+        },
+        cutout: "62%",
+      },
+    });
+  }
+  const temas = {{ chart_temas_json|safe }};
+  const temasEl = document.getElementById("chart-temas-barras");
+  if (temasEl && temas.labels && temas.labels.length) {
+    new Chart(temasEl, {
+      type: "bar",
+      data: {
+        labels: temas.labels,
+        datasets: [{
+          label: "% cumplimiento",
+          data: temas.values,
+          backgroundColor: colors.primary,
+          borderRadius: 6,
+          maxBarThickness: 36,
+        }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                const i = items[0].dataIndex;
+                const code = temas.labels[i] || "";
+                const name = temas.nombres && temas.nombres[i] ? temas.nombres[i] : "";
+                return name ? code + " · " + name : code;
+              },
+              label: function (ctx) {
+                const i = ctx.dataIndex;
+                const pct = ctx.parsed.y;
+                const ok = temas.completos ? temas.completos[i] : null;
+                const tot = temas.totales ? temas.totales[i] : null;
+                const base = "% cumplimiento: " + (pct == null ? "—" : pct + "%");
+                if (ok != null && tot != null) {
+                  return base + " (" + ok + "/" + tot + " criterios)";
+                }
+                return base;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { callback: (v) => v + "%", font: { size: 10 } },
+          },
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+  {% endif %}
+
+  {% if tab == 'progreso' and progreso %}
+  const tablero = {{ chart_tablero_progreso_json|safe }};
+  const temasByCode = {};
+  (tablero.temas || []).forEach(function (t) { temasByCode[t.codigo] = t; });
+
+  let temaActivo = tablero.tema_activo || "";
+  let principioFiltro = "";
+  let chartPrincipios = null;
+  let chartRequisitos = null;
+  let temaActual = null;
+
+  const princEl = document.getElementById("chart-principios-tema");
+  const reqEl = document.getElementById("chart-requisitos-tema");
+  const princSub = document.getElementById("ind-principios-sub");
+  const reqSub = document.getElementById("ind-requisitos-sub");
+  const reqWrap = document.getElementById("ind-requisitos-wrap");
+  const docsBody = document.getElementById("ind-tabla-docs-body");
+  const critsBody = document.getElementById("ind-tabla-crits-body");
+  const docUrlTpl = "{% url 'maestro:documento_conversacion' 999999 %}".replace("999999", "__ID__");
+
+  function pctPlugin(anchor) {
+    return {
+      id: "pctLabels-" + anchor,
+      afterDatasetsDraw: function (chart) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data) return;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.fillStyle = "#2f363c";
+        ctx.font = "650 11px sans-serif";
+        meta.data.forEach(function (el, i) {
+          const v = chart.data.datasets[0].data[i];
+          if (v == null) return;
+          const label = v + "%";
+          const pos = el.tooltipPosition();
+          if (anchor === "top") {
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText(label, pos.x, pos.y - 4);
+          } else {
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText(label, pos.x + 6, pos.y);
+          }
+        });
+        ctx.restore();
+      },
+    };
+  }
+
+  function estadoDotClass(estado) {
+    const e = (estado || "").toLowerCase();
+    if (e === "revb" || e === "cumplido") return "is-revb is-ok";
+    if (e === "reva") return "is-reva";
+    if (e === "rev0") return "is-rev0";
+    if (e === "iniciado") return "is-iniciado";
+    if (e === "pendiente") return "is-pendiente";
+    return "";
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderTablas() {
+    if (!temaActual) return;
+    let docs = temaActual.documentos || [];
+    let crits = temaActual.criterios || [];
+    if (principioFiltro) {
+      crits = crits.filter(function (c) { return c.principio === principioFiltro; });
+      const codes = {};
+      crits.forEach(function (c) { codes[c.codigo] = true; });
+      // docs already scoped to tema; keep all docs of tema when filtering principios
+    }
+    if (docsBody) {
+      if (!docs.length) {
+        docsBody.innerHTML = '<tr><td colspan="5" class="muted">Sin documentos asociados a este tema.</td></tr>';
+      } else {
+        docsBody.innerHTML = docs.map(function (d) {
+          const href = docUrlTpl.replace("__ID__", String(d.id));
+          const dot = estadoDotClass(d.estado);
+          return (
+            "<tr>" +
+            '<td><a href="' + href + '">' + escapeHtml(d.nombre) + "</a>" +
+            '<div class="muted" style="font-size:0.74rem;">' + escapeHtml(d.codigo) + "</div></td>" +
+            '<td><span class="ind-estado"><span class="ind-estado-dot ' + dot + '"></span>' +
+            escapeHtml(d.estado) + "</span></td>" +
+            "<td>" + escapeHtml(d.elaborador) + "</td>" +
+            "<td>" + escapeHtml(d.area) + "</td>" +
+            '<td><div class="ind-avance"><span>' + d.avance + '%</span>' +
+            '<div class="ind-avance-bar"><span style="width:' + d.avance + '%;"></span></div></div></td>' +
+            "</tr>"
+          );
+        }).join("");
+      }
+    }
+    if (critsBody) {
+      if (!crits.length) {
+        critsBody.innerHTML = '<tr><td colspan="3" class="muted">Sin criterios en este tema.</td></tr>';
+      } else {
+        critsBody.innerHTML = crits.map(function (c) {
+          const dot = estadoDotClass(c.estado_clave === "ok" ? "cumplido" : "pendiente");
+          return (
+            "<tr>" +
+            '<td class="mono">' + escapeHtml(c.aplica_a) + "</td>" +
+            "<td>" + escapeHtml(c.descripcion) + "</td>" +
+            '<td><span class="ind-estado"><span class="ind-estado-dot ' + dot + '"></span>' +
+            escapeHtml(c.estado) + "</span></td>" +
+            "</tr>"
+          );
+        }).join("");
+      }
+    }
+  }
+
+  function renderRequisitos() {
+    if (!reqEl || !temaActual) return;
+    let reqs = temaActual.requisitos || [];
+    if (principioFiltro) {
+      reqs = reqs.filter(function (r) { return r.principio === principioFiltro; });
+    }
+    if (reqSub) {
+      const filtro = principioFiltro ? " · " + principioFiltro : "";
+      reqSub.textContent = temaActual.codigo + " · " + reqs.length + " requisito(s)" + filtro;
+    }
+    if (reqWrap) {
+      const h = Math.max(280, Math.min(560, 48 + reqs.length * 26));
+      reqWrap.style.height = h + "px";
+    }
+    if (chartRequisitos) chartRequisitos.destroy();
+    chartRequisitos = new Chart(reqEl, {
+      type: "bar",
+      data: {
+        labels: reqs.map(function (r) { return r.label; }),
+        datasets: [{
+          label: "% cumplimiento",
+          data: reqs.map(function (r) { return r.pct; }),
+          backgroundColor: colors.primary,
+          borderRadius: 4,
+          maxBarThickness: 18,
+        }],
+      },
+      plugins: [pctPlugin("right")],
+      options: {
+        indexAxis: "y",
+        maintainAspectRatio: false,
+        layout: { padding: { right: 36 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                const r = reqs[items[0].dataIndex];
+                return r ? r.codigo + " · " + (r.nombre || "") : "";
+              },
+              label: function (ctx) {
+                const r = reqs[ctx.dataIndex];
+                const base = ctx.parsed.x != null ? ctx.parsed.x + "%" : "—";
+                if (r) return base + " (" + r.completos + "/" + r.total + " criterios)";
+                return base;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            max: 100,
+            title: { display: true, text: "% Cumplimiento", font: { size: 11 } },
+            ticks: { callback: function (v) { return v + "%"; }, font: { size: 10 } },
+          },
+          y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+
+  function renderPrincipios(tema) {
+    if (!princEl || !tema) return;
+    temaActual = tema;
+    const princs = tema.principios || [];
+    if (princSub) {
+      princSub.textContent = tema.codigo + " · " + tema.nombre + " · " + tema.pct + "%";
+    }
+    if (chartPrincipios) chartPrincipios.destroy();
+    chartPrincipios = new Chart(princEl, {
+      type: "bar",
+      data: {
+        labels: princs.map(function (p) { return p.label; }),
+        datasets: [{
+          label: "% cumplimiento",
+          data: princs.map(function (p) { return p.pct; }),
+          backgroundColor: colors.primary,
+          borderRadius: 6,
+          maxBarThickness: 36,
+        }],
+      },
+      plugins: [pctPlugin("top")],
+      options: {
+        maintainAspectRatio: false,
+        layout: { padding: { top: 18 } },
+        onClick: function (_evt, elements) {
+          if (!elements.length) {
+            principioFiltro = "";
+          } else {
+            const p = princs[elements[0].index];
+            if (!p) return;
+            principioFiltro = principioFiltro === p.codigo ? "" : p.codigo;
+          }
+          renderRequisitos();
+          renderTablas();
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                const p = princs[items[0].dataIndex];
+                return p ? p.codigo + " · " + (p.nombre || "") : "";
+              },
+              label: function (ctx) {
+                const p = princs[ctx.dataIndex];
+                const base = ctx.parsed.y != null ? ctx.parsed.y + "%" : "—";
+                if (p) return base + " (" + p.completos + "/" + p.total + " criterios)";
+                return base;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { callback: function (v) { return v + "%"; }, font: { size: 10 } },
+          },
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+    renderRequisitos();
+    renderTablas();
+  }
+
+  function selectTema(codigo) {
+    const tema = temasByCode[codigo];
+    if (!tema) return;
+    temaActivo = codigo;
+    principioFiltro = "";
+    document.querySelectorAll(".ind-tema-btn").forEach(function (btn) {
+      const on = btn.getAttribute("data-tema") === codigo;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    renderPrincipios(tema);
+  }
+
+  document.querySelectorAll(".ind-tema-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      selectTema(btn.getAttribute("data-tema"));
+    });
+  });
+
+  if (temaActivo) selectTema(temaActivo);
+  {% endif %}
+})();
+</script>
+{% endif %}
+
+{% if tab == 'estandar' %}
+<script>
+(function () {
+  const board = {{ chart_tablero_estandar_json|safe }};
+  const byCode = {};
+  (board.temas || []).forEach(function (t) { byCode[t.codigo] = t; });
+
+  let temaActivo = board.tema_activo || "";
+  let principioActivo = "";
+  let requisitoActivo = "";
+  let temaActual = null;
+  let principioActual = null;
+
+  const temasList = document.getElementById("est-temas-list");
+  const titulo = document.getElementById("est-tema-titulo");
+  const sub = document.getElementById("est-tema-sub");
+  const princBody = document.getElementById("est-tabla-principios-body");
+  const reqBox = document.getElementById("est-requisitos");
+  const critBox = document.getElementById("est-criterios");
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderTemasRail() {
+    if (!temasList) return;
+    const temas = board.temas || [];
+    if (!temas.length) {
+      temasList.innerHTML = '<p class="muted" style="padding:0.5rem;font-size:0.8rem;">Sin temas en el catálogo.</p>';
+      return;
+    }
+    temasList.innerHTML = temas.map(function (t) {
+      const on = t.codigo === temaActivo ? " is-active" : "";
+      return (
+        '<button type="button" class="ind-tema-btn' + on + '" data-tema="' +
+        escapeHtml(t.codigo) + '" role="tab" aria-selected="' +
+        (t.codigo === temaActivo ? "true" : "false") + '" title="' +
+        escapeHtml(t.codigo + " · " + t.nombre) + '">' + escapeHtml(t.codigo) + "</button>"
+      );
+    }).join("");
+    temasList.querySelectorAll(".ind-tema-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        selectTema(btn.getAttribute("data-tema"));
+      });
+    });
+  }
+
+  function renderDetalle() {
+    if (!reqBox || !critBox) return;
+    if (!principioActual) {
+      reqBox.innerHTML = '<p class="muted" style="margin:0;">Selecciona un principio.</p>';
+      critBox.innerHTML = '<p class="muted" style="margin:0;">Selecciona un principio.</p>';
+      return;
+    }
+    const reqs = principioActual.requisitos || [];
+    let crits = principioActual.criterios || [];
+    if (requisitoActivo) {
+      crits = crits.filter(function (c) { return c.requisito === requisitoActivo; });
+    }
+    reqBox.innerHTML = reqs.length
+      ? reqs.map(function (r) {
+          const on = r.codigo === requisitoActivo ? " is-active" : "";
+          return (
+            '<article class="ind-estandar-card' + on + '" data-req="' + escapeHtml(r.codigo) + '">' +
+            "<strong>" + escapeHtml(r.label) + "</strong>" +
+            escapeHtml(r.descripcion) +
+            "</article>"
+          );
+        }).join("")
+      : '<p class="muted" style="margin:0;">Sin requisitos.</p>';
+    critBox.innerHTML = crits.length
+      ? crits.map(function (c) {
+          const related = requisitoActivo && c.requisito === requisitoActivo ? " is-related" : "";
+          return (
+            '<article class="ind-estandar-card' + related + '">' +
+            "<strong>" + escapeHtml(c.aplica_a) + "</strong>" +
+            escapeHtml(c.descripcion) +
+            "</article>"
+          );
+        }).join("")
+      : '<p class="muted" style="margin:0;">Sin criterios.</p>';
+
+    reqBox.querySelectorAll(".ind-estandar-card[data-req]").forEach(function (card) {
+      card.addEventListener("click", function () {
+        const code = card.getAttribute("data-req");
+        requisitoActivo = requisitoActivo === code ? "" : code;
+        renderDetalle();
+      });
+    });
+  }
+
+  function selectPrincipio(codigo) {
+    if (!temaActual) return;
+    const princs = temaActual.principios || [];
+    principioActual = princs.find(function (p) { return p.codigo === codigo; }) || null;
+    principioActivo = principioActual ? principioActual.codigo : "";
+    requisitoActivo = "";
+    if (princBody) {
+      princBody.querySelectorAll("tr[data-principio]").forEach(function (tr) {
+        tr.classList.toggle("is-active", tr.getAttribute("data-principio") === principioActivo);
+      });
+    }
+    renderDetalle();
+  }
+
+  function renderPrincipios() {
+    if (!princBody || !temaActual) return;
+    const princs = temaActual.principios || [];
+    if (!princs.length) {
+      princBody.innerHTML = '<tr><td colspan="2" class="muted">Sin principios en este tema.</td></tr>';
+      principioActual = null;
+      renderDetalle();
+      return;
+    }
+    if (!principioActivo || !princs.some(function (p) { return p.codigo === principioActivo; })) {
+      principioActivo = princs[0].codigo;
+    }
+    princBody.innerHTML = princs.map(function (p) {
+      const on = p.codigo === principioActivo ? " is-active" : "";
+      return (
+        '<tr class="' + on.trim() + '" data-principio="' + escapeHtml(p.codigo) + '">' +
+        "<td><strong>" + escapeHtml(p.label) + "</strong></td>" +
+        "<td>" + escapeHtml(p.descripcion) + "</td>" +
+        "</tr>"
+      );
+    }).join("");
+    princBody.querySelectorAll("tr[data-principio]").forEach(function (tr) {
+      tr.addEventListener("click", function () {
+        selectPrincipio(tr.getAttribute("data-principio"));
+      });
+    });
+    selectPrincipio(principioActivo);
+  }
+
+  function selectTema(codigo) {
+    const tema = byCode[codigo];
+    if (!tema) return;
+    temaActivo = codigo;
+    temaActual = tema;
+    principioActivo = "";
+    requisitoActivo = "";
+    if (titulo) titulo.textContent = tema.nombre || tema.codigo;
+    if (sub) {
+      sub.textContent = tema.codigo + " · " + (tema.principios || []).length + " principio(s) del estándar GISTM.";
+    }
+    renderTemasRail();
+    renderPrincipios();
+  }
+
+  if (temaActivo) selectTema(temaActivo);
+  else renderTemasRail();
+})();
+</script>
+{% endif %}
+
+{% if tab == 'glosario' %}
+<script>
+(function () {
+  const raw = document.getElementById("ind-glosario-data");
+  if (!raw) return;
+  let items = [];
+  try { items = JSON.parse(raw.textContent || "[]"); } catch (e) { items = []; }
+  const byId = {};
+  items.forEach(function (i) { byId[String(i.id)] = i; });
+  const titleEl = document.getElementById("ind-glosario-concepto");
+  const bodyEl = document.getElementById("ind-glosario-descripcion");
+  const list = document.getElementById("ind-glosario-list");
+  if (!list) return;
+
+  function show(id) {
+    const item = byId[String(id)];
+    if (!item) return;
+    if (titleEl) titleEl.textContent = item.concepto || "—";
+    if (bodyEl) bodyEl.textContent = item.descripcion || "";
+    list.querySelectorAll(".ind-glosario-item").forEach(function (el) {
+      el.classList.toggle("is-active", el.getAttribute("data-id") === String(id));
+    });
+  }
+
+  list.querySelectorAll('input[name="glosario_concepto"]').forEach(function (input) {
+    input.addEventListener("change", function () {
+      show(input.value);
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

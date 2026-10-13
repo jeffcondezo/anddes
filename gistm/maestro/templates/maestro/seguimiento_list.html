@@ -8,7 +8,7 @@
   <div>
     <p class="page-kicker">Seguimiento</p>
     <h1>Avance por empresa</h1>
-    <p class="page-desc">Progreso de evidencias en la revisión activa de cada empresa visible para ti.</p>
+    <p class="page-desc">Progreso de evidencias por cada revisión activa. Una empresa puede tener varias revisiones en paralelo.</p>
   </div>
 </header>
 
@@ -22,6 +22,9 @@
             <p class="entity-meta">
               {% if fila.revision %}
                 Revisión {{ fila.revision.etiqueta }} · {{ fila.revision.anio }}
+                {% if fila.revision.instalacion_deposito %}
+                  · {{ fila.revision.instalacion_deposito }}
+                {% endif %}
               {% else %}
                 Sin revisión activa
               {% endif %}
@@ -62,14 +65,18 @@
         {% endif %}
 
         <div class="entity-card-actions">
-          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' fila.empresa.pk %}">
-            Pendientes{% if fila.progreso and fila.progreso.docs_pendientes_entrega %} ({{ fila.progreso.docs_pendientes_entrega }}){% endif %}
-          </a>
-          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' fila.empresa.pk %}">
-            Por revisar{% if fila.progreso and fila.progreso.docs_por_revisar %} ({{ fila.progreso.docs_por_revisar }}){% endif %}
-          </a>
-          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' fila.empresa.pk %}">Monitoreo</a>
-          <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}">Ver detalle</a>
+          {% if fila.revision %}
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' fila.empresa.pk %}?rev={{ fila.revision.pk }}">
+              Pendientes{% if fila.progreso and fila.progreso.docs_pendientes_entrega %} ({{ fila.progreso.docs_pendientes_entrega }}){% endif %}
+            </a>
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' fila.empresa.pk %}?rev={{ fila.revision.pk }}">
+              Por revisar{% if fila.progreso and fila.progreso.docs_por_revisar %} ({{ fila.progreso.docs_por_revisar }}){% endif %}
+            </a>
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' fila.empresa.pk %}?rev={{ fila.revision.pk }}">Monitoreo</a>
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}?rev={{ fila.revision.pk }}">Ver detalle</a>
+          {% else %}
+            <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' fila.empresa.pk %}">Ver detalle</a>
+          {% endif %}
         </div>
       </article>
     {% endfor %}

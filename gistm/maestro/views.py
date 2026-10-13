@@ -7,11 +7,17 @@ from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q
-from django.http import HttpRequest, HttpResponse
+from django.http import FileResponse, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
+
+from .documento_criterio_excel import (
+    format_import_message,
+    importar_documento_criterio_excel,
+    plantilla_bytes,
+)
 
 from .entra import build_auth_url, claims_from_id_token, exchange_code_for_token, new_oauth_state
 from .actividad_mail import (
@@ -25,6 +31,24 @@ from .avisos import (
     avisar_nueva_carga,
 )
 from .calendar_utils import mes_anterior, mes_calendario, mes_siguiente, parse_anio_mes
+from .indicadores import (
+    DOC_SUBTABS,
+    TABS,
+    avance_por_principios,
+    chart_general,
+    chart_principios,
+    chart_temas,
+    tablero_progreso,
+    tablero_estandar,
+    cobertura_estandar,
+    curva_avance,
+    documentos_indicadores,
+    documentos_prioritarios,
+    filtrar_documentos,
+    filas_empresas_indicadores,
+    glosario_items,
+    to_json,
+)
 from .forms import (
     ActivarDocumentosCatalogoForm,
     ActividadForm,
@@ -45,7 +69,9 @@ from .forms import (
     RechazoDocumentoCargaForm,
     RequisitoForm,
     RevisionForm,
+    RevisionParcialCargaForm,
     TemaForm,
+    GlosarioTerminoForm,
     UsuarioForm,
 )
 from .models import (
@@ -65,6 +91,7 @@ from .models import (
     EmpresaDocumentoCriterio,
     EstadoActividad,
     EstadoRevisionCarga,
+    EstadoRevisionCriterio,
     IntentoAcceso,
     MotivoIntentoAcceso,
     OrigenEmpresaDocumento,
@@ -75,10 +102,11 @@ from .models import (
     Revision,
     RevisionCriterioDesactivado,
     Tema,
+    GlosarioTermino,
     TipoDocumentoMensaje,
     TipoUsuario,
 )
-from .models import ponderaciones_revision
+from .models import ponderaciones_revision, sincronizar_estado_carga_documento
 from .messaging import autor_es_consultor, registrar_mensaje, sembrar_mensaje_rechazo_si_falta
 from .permissions import (
     administrador_required,
@@ -91,10 +119,35 @@ from .permissions import (
     usuario_es_cliente,
     usuario_es_gestor,
 )
-from .progress import calcular_progreso_revision, revision_activa_empresa
+from .progress import (
+    calcular_progreso_revision,
+    revision_activa_empresa,
+    revision_activa_por_id,
+    revisiones_activas_empresa,
+)
 from .activity import eventos_monitoreo_empresa
 
 User = get_user_model()
+
+
+def _rev_id_param(request: HttpRequest) -> int | None:
+    raw = (request.GET.get("rev") or request.POST.get("rev") or "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
+def _revision_seguimiento(
+    empresa: Empresa, request: HttpRequest | None = None, rev_id: int | None = None
+) -> Revision | None:
+    if rev_id is None and request is not None:
+        rev_id = _rev_id_param(request)
+    return revision_activa_por_id(empresa.pk, rev_id)
+
+
+def _seguimiento_url(name: str, empresa_pk: int, revision: Revision | None = None) -> str:
+    url = reverse(name, args=[empresa_pk])
+    if revision is not None:
+        return f"{url}?rev={revision.pk}"
+    return url
 
 
 def _client_ip(request: HttpRequest) -> str | None:
@@ -706,6 +759,7 @@ def empresa_documento_activar_catalogo(request: HttpRequest, pk: int, rev_id: in
     if request.method == "POST" and form.is_valid():
         creados = 0
         with transaction.atomic():
+            marcar_prio = bool(form.cleaned_data.get("prioritario"))
             for doc in form.cleaned_data["documentos"]:
                 _, created = EmpresaDocumento.objects.get_or_create(
                     revision=revision,
@@ -716,6 +770,7 @@ def empresa_documento_activar_catalogo(request: HttpRequest, pk: int, rev_id: in
                         "tipo_documento": doc.tipo_documento,
                         "origen": OrigenEmpresaDocumento.CATALOGO,
                         "activo": True,
+                        "prioritario": marcar_prio,
                     },
                 )
                 if created:
@@ -762,6 +817,21 @@ def empresa_documento_toggle_activo(
     documento.activo = not documento.activo
     documento.save(update_fields=["activo", "actualizado_en"])
     estado = "activado" if documento.activo else "desactivado"
+    messages.success(request, f"Documento {documento.codigo} {estado}.")
+    return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def empresa_documento_toggle_prioritario(
+    request: HttpRequest, pk: int, rev_id: int, doc_id: int
+) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+    documento = get_object_or_404(EmpresaDocumento, pk=doc_id, revision=revision)
+    documento.prioritario = not documento.prioritario
+    documento.save(update_fields=["prioritario", "actualizado_en"])
+    estado = "marcado como prioritario" if documento.prioritario else "ya no es prioritario"
     messages.success(request, f"Documento {documento.codigo} {estado}.")
     return redirect("maestro:empresa_documento_list", pk=empresa.pk, rev_id=revision.pk)
 
@@ -946,6 +1016,53 @@ def tema_edit(request: HttpRequest, pk: int) -> HttpResponse:
         request,
         "maestro/tema_form.html",
         {"form": form, "titulo": "Editar tema", "tema": tema},
+    )
+
+
+@administrador_required
+@require_GET
+def glosario_termino_list(request: HttpRequest) -> HttpResponse:
+    terminos = GlosarioTermino.objects.all()
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        terminos = terminos.filter(
+            Q(concepto__icontains=q) | Q(descripcion__icontains=q)
+        )
+    return render(
+        request,
+        "maestro/glosario_termino_list.html",
+        {"terminos": terminos, "q": q},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def glosario_termino_create(request: HttpRequest) -> HttpResponse:
+    form = GlosarioTerminoForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Término de glosario creado correctamente.")
+        return redirect("maestro:glosario_termino_list")
+    return render(
+        request,
+        "maestro/glosario_termino_form.html",
+        {"form": form, "titulo": "Nuevo término"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def glosario_termino_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    termino = get_object_or_404(GlosarioTermino, pk=pk)
+    form = GlosarioTerminoForm(request.POST or None, instance=termino)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Término de glosario actualizado correctamente.")
+        return redirect("maestro:glosario_termino_list")
+    return render(
+        request,
+        "maestro/glosario_termino_form.html",
+        {"form": form, "titulo": "Editar término", "termino": termino},
     )
 
 
@@ -1187,6 +1304,7 @@ def documento_criterio_list(request: HttpRequest) -> HttpResponse:
             "filtro_tema": tema_id,
             "filtro_principio": principio_id,
             "total": relaciones.count(),
+            "total_relaciones": DocumentoCriterio.objects.count(),
         },
     )
 
@@ -1235,17 +1353,61 @@ def documento_criterio_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @administrador_required
+@require_GET
+def documento_criterio_plantilla(request: HttpRequest) -> HttpResponse:
+    from io import BytesIO
+
+    buffer = BytesIO(plantilla_bytes())
+    buffer.seek(0)
+    return FileResponse(
+        buffer,
+        as_attachment=True,
+        filename="plantilla_relacion_estandar.xlsx",
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+    )
+
+
+@administrador_required
 @require_http_methods(["POST"])
 def documento_criterio_importar(request: HttpRequest) -> HttpResponse:
-    from django.core.management import call_command
-    from io import StringIO
+    archivo = request.FILES.get("archivo")
+    if archivo is None:
+        messages.error(
+            request,
+            "Selecciona un archivo Excel (.xlsx) para importar. "
+            "Puedes descargar la plantilla y completarla.",
+        )
+        return redirect("maestro:documento_criterio_list")
 
-    out = StringIO()
+    nombre = (archivo.name or "").lower()
+    if not nombre.endswith(".xlsx"):
+        messages.error(request, "El archivo debe ser .xlsx.")
+        return redirect("maestro:documento_criterio_list")
+
     try:
-        call_command("importar_documento_criterio", stdout=out)
-        messages.success(request, "Importación desde Excel completada. " + out.getvalue().strip())
+        stats = importar_documento_criterio_excel(archivo)
+        messages.success(
+            request,
+            "Importación desde Excel completada. " + format_import_message(stats),
+        )
     except Exception as exc:  # noqa: BLE001
         messages.error(request, f"No se pudo importar: {exc}")
+    return redirect("maestro:documento_criterio_list")
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def documento_criterio_borrar_todas(request: HttpRequest) -> HttpResponse:
+    eliminadas, _ = DocumentoCriterio.objects.all().delete()
+    if eliminadas:
+        messages.success(
+            request,
+            f"Se eliminaron {eliminadas} relación(es) del estándar.",
+        )
+    else:
+        messages.info(request, "No había relaciones estándar para eliminar.")
     return redirect("maestro:documento_criterio_list")
 
 
@@ -1554,7 +1716,7 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
 
     mensajes_qs = (
         DocumentoMensaje.objects.filter(empresa_documento=documento)
-        .select_related("autor", "carga")
+        .select_related("autor", "carga", "criterio")
         .order_by("creado_en")
     )
     carga_actual = (
@@ -1636,18 +1798,15 @@ def seguimiento_documento_asociar_criterios(
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
 
-    revision = revision_activa_empresa(empresa.pk)
-    if not revision:
-        messages.warning(request, "No hay una revisión activa para esta empresa.")
-        return redirect("maestro:seguimiento_empresa_detail", pk=empresa.pk)
-
     documento = get_object_or_404(
-        EmpresaDocumento.objects.select_related("documento"),
+        EmpresaDocumento.objects.select_related("documento", "revision"),
         pk=doc_id,
-        revision=revision,
+        revision__empresa=empresa,
+        revision__activo=True,
         activo=True,
         origen=OrigenEmpresaDocumento.PROPIO,
     )
+    revision = documento.revision
     carga = (
         DocumentoCarga.objects.filter(empresa_documento=documento, activo=True)
         .select_related("subido_por")
@@ -1687,9 +1846,7 @@ def seguimiento_documento_asociar_criterios(
             )
         else:
             messages.info(request, "No se crearon nuevos vínculos.")
-        return redirect(
-            reverse("maestro:seguimiento_empresa_revision", args=[empresa.pk])
-        )
+        return redirect(_seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision))
 
     vinculos = (
         EmpresaDocumentoCriterio.objects.filter(empresa_documento=documento)
@@ -1702,6 +1859,7 @@ def seguimiento_documento_asociar_criterios(
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_activas": list(revisiones_activas_empresa(empresa.pk)),
             "documento": documento,
             "carga": carga,
             "form": form,
@@ -1722,7 +1880,8 @@ def seguimiento_empresa_monitoreo(request: HttpRequest, pk: int) -> HttpResponse
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
-    revision = revision_activa_empresa(empresa.pk)
+    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+    revision = _revision_seguimiento(empresa, request)
     eventos = eventos_monitoreo_empresa(empresa.pk, limite=120)
     return render(
         request,
@@ -1730,6 +1889,7 @@ def seguimiento_empresa_monitoreo(request: HttpRequest, pk: int) -> HttpResponse
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_activas": revisiones_activas,
             "eventos": eventos,
         },
     )
@@ -1743,7 +1903,8 @@ def seguimiento_empresa_revision(request: HttpRequest, pk: int) -> HttpResponse:
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
-    revision = revision_activa_empresa(empresa.pk)
+    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+    revision = _revision_seguimiento(empresa, request)
     progreso = calcular_progreso_revision(revision) if revision else None
     pendientes = progreso.documentos_por_revisar if progreso else []
     return render(
@@ -1752,6 +1913,7 @@ def seguimiento_empresa_revision(request: HttpRequest, pk: int) -> HttpResponse:
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_activas": revisiones_activas,
             "progreso": progreso,
             "pendientes": pendientes,
             "rechazo_form": RechazoDocumentoCargaForm(),
@@ -1767,7 +1929,8 @@ def seguimiento_empresa_pendientes(request: HttpRequest, pk: int) -> HttpRespons
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
-    revision = revision_activa_empresa(empresa.pk)
+    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+    revision = _revision_seguimiento(empresa, request)
     progreso = calcular_progreso_revision(revision) if revision else None
     documentos = progreso.documentos_pendientes_entrega if progreso else []
     criterios_huerfanos = progreso.criterios_huerfanos if progreso else []
@@ -1777,6 +1940,7 @@ def seguimiento_empresa_pendientes(request: HttpRequest, pk: int) -> HttpRespons
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_activas": revisiones_activas,
             "progreso": progreso,
             "documentos": documentos,
             "criterios_huerfanos": criterios_huerfanos,
@@ -1784,44 +1948,179 @@ def seguimiento_empresa_pendientes(request: HttpRequest, pk: int) -> HttpRespons
     )
 
 
+def _aplicar_revision_parcial_carga(
+    *,
+    carga: DocumentoCarga,
+    decisions: list,
+    user,
+) -> tuple[int, int]:
+    """Aplica decisiones por criterio y sincroniza la carga. Devuelve (aprobados, observados)."""
+    ahora = timezone.now()
+    n_aprob = 0
+    n_obs = 0
+    for vinculo, estado, obs in decisions:
+        vinculo.estado_revision = estado
+        vinculo.revisado_por = user
+        vinculo.revisado_en = ahora
+        if estado == EstadoRevisionCriterio.APROBADO:
+            vinculo.observacion = ""
+            n_aprob += 1
+        else:
+            vinculo.observacion = obs
+            n_obs += 1
+        vinculo.save(
+            update_fields=[
+                "estado_revision",
+                "observacion",
+                "revisado_por",
+                "revisado_en",
+                "actualizado_en",
+            ]
+        )
+        if estado == EstadoRevisionCriterio.OBSERVADO:
+            registrar_mensaje(
+                empresa_documento=carga.empresa_documento,
+                texto=obs,
+                autor=user,
+                es_consultor=True,
+                tipo=TipoDocumentoMensaje.OBSERVACION,
+                carga=carga,
+                criterio=vinculo.criterio,
+            )
+    sincronizar_estado_carga_documento(
+        carga.empresa_documento, revisado_por=user
+    )
+    return n_aprob, n_obs
+
+
 @gestor_o_admin_required
 @require_http_methods(["POST"])
-def seguimiento_carga_aprobar(request: HttpRequest, pk: int, carga_id: int) -> HttpResponse:
+def seguimiento_carga_revisar(request: HttpRequest, pk: int, carga_id: int) -> HttpResponse:
+    """Revisión parcial: aprobar u observar criterios individuales (o aprobar todos)."""
     empresa = get_object_or_404(Empresa, pk=pk)
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
     carga = get_object_or_404(
-        DocumentoCarga.objects.select_related("empresa_documento", "empresa_documento__revision"),
+        DocumentoCarga.objects.select_related(
+            "empresa_documento", "empresa_documento__revision"
+        ),
         pk=carga_id,
         activo=True,
         empresa_documento__revision__empresa=empresa,
     )
     doc = carga.empresa_documento
+    revision = doc.revision
+    if doc.origen == OrigenEmpresaDocumento.PROPIO and not doc.vinculos_criterio.exists():
+        messages.error(
+            request,
+            "Antes de revisar un documento del cliente debes asociarle al menos un criterio huérfano.",
+        )
+        return redirect(
+            "maestro:seguimiento_documento_asociar_criterios",
+            pk=empresa.pk,
+            doc_id=doc.pk,
+        )
+    if carga.estado_revision not in (
+        EstadoRevisionCarga.PENDIENTE,
+        EstadoRevisionCarga.PARCIAL,
+    ):
+        messages.info(request, "Esta evidencia ya no está pendiente de revisión.")
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+
+    form = RevisionParcialCargaForm(request.POST, carga=carga)
+    if not form.is_valid():
+        for err in form.non_field_errors():
+            messages.error(request, err)
+        if not form.non_field_errors():
+            messages.error(request, "No se pudo guardar la revisión parcial.")
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+
+    n_aprob, n_obs = _aplicar_revision_parcial_carga(
+        carga=carga,
+        decisions=form.cleaned_data["decisions"],
+        user=request.user,
+    )
+    carga.refresh_from_db()
+    if carga.estado_revision == EstadoRevisionCarga.APROBADO:
+        messages.success(
+            request,
+            f"{doc.codigo}: todos los criterios aprobados. El documento queda aprobado.",
+        )
+    else:
+        parts = []
+        if n_aprob:
+            parts.append(f"{n_aprob} criterio(s) aprobado(s)")
+        if n_obs:
+            parts.append(f"{n_obs} con observación")
+        messages.success(
+            request,
+            f"{doc.codigo}: {', '.join(parts) or 'revisión guardada'}. "
+            "Los criterios aprobados ya suman al avance.",
+        )
+    return redirect(
+        _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+    )
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def seguimiento_carga_aprobar(request: HttpRequest, pk: int, carga_id: int) -> HttpResponse:
+    """Atajo: aprobar todos los criterios pendientes del documento."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:seguimiento_list")
+    carga = get_object_or_404(
+        DocumentoCarga.objects.select_related(
+            "empresa_documento", "empresa_documento__revision"
+        ),
+        pk=carga_id,
+        activo=True,
+        empresa_documento__revision__empresa=empresa,
+    )
+    doc = carga.empresa_documento
+    revision = doc.revision
     if doc.origen == OrigenEmpresaDocumento.PROPIO and not doc.vinculos_criterio.exists():
         messages.error(
             request,
             "Antes de aprobar un documento del cliente debes asociarle al menos un criterio huérfano.",
         )
-        return redirect("maestro:seguimiento_documento_asociar_criterios", pk=empresa.pk, doc_id=doc.pk)
-    if carga.estado_revision != EstadoRevisionCarga.PENDIENTE:
-        messages.info(request, "Esta evidencia ya fue revisada.")
-        return redirect("maestro:seguimiento_empresa_revision", pk=empresa.pk)
-
-    carga.estado_revision = EstadoRevisionCarga.APROBADO
-    carga.motivo_rechazo = ""
-    carga.revisado_por = request.user
-    carga.revisado_en = timezone.now()
-    carga.save(
-        update_fields=[
-            "estado_revision",
-            "motivo_rechazo",
-            "revisado_por",
-            "revisado_en",
-        ]
+        return redirect(
+            "maestro:seguimiento_documento_asociar_criterios",
+            pk=empresa.pk,
+            doc_id=doc.pk,
+        )
+    if carga.estado_revision not in (
+        EstadoRevisionCarga.PENDIENTE,
+        EstadoRevisionCarga.PARCIAL,
+    ):
+        messages.info(request, "Esta evidencia ya no está pendiente de revisión.")
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+    form = RevisionParcialCargaForm({"accion": "aprobar_todos"}, carga=carga)
+    if not form.is_valid():
+        messages.error(request, "No hay criterios pendientes para aprobar.")
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+    _aplicar_revision_parcial_carga(
+        carga=carga,
+        decisions=form.cleaned_data["decisions"],
+        user=request.user,
     )
-    messages.success(request, f"Evidencia de {doc.codigo} aprobada. Ya cuenta en el avance.")
-    return redirect("maestro:seguimiento_empresa_revision", pk=empresa.pk)
+    messages.success(
+        request,
+        f"Evidencia de {doc.codigo} aprobada (todos los criterios). Ya cuenta en el avance.",
+    )
+    return redirect(
+        _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+    )
 
 
 @gestor_o_admin_required
@@ -1832,18 +2131,41 @@ def seguimiento_carga_rechazar(request: HttpRequest, pk: int, carga_id: int) -> 
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
     carga = get_object_or_404(
-        DocumentoCarga.objects.select_related("empresa_documento"),
+        DocumentoCarga.objects.select_related(
+            "empresa_documento", "empresa_documento__revision"
+        ),
         pk=carga_id,
         activo=True,
         empresa_documento__revision__empresa=empresa,
     )
+    revision = carga.empresa_documento.revision
     form = RechazoDocumentoCargaForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Indica un motivo de rechazo claro para la minera (mín. 10 caracteres).")
-        return redirect("maestro:seguimiento_empresa_revision", pk=empresa.pk)
-    if carga.estado_revision != EstadoRevisionCarga.PENDIENTE:
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+    if carga.estado_revision not in (
+        EstadoRevisionCarga.PENDIENTE,
+        EstadoRevisionCarga.PARCIAL,
+    ):
         messages.info(request, "Esta evidencia ya fue revisada.")
-        return redirect("maestro:seguimiento_empresa_revision", pk=empresa.pk)
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
+    hay_aprobados = EmpresaDocumentoCriterio.objects.filter(
+        empresa_documento=carga.empresa_documento,
+        estado_revision=EstadoRevisionCriterio.APROBADO,
+    ).exists()
+    if hay_aprobados:
+        messages.error(
+            request,
+            "Ya hay criterios aprobados en este documento. "
+            "Usa observaciones por criterio en lugar de rechazar toda la evidencia.",
+        )
+        return redirect(
+            _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+        )
 
     carga.estado_revision = EstadoRevisionCarga.RECHAZADO
     carga.motivo_rechazo = form.cleaned_data["motivo_rechazo"].strip()
@@ -1869,7 +2191,9 @@ def seguimiento_carga_rechazar(request: HttpRequest, pk: int, carga_id: int) -> 
         request,
         f"Evidencia de {carga.empresa_documento.codigo} rechazada. El cliente verá el motivo en la conversación.",
     )
-    return redirect("maestro:seguimiento_empresa_revision", pk=empresa.pk)
+    return redirect(
+        _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
+    )
 
 
 @gestor_o_admin_required
@@ -1878,9 +2202,18 @@ def seguimiento_list(request: HttpRequest) -> HttpResponse:
     empresas = list(empresas_visibles(request.user).filter(activo=True))
     filas = []
     for empresa in empresas:
-        revision = revision_activa_empresa(empresa.pk)
-        progreso = calcular_progreso_revision(revision) if revision else None
-        filas.append({"empresa": empresa, "revision": revision, "progreso": progreso})
+        revisiones = list(revisiones_activas_empresa(empresa.pk))
+        if not revisiones:
+            filas.append({"empresa": empresa, "revision": None, "progreso": None})
+            continue
+        for revision in revisiones:
+            filas.append(
+                {
+                    "empresa": empresa,
+                    "revision": revision,
+                    "progreso": calcular_progreso_revision(revision),
+                }
+            )
     return render(
         request,
         "maestro/seguimiento_list.html",
@@ -1895,7 +2228,8 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
         return redirect("maestro:seguimiento_list")
-    revision = revision_activa_empresa(empresa.pk)
+    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+    revision = _revision_seguimiento(empresa, request)
     progreso = calcular_progreso_revision(revision) if revision else None
     docs_tab = (request.GET.get("docs") or "aprobados").strip().lower()
     if docs_tab not in {"aprobados", "todos", "pendientes"}:
@@ -1926,6 +2260,7 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_activas": revisiones_activas,
             "progreso": progreso,
             "docs_tab": docs_tab,
             "origen_tab": origen_tab,
@@ -1935,25 +2270,21 @@ def seguimiento_empresa_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _documentos_para_actividad(empresa: Empresa | None) -> list:
-    """Devuelve docs pendientes de entrega y por revisar de la revisión activa."""
+    """Docs pendientes / por revisar de todas las revisiones activas."""
     if not empresa:
         return []
-    revision = revision_activa_empresa(empresa.pk)
-    if not revision:
-        return []
-    progreso = calcular_progreso_revision(revision)
-    # Unir sin duplicar: por revisar + sin entregar + rechazados
     seen: set[int] = set()
-    docs: list = []
-    for d in (
-        list(progreso.documentos_por_revisar)
-        + list(progreso.documentos_pendientes_entrega)
-    ):
-        if d.id in seen:
-            continue
-        seen.add(d.id)
-        docs.append(d)
-    ids = [d.id for d in docs]
+    ids: list[int] = []
+    for revision in revisiones_activas_empresa(empresa.pk):
+        progreso = calcular_progreso_revision(revision)
+        for d in (
+            list(progreso.documentos_por_revisar)
+            + list(progreso.documentos_pendientes_entrega)
+        ):
+            if d.id in seen:
+                continue
+            seen.add(d.id)
+            ids.append(d.id)
     return list(
         EmpresaDocumento.objects.filter(pk__in=ids, activo=True).order_by("codigo")
     )
@@ -2069,18 +2400,15 @@ def actividad_crear(request: HttpRequest) -> HttpResponse:
     docs_por_revisar = []
     docs_pendientes = []
     if empresa:
-        revision = revision_activa_empresa(empresa.pk)
-        if revision:
+        ids_ok = set(docs_qs.values_list("pk", flat=True))
+        por_revisar_ids: set[int] = set()
+        pendientes_ids: set[int] = set()
+        for revision in revisiones_activas_empresa(empresa.pk):
             prog = calcular_progreso_revision(revision)
-            ids_ok = set(docs_qs.values_list("pk", flat=True))
-            docs_por_revisar = [
-                d for d in docs_qs if d.pk in {x.id for x in prog.documentos_por_revisar} and d.pk in ids_ok
-            ]
-            docs_pendientes = [
-                d
-                for d in docs_qs
-                if d.pk in {x.id for x in prog.documentos_pendientes_entrega} and d.pk in ids_ok
-            ]
+            por_revisar_ids.update(x.id for x in prog.documentos_por_revisar)
+            pendientes_ids.update(x.id for x in prog.documentos_pendientes_entrega)
+        docs_por_revisar = [d for d in docs_qs if d.pk in por_revisar_ids and d.pk in ids_ok]
+        docs_pendientes = [d for d in docs_qs if d.pk in pendientes_ids and d.pk in ids_ok]
 
     selected_doc_ids: set[int] = set()
     if form.is_bound:
@@ -2408,3 +2736,97 @@ def actividad_cancelar(request: HttpRequest, pk: int) -> HttpResponse:
     actividad.save(update_fields=["estado", "actualizado_en"])
     messages.success(request, "Actividad cancelada.")
     return redirect("maestro:actividad_calendario")
+
+
+@gestor_o_admin_required
+@require_GET
+def indicadores_list(request: HttpRequest) -> HttpResponse:
+    empresas = list(empresas_visibles(request.user).filter(activo=True))
+    filas = filas_empresas_indicadores(empresas)
+    return render(request, "maestro/indicadores_list.html", {"filas": filas})
+
+
+@gestor_o_admin_required
+@require_GET
+def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:indicadores_list")
+
+    tab = (request.GET.get("tab") or "general").strip().lower()
+    if tab not in TABS:
+        tab = "general"
+    docs_sub = (request.GET.get("docs") or "todos").strip().lower()
+    if docs_sub not in DOC_SUBTABS:
+        docs_sub = "todos"
+    glosario_q = (request.GET.get("q") or "").strip()
+
+    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+    revision = _revision_seguimiento(empresa, request)
+    progreso = calcular_progreso_revision(revision) if revision else None
+
+    context: dict = {
+        "empresa": empresa,
+        "revision": revision,
+        "revisiones_activas": revisiones_activas,
+        "progreso": progreso,
+        "tab": tab,
+        "tabs": TABS,
+        "docs_sub": docs_sub,
+        "glosario_q": glosario_q,
+        "principios_avance": [],
+        "documentos_ind": [],
+        "cobertura": None,
+        "glosario": [],
+        "glosario_json": [],
+        "chart_general_json": "{}",
+        "chart_temas_json": "{}",
+        "chart_principios_json": "{}",
+        "chart_tablero_progreso_json": "{}",
+        "chart_tablero_estandar_json": "{}",
+        "chart_curva_json": "{}",
+        "docs_prioritarios": [],
+    }
+
+    if progreso:
+        principios = avance_por_principios(progreso)
+        context["principios_avance"] = principios
+        context["chart_general_json"] = to_json(chart_general(progreso))
+        context["chart_temas_json"] = to_json(chart_temas(progreso))
+        context["chart_principios_json"] = to_json(chart_principios(principios))
+        if tab == "progreso":
+            context["chart_tablero_progreso_json"] = to_json(
+                tablero_progreso(progreso, empresa=empresa)
+            )
+        if tab == "general":
+            context["chart_curva_json"] = to_json(curva_avance(revision, progreso))
+            context["docs_prioritarios"] = documentos_prioritarios(
+                revision, progreso
+            )
+        if tab == "documentos":
+            todos = documentos_indicadores(revision, progreso, empresa=empresa)
+            context["documentos_ind"] = filtrar_documentos(todos, docs_sub)
+            context["docs_count_todos"] = len(todos)
+            context["docs_count_ref"] = len(filtrar_documentos(todos, "referenciales"))
+            context["docs_count_multi"] = len(
+                filtrar_documentos(todos, "multidisciplinario")
+            )
+            context["docs_count_multiprincipio"] = len(
+                filtrar_documentos(todos, "multiprincipio")
+            )
+        if tab == "estandar" and revision:
+            context["cobertura"] = cobertura_estandar(revision, progreso)
+
+    if tab == "estandar":
+        context["chart_tablero_estandar_json"] = to_json(tablero_estandar())
+
+    if tab == "glosario":
+        items = glosario_items(glosario_q)
+        context["glosario"] = items
+        context["glosario_json"] = [
+            {"id": i.id, "concepto": i.concepto, "descripcion": i.descripcion}
+            for i in items
+        ]
+
+    return render(request, "maestro/indicadores_empresa.html", context)

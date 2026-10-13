@@ -8,17 +8,25 @@
     <p class="page-kicker">Seguimiento · Por revisar</p>
     <h1>{{ empresa.nombre }}</h1>
     <p class="page-desc">
-      Evidencias subidas por el cliente que aún no han sido validadas.
-      {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
+      Revisa la evidencia por criterio: puedes aprobar algunos y dejar observaciones en los que falten.
+      {% if revision %} Revisión: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
     </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance</a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}">Pendientes</a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+    {% if revision %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}?rev={{ revision.pk }}">Pendientes</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Ver detalle</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}?rev={{ revision.pk }}">Monitoreo</a>
+    {% else %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}">Pendientes</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+    {% endif %}
   </div>
 </header>
+
+{% include "maestro/partials/seguimiento_rev_switcher.html" %}
 
 {% if not revision %}
   <div class="info-banner">
@@ -32,7 +40,7 @@
     <div class="panel-head">
       <div>
         <h2>Pendientes de revisión</h2>
-        <p class="muted">Aprueba o rechaza. En documentos del cliente, asocia criterios huérfanos antes de aprobar.</p>
+        <p class="muted">Aprueba o observa por criterio. Los criterios aprobados suman al avance de inmediato.</p>
       </div>
       <span class="badge badge-off">{{ pendientes|length }}</span>
     </div>
@@ -50,6 +58,9 @@
                   {% if doc.carga and doc.carga.subido_por %}
                     · {{ doc.carga.subido_por.get_full_name|default:doc.carga.subido_por.email }}
                   {% endif %}
+                  {% if doc.criterios_count %}
+                    · {{ doc.criterios_aprobados }}/{{ doc.criterios_count }} criterios aprobados
+                  {% endif %}
                 </p>
               </div>
               <div class="review-card-badges">
@@ -58,7 +69,11 @@
                 {% else %}
                   <span class="badge badge-info">Del cliente</span>
                 {% endif %}
-                <span class="badge badge-off">Por revisar</span>
+                {% if doc.parcial %}
+                  <span class="badge badge-info">Parcial</span>
+                {% else %}
+                  <span class="badge badge-off">Por revisar</span>
+                {% endif %}
               </div>
             </div>
 
@@ -76,49 +91,83 @@
               </div>
             {% endif %}
 
-            <div class="review-criterios">
-              <h4>Criterios asociados</h4>
-              {% if doc.vinculos %}
-                <ul class="review-criterios-list">
+            {% if doc.carga and doc.vinculos %}
+              <form
+                method="post"
+                action="{% url 'maestro:seguimiento_carga_revisar' empresa.pk doc.carga.id %}"
+                class="review-criterios"
+              >
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="guardar">
+                <h4>Criterios — revisión parcial</h4>
+                <ul class="review-criterios-list" style="list-style:none;padding:0;display:grid;gap:0.75rem;">
                   {% for v in doc.vinculos %}
-                    <li>
-                      <strong class="mono">{{ v.criterio.codigo }}</strong>
-                      <span class="muted">· {{ v.criterio.descripcion|truncatechars:90 }}</span>
-                      <span class="muted">({{ v.area.nombre }})</span>
+                    <li style="border:1px solid var(--border);border-radius:10px;padding:0.75rem 0.9rem;">
+                      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:baseline;justify-content:space-between;">
+                        <div>
+                          <strong class="mono">{{ v.criterio.codigo }}</strong>
+                          <span class="muted">· {{ v.criterio.descripcion|truncatechars:90 }}</span>
+                          <span class="muted">({{ v.area.nombre }})</span>
+                        </div>
+                        {% if v.estado_revision == "APROBADO" %}
+                          <span class="badge badge-ok">Aprobado</span>
+                        {% elif v.estado_revision == "OBSERVADO" %}
+                          <span class="badge badge-off">Observado</span>
+                        {% else %}
+                          <span class="badge badge-off">Pendiente</span>
+                        {% endif %}
+                      </div>
+                      {% if v.estado_revision == "APROBADO" %}
+                        <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem;">Ya suma al avance.</p>
+                      {% else %}
+                        <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.5rem;">
+                          <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.9rem;">
+                            <input type="radio" name="accion_v_{{ v.pk }}" value="APROBADO" data-obs-toggle="obs-{{ v.pk }}">
+                            Aprobar
+                          </label>
+                          <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.9rem;">
+                            <input type="radio" name="accion_v_{{ v.pk }}" value="OBSERVADO" data-obs-toggle="obs-{{ v.pk }}" {% if v.estado_revision == "OBSERVADO" %}checked{% endif %}>
+                            Observar
+                          </label>
+                        </div>
+                        <div class="form-row" style="margin-top:0.5rem;" id="obs-wrap-{{ v.pk }}">
+                          <label for="obs-{{ v.pk }}">Observación para el cliente</label>
+                          <textarea
+                            class="input"
+                            name="obs_v_{{ v.pk }}"
+                            id="obs-{{ v.pk }}"
+                            rows="2"
+                            minlength="10"
+                            placeholder="Indica qué falta para este criterio…"
+                          >{{ v.observacion }}</textarea>
+                        </div>
+                      {% endif %}
                     </li>
                   {% endfor %}
                 </ul>
-              {% else %}
-                <p class="muted" style="margin:0;">
-                  Sin criterios todavía.
-                  {% if doc.es_propio %}Asócialos antes de aprobar.{% else %}Revisa la configuración de la revisión.{% endif %}
-                </p>
-              {% endif %}
-            </div>
-
-            <div class="review-actions">
-              <a
-                class="btn btn-ghost"
-                href="{% url 'maestro:documento_conversacion' doc.id %}"
-                target="_blank"
-                rel="noopener"
-              >
-                Mensajes
-              </a>
-              {% if doc.es_propio %}
-                <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_documento_asociar_criterios' empresa.pk doc.id %}">
-                  {% if doc.sin_criterios %}Asociar criterios huérfanos{% else %}Más criterios{% endif %}
-                </a>
-              {% endif %}
-              {% if doc.carga %}
-                <form method="post" action="{% url 'maestro:seguimiento_carga_aprobar' empresa.pk doc.carga.id %}" style="display:inline;">
-                  {% csrf_token %}
-                  <button type="submit" class="btn" {% if doc.es_propio and doc.sin_criterios %}disabled title="Asocia criterios primero"{% endif %}>
-                    Aprobar
+                <div class="review-actions" style="margin-top:0.9rem;">
+                  <a
+                    class="btn btn-ghost"
+                    href="{% url 'maestro:documento_conversacion' doc.id %}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Mensajes
+                  </a>
+                  {% if doc.es_propio %}
+                    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_documento_asociar_criterios' empresa.pk doc.id %}">
+                      Más criterios
+                    </a>
+                  {% endif %}
+                  <button type="submit" class="btn">Guardar revisión</button>
+                  <button type="submit" class="btn btn-ghost" name="accion" value="aprobar_todos" formnovalidate>
+                    Aprobar todos
                   </button>
-                </form>
-                <details class="reject-box">
-                  <summary class="btn btn-ghost">Rechazar</summary>
+                </div>
+              </form>
+              {% if not doc.parcial %}
+                <details class="reject-box" style="margin-top:0.5rem;">
+                  <summary class="btn btn-ghost">Rechazar evidencia completa</summary>
                   <form method="post" action="{% url 'maestro:seguimiento_carga_rechazar' empresa.pk doc.carga.id %}" class="form-grid" style="margin-top:0.75rem;">
                     {% csrf_token %}
                     <div class="form-row">
@@ -139,7 +188,30 @@
                   </form>
                 </details>
               {% endif %}
-            </div>
+            {% else %}
+              <div class="review-criterios">
+                <h4>Criterios asociados</h4>
+                <p class="muted" style="margin:0;">
+                  Sin criterios todavía.
+                  {% if doc.es_propio %}Asócialos antes de revisar.{% else %}Revisa la configuración de la revisión.{% endif %}
+                </p>
+              </div>
+              <div class="review-actions">
+                <a
+                  class="btn btn-ghost"
+                  href="{% url 'maestro:documento_conversacion' doc.id %}"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Mensajes
+                </a>
+                {% if doc.es_propio %}
+                  <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_documento_asociar_criterios' empresa.pk doc.id %}">
+                    Asociar criterios huérfanos
+                  </a>
+                {% endif %}
+              </div>
+            {% endif %}
           </article>
         {% endfor %}
       </div>
@@ -151,4 +223,26 @@
     {% endif %}
   </section>
 {% endif %}
+
+<script>
+(function () {
+  document.querySelectorAll("input[data-obs-toggle]").forEach(function (radio) {
+    radio.addEventListener("change", function () {
+      var name = radio.name;
+      document.querySelectorAll('input[name="' + name + '"]').forEach(function (r) {
+        var wrap = document.getElementById("obs-wrap-" + r.name.replace("accion_v_", ""));
+        if (!wrap) return;
+        var ta = wrap.querySelector("textarea");
+        if (r.checked && r.value === "OBSERVADO") {
+          wrap.style.display = "";
+          if (ta) ta.required = true;
+        } else if (r.checked && r.value === "APROBADO") {
+          wrap.style.display = "none";
+          if (ta) ta.required = false;
+        }
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

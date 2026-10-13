@@ -9,19 +9,27 @@
     <h1>{{ empresa.nombre }}</h1>
     <p class="page-desc">
       Documentos aún no entregados o rechazados, y criterios sin documento asociado.
-      {% if revision %} Revisión activa: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
+      {% if revision %} Revisión: <strong>{{ revision.etiqueta }}</strong>.{% endif %}
     </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Avance</a>
     <a class="btn" href="{% url 'maestro:actividad_crear' %}?empresa={{ empresa.pk }}">Nueva actividad</a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">
-      Por revisar{% if progreso %} ({{ progreso.docs_por_revisar }}){% endif %}
-    </a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+    {% if revision %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">
+        Por revisar{% if progreso %} ({{ progreso.docs_por_revisar }}){% endif %}
+      </a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}?rev={{ revision.pk }}">Monitoreo</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Ver detalle</a>
+    {% else %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Por revisar</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Ver detalle</a>
+    {% endif %}
   </div>
 </header>
+
+{% include "maestro/partials/seguimiento_rev_switcher.html" %}
 
 {% if not revision %}
   <div class="info-banner">

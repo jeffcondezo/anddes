@@ -30,6 +30,38 @@
       {{ form.nombre }}
       {{ form.nombre.errors }}
     </div>
+    <div class="form-row">
+      <label for="id_instalacion_deposito">Instalación o depósito</label>
+      {{ form.instalacion_deposito }}
+      {{ form.instalacion_deposito.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_estado">Estado</label>
+      {{ form.estado }}
+      {{ form.estado.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_capacidad">Capacidad</label>
+      {{ form.capacidad }}
+      {{ form.capacidad.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_vida_util">Vida útil</label>
+      {{ form.vida_util }}
+      {{ form.vida_util.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_inicio">Fecha inicio</label>
+      {{ form.fecha_inicio }}
+      {{ form.fecha_inicio.errors }}
+      {% if form.fecha_inicio.help_text %}<p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">{{ form.fecha_inicio.help_text }}</p>{% endif %}
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_fin">Fecha fin</label>
+      {{ form.fecha_fin }}
+      {{ form.fecha_fin.errors }}
+      {% if form.fecha_fin.help_text %}<p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">{{ form.fecha_fin.help_text }}</p>{% endif %}
+    </div>
     <div class="form-row span-2">
       <label>{{ form.activo }} Activa</label>
       {{ form.activo.errors }}

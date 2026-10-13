@@ -3,3 +3,4 @@ psycopg[binary]==3.3.4
 python-dotenv==1.2.2
 msal==1.37.0
 openpyxl==3.1.5
+django-storages[azure]==1.14.6

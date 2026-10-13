@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,6 +19,9 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / '.env')
+
+# Evita subir archivos a Azure Blob durante `manage.py test`.
+TESTING = 'test' in sys.argv or os.getenv('DJANGO_TESTING', '').lower() in ('1', 'true', 'yes')
 
 
 # Quick-start development settings - unsuitable for production
@@ -131,6 +135,31 @@ STATIC_URL = 'static/'
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Azure Blob Storage (evidencias / FileField).
+# Solo connection string + container (como en el lab). Si falta CONNECTION_STRING → disco local.
+AZURE_STORAGE_CONNECTION_STRING = (os.getenv('AZURE_STORAGE_CONNECTION_STRING') or '').strip()
+AZURE_STORAGE_CONTAINER = (
+    os.getenv('AZURE_STORAGE_CONTAINER')
+    or os.getenv('AZURE_STORAGE_CONTAINER_NAME')
+    or 'gistm-media'
+).strip()
+
+if AZURE_STORAGE_CONNECTION_STRING and not TESTING:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.azure_storage.AzureStorage',
+            'OPTIONS': {
+                'connection_string': AZURE_STORAGE_CONNECTION_STRING,
+                'azure_container': AZURE_STORAGE_CONTAINER,
+                'expiration_secs': 3600,
+                'overwrite_files': True,
+            },
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
 
 LOGIN_URL = 'maestro:login'
 LOGIN_REDIRECT_URL = 'maestro:home'

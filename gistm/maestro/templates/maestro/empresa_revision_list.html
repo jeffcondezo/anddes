@@ -23,10 +23,15 @@
         <tr>
           <th>Año</th>
           <th>Nombre</th>
+          <th>Instalación / depósito</th>
+          <th>Estado</th>
+          <th>Capacidad</th>
+          <th>Vida útil</th>
+          <th>Periodo</th>
           <th>Documentos</th>
           <th>Criterios cubiertos</th>
           <th>Avance</th>
-          <th>Estado</th>
+          <th>Activa</th>
           <th></th>
         </tr>
       </thead>
@@ -36,6 +41,17 @@
           <tr>
             <td class="mono"><strong>{{ revision.anio }}</strong></td>
             <td>{{ revision.nombre|default:"—" }}</td>
+            <td>{{ revision.instalacion_deposito|default:"—" }}</td>
+            <td>{% if revision.estado %}{{ revision.get_estado_display }}{% else %}—{% endif %}</td>
+            <td>{{ revision.capacidad|default:"—" }}</td>
+            <td>{{ revision.vida_util|default:"—" }}</td>
+            <td class="mono" style="white-space:nowrap;font-size:0.82rem;">
+              {% if revision.fecha_inicio and revision.fecha_fin %}
+                {{ revision.fecha_inicio|date:"d/m/Y" }} → {{ revision.fecha_fin|date:"d/m/Y" }}
+              {% else %}
+                <span class="muted">Sin fechas</span>
+              {% endif %}
+            </td>
             <td class="mono">{{ revision.docs_activos }} / {{ revision.total_documentos }}</td>
             <td class="mono">{{ item.criterios_cubiertos }} / {{ item.total_criterios }}</td>
             <td class="mono">{{ item.avance_pct }}%</td>
@@ -54,7 +70,7 @@
           {% endwith %}
         {% empty %}
           <tr>
-            <td colspan="7">
+            <td colspan="12">
               <div class="empty-state">
                 <strong>No hay revisiones registradas</strong>
                 Crea una revisión para definir documentos y criterios de esta empresa.

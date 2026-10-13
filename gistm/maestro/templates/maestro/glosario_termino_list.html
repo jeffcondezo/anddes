@@ -1,0 +1,69 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Glosario · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Administración</p>
+    <h1>Glosario</h1>
+    <p class="page-desc">Términos que se muestran en la pestaña Glosario de Indicadores.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:glosario_termino_create' %}">+ Nuevo término</a>
+  </div>
+</header>
+
+<form method="get" class="panel" style="margin-bottom:1rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;">
+  <label style="display:grid;gap:0.25rem;flex:1;min-width:14rem;">
+    <span class="muted" style="font-size:0.8rem;">Buscar</span>
+    <input type="search" name="q" class="input" value="{{ q }}" placeholder="Concepto o descripción…">
+  </label>
+  <button type="submit" class="btn">Buscar</button>
+  {% if q %}
+    <a class="btn btn-ghost" href="{% url 'maestro:glosario_termino_list' %}">Limpiar</a>
+  {% endif %}
+</form>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Concepto</th>
+          <th>Descripción</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in terminos %}
+          <tr>
+            <td><strong>{{ t.concepto }}</strong></td>
+            <td>{{ t.descripcion|truncatechars:140 }}</td>
+            <td>
+              {% if t.activo %}
+                <span class="badge badge-ok">Activo</span>
+              {% else %}
+                <span class="badge badge-off">Inactivo</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:glosario_termino_edit' t.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4">
+              <div class="empty-state">
+                <strong>Sin términos</strong>
+                Registra el primer concepto del glosario.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

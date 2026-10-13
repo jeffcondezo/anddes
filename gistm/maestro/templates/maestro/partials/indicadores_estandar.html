@@ -1,0 +1,64 @@
+{% if cobertura %}
+  <div class="stat-grid" style="margin-bottom:1.25rem;">
+    <article class="stat-card">
+      <div class="stat-label">Docs catálogo activos</div>
+      <div class="stat-value">{{ cobertura.docs_catalogo_pct }}%</div>
+      <div class="stat-hint">{{ cobertura.docs_catalogo_activos }} / {{ cobertura.docs_catalogo_total }}</div>
+    </article>
+    <article class="stat-card neutral">
+      <div class="stat-label">Criterios estándar vinculados</div>
+      <div class="stat-value">{{ cobertura.criterios_cobertura_pct }}%</div>
+      <div class="stat-hint">{{ cobertura.criterios_vinculados }} / {{ cobertura.criterios_estandar_total }}</div>
+    </article>
+    <article class="stat-card accent">
+      <div class="stat-label">Catálogo sin evidencia</div>
+      <div class="stat-value">{{ cobertura.docs_sin_evidencia }}</div>
+      <div class="stat-hint">Documentos referenciales pendientes</div>
+    </article>
+    <article class="stat-card danger">
+      <div class="stat-label">Criterios huérfanos</div>
+      <div class="stat-value">{{ cobertura.criterios_huerfanos }}</div>
+      <div class="stat-hint">Aplicables sin documento</div>
+    </article>
+  </div>
+{% endif %}
+
+<div class="ind-estandar-board">
+  <aside class="panel ind-temas-rail">
+    <div class="ind-temas-rail-title">TEMAS</div>
+    <div class="ind-temas-list" id="est-temas-list" role="tablist" aria-label="Temas del estándar">
+      <p class="muted" style="padding:0.5rem;font-size:0.8rem;">Cargando…</p>
+    </div>
+  </aside>
+
+  <section class="panel ind-estandar-main">
+    <header class="ind-estandar-tema-head">
+      <h2 id="est-tema-titulo">—</h2>
+      <p class="muted" id="est-tema-sub">Selecciona un tema del estándar GISTM.</p>
+    </header>
+    <div class="table-wrap ind-estandar-princ-wrap">
+      <table class="data ind-tabla-zebra" id="est-tabla-principios">
+        <thead>
+          <tr>
+            <th>Principios</th>
+            <th>Descripción</th>
+          </tr>
+        </thead>
+        <tbody id="est-tabla-principios-body">
+          <tr><td colspan="2" class="muted">Selecciona un tema.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="ind-estandar-detalle">
+  <section class="panel ind-estandar-cards-panel">
+    <div class="ind-tabla-title">Requisitos</div>
+    <div class="ind-estandar-cards" id="est-requisitos"></div>
+  </section>
+  <section class="panel ind-estandar-cards-panel">
+    <div class="ind-tabla-title">Criterios</div>
+    <div class="ind-estandar-cards" id="est-criterios"></div>
+  </section>
+</div>

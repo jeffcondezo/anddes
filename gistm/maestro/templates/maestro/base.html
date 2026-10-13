@@ -1714,6 +1714,10 @@
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 16V9"/><path d="M12 16V5"/><path d="M17 16v-3"/></svg>
             Seguimiento
           </a>
+          <a href="{% url 'maestro:indicadores_list' %}" class="{% if request.resolver_match.url_name == 'indicadores_list' or request.resolver_match.url_name == 'indicadores_empresa' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4"/><path d="M12 15V8"/><path d="M16 15v-6"/></svg>
+            Indicadores
+          </a>
           <a href="{% url 'maestro:actividad_calendario' %}" class="{% if request.resolver_match.url_name == 'actividad_calendario' or request.resolver_match.url_name == 'actividad_crear' or request.resolver_match.url_name == 'actividad_detalle' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
             Actividades
@@ -1770,6 +1774,10 @@
             </div>
           </div>
           {% endwith %}
+          <a href="{% url 'maestro:glosario_termino_list' %}" class="{% if request.resolver_match.url_name == 'glosario_termino_list' or request.resolver_match.url_name == 'glosario_termino_create' or request.resolver_match.url_name == 'glosario_termino_edit' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
+            Glosario
+          </a>
         {% endif %}
       </nav>
       <div class="sidebar-footer">

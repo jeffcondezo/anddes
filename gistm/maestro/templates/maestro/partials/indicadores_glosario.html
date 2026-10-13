@@ -1,0 +1,56 @@
+<form method="get" class="ind-glosario-search" id="ind-glosario-search">
+  <input type="hidden" name="tab" value="glosario">
+  <label class="ind-glosario-search-field">
+    <span class="ind-glosario-search-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </span>
+    <input
+      type="search"
+      name="q"
+      class="input"
+      value="{{ glosario_q }}"
+      placeholder="Search"
+      autocomplete="off"
+    >
+  </label>
+  {% if glosario_q %}
+    <a class="btn btn-ghost ind-glosario-clear" href="?tab=glosario" title="Limpiar">✕</a>
+  {% endif %}
+  <button type="submit" class="btn">Buscar</button>
+</form>
+
+<div class="ind-glosario-board">
+  <section class="panel ind-glosario-list-panel">
+    <div class="ind-glosario-col-title">Concepto</div>
+    <div class="ind-glosario-list" id="ind-glosario-list" role="listbox" aria-label="Conceptos del glosario">
+      {% for item in glosario %}
+        <label class="ind-glosario-item{% if forloop.first %} is-active{% endif %}" data-id="{{ item.id }}">
+          <input
+            type="radio"
+            name="glosario_concepto"
+            value="{{ item.id }}"
+            {% if forloop.first %}checked{% endif %}
+          >
+          <span>{{ item.concepto }}</span>
+        </label>
+      {% empty %}
+        <div class="empty-state" style="padding:1rem;">
+          <strong>Sin términos</strong>
+          Registra conceptos en Administración → Glosario.
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel ind-glosario-detail-panel">
+    <h2 class="ind-glosario-detail-title" id="ind-glosario-concepto">
+      {% if glosario %}{{ glosario.0.concepto }}{% else %}—{% endif %}
+    </h2>
+    <hr class="ind-glosario-divider">
+    <p class="ind-glosario-detail-body" id="ind-glosario-descripcion">
+      {% if glosario %}{{ glosario.0.descripcion }}{% else %}Selecciona un concepto del listado.{% endif %}
+    </p>
+  </section>
+</div>
+
+{{ glosario_json|json_script:"ind-glosario-data" }}

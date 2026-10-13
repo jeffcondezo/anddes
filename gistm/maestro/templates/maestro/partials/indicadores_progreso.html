@@ -1,0 +1,91 @@
+{% load l10n %}
+{% if not progreso %}
+  <div class="empty-state">
+    <strong>Sin revisión activa</strong>
+    No hay progreso que mostrar.
+  </div>
+{% else %}
+  <div class="ind-tablero-progreso" style="margin-bottom:1.25rem;">
+    <aside class="panel ind-temas-rail">
+      <div class="ind-temas-rail-title">TEMAS</div>
+      <div class="ind-temas-list" id="ind-temas-list" role="tablist" aria-label="Temas">
+        {% for tema in progreso.temas %}
+          <button
+            type="button"
+            class="ind-tema-btn{% if forloop.first %} is-active{% endif %}"
+            data-tema="{{ tema.codigo }}"
+            role="tab"
+            aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+            title="{{ tema.codigo }} · {{ tema.nombre }}"
+          >{{ tema.codigo }}</button>
+        {% empty %}
+          <p class="muted" style="padding:0.5rem;font-size:0.8rem;">Sin temas</p>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <section class="panel ind-tablero-chart">
+      <div class="panel-head">
+        <div>
+          <h2>PRINCIPIOS</h2>
+          <p class="muted" id="ind-principios-sub">Selecciona un tema.</p>
+        </div>
+      </div>
+      <div class="ind-chart-box ind-tablero-canvas">
+        <canvas id="chart-principios-tema"></canvas>
+      </div>
+    </section>
+
+    <section class="panel ind-tablero-chart">
+      <div class="panel-head">
+        <div>
+          <h2>REQUISITOS</h2>
+          <p class="muted" id="ind-requisitos-sub">Selecciona un tema.</p>
+        </div>
+      </div>
+      <div class="ind-chart-box ind-tablero-canvas" id="ind-requisitos-wrap">
+        <canvas id="chart-requisitos-tema"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <div class="ind-tablero-tablas">
+    <section class="panel ind-tabla-panel">
+      <div class="ind-tabla-title">DOCUMENTOS ASOCIADOS</div>
+      <div class="table-wrap ind-tabla-scroll">
+        <table class="data ind-tabla-zebra" id="ind-tabla-docs">
+          <thead>
+            <tr>
+              <th>Documento</th>
+              <th>Estado</th>
+              <th>Elaborador</th>
+              <th>Área responsable</th>
+              <th>% Avance</th>
+            </tr>
+          </thead>
+          <tbody id="ind-tabla-docs-body">
+            <tr><td colspan="5" class="muted">Selecciona un tema.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel ind-tabla-panel">
+      <div class="ind-tabla-title">CRITERIOS</div>
+      <div class="table-wrap ind-tabla-scroll">
+        <table class="data ind-tabla-zebra" id="ind-tabla-crits">
+          <thead>
+            <tr>
+              <th>Aplica a</th>
+              <th>Descripción</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="ind-tabla-crits-body">
+            <tr><td colspan="3" class="muted">Selecciona un tema.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endif %}

@@ -13,6 +13,7 @@ from .models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    GlosarioTermino,
     IntentoAcceso,
     PerfilUsuario,
     Principio,
@@ -33,7 +34,7 @@ class AreaInline(admin.TabularInline):
 class EmpresaDocumentoInline(admin.TabularInline):
     model = EmpresaDocumento
     extra = 0
-    fields = ("codigo", "nombre", "tipo_documento", "origen", "activo")
+    fields = ("codigo", "nombre", "tipo_documento", "origen", "prioritario", "activo")
     raw_id_fields = ("documento",)
 
 
@@ -54,9 +55,21 @@ class EmpresaAdmin(admin.ModelAdmin):
 
 @admin.register(Revision)
 class RevisionAdmin(admin.ModelAdmin):
-    list_display = ("empresa", "anio", "nombre", "activo", "creado_en")
-    list_filter = ("activo", "anio", "empresa")
-    search_fields = ("nombre", "empresa__nombre")
+    list_display = (
+        "empresa",
+        "anio",
+        "nombre",
+        "instalacion_deposito",
+        "estado",
+        "capacidad",
+        "vida_util",
+        "fecha_inicio",
+        "fecha_fin",
+        "activo",
+        "creado_en",
+    )
+    list_filter = ("activo", "estado", "anio", "empresa")
+    search_fields = ("nombre", "instalacion_deposito", "empresa__nombre")
     raw_id_fields = ("empresa",)
     inlines = [EmpresaDocumentoInline]
 
@@ -80,8 +93,16 @@ class AreaAdmin(admin.ModelAdmin):
 
 @admin.register(EmpresaDocumento)
 class EmpresaDocumentoAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "nombre", "revision", "origen", "tipo_documento", "activo")
-    list_filter = ("origen", "activo", "revision__empresa", "tipo_documento")
+    list_display = (
+        "codigo",
+        "nombre",
+        "revision",
+        "origen",
+        "tipo_documento",
+        "prioritario",
+        "activo",
+    )
+    list_filter = ("origen", "prioritario", "activo", "revision__empresa", "tipo_documento")
     search_fields = ("codigo", "nombre", "revision__empresa__nombre")
     raw_id_fields = ("revision", "documento")
     inlines = [EmpresaDocumentoCriterioInline]
@@ -233,6 +254,13 @@ class RegistroLoginExternoAdmin(admin.ModelAdmin):
 class TemaAdmin(admin.ModelAdmin):
     list_display = ("codigo", "nombre", "creado_en")
     search_fields = ("codigo", "nombre")
+
+
+@admin.register(GlosarioTermino)
+class GlosarioTerminoAdmin(admin.ModelAdmin):
+    list_display = ("concepto", "activo", "creado_en")
+    list_filter = ("activo",)
+    search_fields = ("concepto", "descripcion")
 
 
 @admin.register(Principio)

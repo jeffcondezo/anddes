@@ -19,6 +19,9 @@ from .models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EstadoInstalacionRevision,
+    EstadoRevisionCriterio,
+    GlosarioTermino,
     OrigenEmpresaDocumento,
     PerfilUsuario,
     Principio,
@@ -51,9 +54,32 @@ class EmpresaForm(forms.ModelForm):
         fields = ["nombre", "ruc", "activo"]
         widgets = {
             "nombre": forms.TextInput(attrs={"class": "input"}),
-            "ruc": forms.TextInput(attrs={"class": "input"}),
+            "ruc": forms.TextInput(
+                attrs={
+                    "class": "input",
+                    "inputmode": "numeric",
+                    "pattern": r"[0-9]{11}",
+                    "maxlength": "11",
+                    "minlength": "11",
+                    "autocomplete": "off",
+                    "placeholder": "11 dígitos",
+                }
+            ),
             "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["ruc"].required = True
+        self.fields["ruc"].help_text = "Solo números, exactamente 11 dígitos."
+
+    def clean_ruc(self):
+        ruc = (self.cleaned_data.get("ruc") or "").strip()
+        if not ruc.isdigit() or len(ruc) != 11:
+            raise forms.ValidationError(
+                "El RUC debe ser numérico y tener exactamente 11 dígitos."
+            )
+        return ruc
 
 
 class AreaForm(forms.ModelForm):
@@ -253,6 +279,17 @@ class TemaForm(forms.ModelForm):
         }
 
 
+class GlosarioTerminoForm(forms.ModelForm):
+    class Meta:
+        model = GlosarioTermino
+        fields = ["concepto", "descripcion", "activo"]
+        widgets = {
+            "concepto": forms.TextInput(attrs={"class": "input"}),
+            "descripcion": forms.Textarea(attrs={"class": "input", "rows": 5}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
+        }
+
+
 class PrincipioForm(forms.ModelForm):
     class Meta:
         model = Principio
@@ -417,16 +454,73 @@ class AplicarEstandarRevisionForm(forms.Form):
 class RevisionForm(forms.ModelForm):
     class Meta:
         model = Revision
-        fields = ["anio", "nombre", "activo"]
+        fields = [
+            "anio",
+            "nombre",
+            "instalacion_deposito",
+            "estado",
+            "capacidad",
+            "vida_util",
+            "fecha_inicio",
+            "fecha_fin",
+            "activo",
+        ]
         widgets = {
             "anio": forms.NumberInput(attrs={"class": "input", "min": "2000", "max": "2100"}),
             "nombre": forms.TextInput(attrs={"class": "input", "placeholder": "Opcional"}),
+            "instalacion_deposito": forms.TextInput(attrs={"class": "input"}),
+            "estado": forms.Select(attrs={"class": "input"}),
+            "capacidad": forms.TextInput(attrs={"class": "input"}),
+            "vida_util": forms.TextInput(attrs={"class": "input"}),
+            "fecha_inicio": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"class": "input", "type": "date"},
+            ),
+            "fecha_fin": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"class": "input", "type": "date"},
+            ),
             "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
     def __init__(self, *args, empresa: Empresa, **kwargs):
         self.empresa = empresa
         super().__init__(*args, **kwargs)
+        self.fields["instalacion_deposito"].label = "Instalación o depósito"
+        self.fields["estado"].label = "Estado"
+        self.fields["capacidad"].label = "Capacidad"
+        self.fields["vida_util"].label = "Vida útil"
+        self.fields["instalacion_deposito"].required = False
+        self.fields["estado"].required = False
+        self.fields["capacidad"].required = False
+        self.fields["vida_util"].required = False
+        self.fields["estado"].choices = [("", "Seleccione…")] + list(
+            EstadoInstalacionRevision.choices
+        )
+        self.fields["fecha_inicio"].label = "Fecha inicio"
+        self.fields["fecha_fin"].label = "Fecha fin"
+        self.fields["fecha_inicio"].input_formats = ["%Y-%m-%d"]
+        self.fields["fecha_fin"].input_formats = ["%Y-%m-%d"]
+        self.fields["fecha_inicio"].help_text = (
+            "Inicio del periodo para Plan y Forecast en Indicadores."
+        )
+        self.fields["fecha_fin"].help_text = "Fecha meta (100% planificado)."
+
+    def clean(self):
+        cleaned = super().clean()
+        inicio = cleaned.get("fecha_inicio")
+        fin = cleaned.get("fecha_fin")
+        if inicio and fin and fin < inicio:
+            self.add_error(
+                "fecha_fin",
+                "La fecha fin no puede ser anterior a la fecha inicio.",
+            )
+        if bool(inicio) ^ bool(fin):
+            self.add_error(
+                "fecha_fin" if inicio else "fecha_inicio",
+                "Debes indicar fecha inicio y fecha fin, o ninguna.",
+            )
+        return cleaned
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -443,6 +537,13 @@ class ActivarDocumentosCatalogoForm(forms.Form):
         widget=forms.CheckboxSelectMultiple,
         required=True,
     )
+    prioritario = forms.BooleanField(
+        label="Marcar como prioritarios",
+        required=False,
+        initial=False,
+        help_text="Los documentos activados aparecerán en Documentos prioritarios del dashboard.",
+        widget=forms.CheckboxInput(attrs={"class": "checkbox"}),
+    )
 
     def __init__(self, *args, revision: Revision, **kwargs):
         super().__init__(*args, **kwargs)
@@ -455,16 +556,21 @@ class ActivarDocumentosCatalogoForm(forms.Form):
 class EmpresaDocumentoPropioForm(forms.ModelForm):
     class Meta:
         model = EmpresaDocumento
-        fields = ["codigo", "nombre", "tipo_documento"]
+        fields = ["codigo", "nombre", "tipo_documento", "prioritario"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "nombre": forms.TextInput(attrs={"class": "input"}),
             "tipo_documento": forms.TextInput(attrs={"class": "input"}),
+            "prioritario": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
     def __init__(self, *args, revision: Revision, **kwargs):
         self.revision = revision
         super().__init__(*args, **kwargs)
+        self.fields["prioritario"].label = "Prioritario"
+        self.fields["prioritario"].help_text = (
+            "Aparece en Documentos prioritarios del dashboard de Indicadores."
+        )
 
     def clean_codigo(self):
         codigo = (self.cleaned_data.get("codigo") or "").strip()
@@ -614,7 +720,11 @@ class DocumentoCargaForm(forms.ModelForm):
         return archivo
 
     def save(self, commit=True):
-        from .models import EstadoRevisionCarga
+        from .models import (
+            EstadoRevisionCarga,
+            resetear_criterios_no_aprobados,
+            sincronizar_estado_carga_documento,
+        )
 
         obj = super().save(commit=False)
         obj.estado_revision = EstadoRevisionCarga.PENDIENTE
@@ -624,7 +734,74 @@ class DocumentoCargaForm(forms.ModelForm):
         obj.activo = True
         if commit:
             obj.save()
+            # Nueva evidencia: conservar criterios ya APROBADO; reiniciar el resto.
+            resetear_criterios_no_aprobados(obj.empresa_documento)
+            sincronizar_estado_carga_documento(obj.empresa_documento)
+            obj.refresh_from_db()
         return obj
+
+
+class RevisionParcialCargaForm(forms.Form):
+    """
+    Revisión por criterio sobre una carga.
+    POST: accion=guardar|aprobar_todos,
+    accion_v_<vinculo_id>=APROBADO|OBSERVADO,
+    obs_v_<vinculo_id>=texto (obligatorio si OBSERVADO).
+    """
+
+    def __init__(self, *args, carga: DocumentoCarga, **kwargs):
+        self.carga = carga
+        self.empresa_documento = carga.empresa_documento
+        self.vinculos = list(
+            EmpresaDocumentoCriterio.objects.filter(
+                empresa_documento=self.empresa_documento
+            )
+            .select_related("criterio", "area")
+            .order_by("criterio__codigo")
+        )
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned = super().clean()
+        data = self.data
+        accion = (data.get("accion") or "guardar").strip()
+        decisions: list[tuple[EmpresaDocumentoCriterio, str, str]] = []
+
+        if accion == "aprobar_todos":
+            for v in self.vinculos:
+                if v.estado_revision != EstadoRevisionCriterio.APROBADO:
+                    decisions.append((v, EstadoRevisionCriterio.APROBADO, ""))
+            cleaned["decisions"] = decisions
+            return cleaned
+
+        for v in self.vinculos:
+            if v.estado_revision == EstadoRevisionCriterio.APROBADO:
+                continue
+            key = f"accion_v_{v.pk}"
+            choice = (data.get(key) or "").strip().upper()
+            if choice not in {
+                EstadoRevisionCriterio.APROBADO,
+                EstadoRevisionCriterio.OBSERVADO,
+                "",
+            }:
+                raise ValidationError(f"Acción inválida para {v.criterio.codigo}.")
+            if not choice:
+                continue
+            obs = (data.get(f"obs_v_{v.pk}") or "").strip()
+            if choice == EstadoRevisionCriterio.OBSERVADO and len(obs) < 10:
+                self.add_error(
+                    None,
+                    f"La observación de {v.criterio.codigo} debe tener al menos 10 caracteres.",
+                )
+            decisions.append((v, choice, obs))
+
+        if not decisions and not self.errors:
+            raise ValidationError(
+                "Indica al menos un criterio para aprobar u observar, "
+                "o usa «Aprobar todos»."
+            )
+        cleaned["decisions"] = decisions
+        return cleaned
 
 
 class RechazoDocumentoCargaForm(forms.Form):

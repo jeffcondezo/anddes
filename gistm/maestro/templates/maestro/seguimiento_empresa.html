@@ -10,7 +10,7 @@
     <h1>{{ empresa.nombre }}</h1>
     <p class="page-desc">
       {% if revision %}
-        Revisión activa: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
+        Revisión: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
         {% if docs_tab == 'pendientes' %}
           Backlog: sin entregar, rechazados y criterios sin documento.
         {% else %}
@@ -23,17 +23,21 @@
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_list' %}">Volver</a>
-    {% if progreso %}
-      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}">
+    {% if progreso and revision %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}?rev={{ revision.pk }}">
         Pendientes ({{ progreso.docs_pendientes_entrega }})
       </a>
-      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">
         Por revisar ({{ progreso.docs_por_revisar }})
       </a>
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}?rev={{ revision.pk }}">Monitoreo</a>
+    {% else %}
+      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
     {% endif %}
-    <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_monitoreo' empresa.pk %}">Monitoreo</a>
   </div>
 </header>
+
+{% include "maestro/partials/seguimiento_rev_switcher.html" %}
 
 {% if not revision %}
   <div class="info-banner">
@@ -274,7 +278,7 @@
                 <summary>
                   <div>
                     <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
-                    <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} principios completos</div>
+                    <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} criterios con evidencia aprobada</div>
                   </div>
                   <div class="meter" style="min-width:7.5rem;">
                     <div class="meter-top">

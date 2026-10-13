@@ -35,6 +35,16 @@
       {{ form.nombre }}
       {{ form.nombre.errors }}
     </div>
+    <div class="form-row span-2">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+        {{ form.prioritario }}
+        <span>Prioritario</span>
+      </label>
+      {% if form.prioritario.help_text %}
+        <p class="muted" style="margin:0.25rem 0 0;font-size:0.8rem;">{{ form.prioritario.help_text }}</p>
+      {% endif %}
+      {{ form.prioritario.errors }}
+    </div>
     <div class="form-actions span-2">
       <button type="submit" class="btn">Guardar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
