@@ -986,6 +986,24 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         resp = self.client.get(reverse("maestro:seguimiento_list"))
         self.assertEqual(resp.status_code, 302)
 
+    def _completar_vigencia_aprobacion(self, doc):
+        """Paso obligatorio tras aprobar: guardar vigencia confirma la aprobación."""
+        hoy = timezone.localdate()
+        url_vig = reverse(
+            "maestro:seguimiento_documento_vigencia",
+            args=[self.empresa.pk, doc.pk],
+        )
+        resp = self.client.post(
+            url_vig,
+            {
+                "frecuencia_actualizacion": "ANUAL",
+                "fecha_ultima_revision": hoy.isoformat(),
+                "fecha_caducidad": (hoy + timedelta(days=365)).isoformat(),
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        return resp
+
     def test_aprobar_carga_desde_seguimiento(self):
         carga = DocumentoCarga.objects.create(
             empresa_documento=self.doc,
@@ -1001,6 +1019,17 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         )
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
+        # Sin vigencia aún no se confirma la aprobación
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado_revision, EstadoRevisionCarga.PENDIENTE)
+        self.assertIn(
+            reverse(
+                "maestro:seguimiento_documento_vigencia",
+                args=[self.empresa.pk, self.doc.pk],
+            ),
+            resp.url,
+        )
+        self._completar_vigencia_aprobacion(self.doc)
         carga.refresh_from_db()
         self.assertEqual(carga.estado_revision, EstadoRevisionCarga.APROBADO)
         self.assertEqual(carga.revisado_por_id, self.gestor.pk)
@@ -1072,7 +1101,7 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         self.assertIsNotNone(msg)
         self.assertIn("monitoreo", msg.texto)
 
-        # Cerrar el restante
+        # Cerrar el restante → pide vigencia antes de aprobar
         resp = self.client.post(
             url,
             {
@@ -1081,6 +1110,16 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
             },
         )
         self.assertEqual(resp.status_code, 302)
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado_revision, EstadoRevisionCarga.PARCIAL)
+        self.assertIn(
+            reverse(
+                "maestro:seguimiento_documento_vigencia",
+                args=[self.empresa.pk, self.doc.pk],
+            ),
+            resp.url,
+        )
+        self._completar_vigencia_aprobacion(self.doc)
         carga.refresh_from_db()
         self.assertEqual(carga.estado_revision, EstadoRevisionCarga.APROBADO)
 

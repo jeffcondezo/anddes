@@ -9,7 +9,6 @@
 #   3. Avisos in-app de actividades próximas / pasadas
 #   4. Correos de recordatorio de acuerdos (reglas ANTES / POST por empresa)
 #
-# Ejemplo crontab (07:00 todos los días):
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 
