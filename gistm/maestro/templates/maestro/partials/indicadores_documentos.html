@@ -5,19 +5,94 @@
   </div>
 {% else %}
   <div class="coverage-tabs" style="margin-bottom:1rem;">
-    <a href="?tab=documentos&docs=todos{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'todos' %}active{% endif %}">
+    <a href="?tab=documentos&amp;docs=todos&amp;rev={{ revision.pk }}" class="{% if docs_sub == 'todos' %}active{% endif %}">
       Todos <span class="count">{{ docs_count_todos|default:0 }}</span>
     </a>
-    <a href="?tab=documentos&docs=referenciales{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'referenciales' %}active{% endif %}">
+    <a href="?tab=documentos&amp;docs=referenciales&amp;rev={{ revision.pk }}" class="{% if docs_sub == 'referenciales' %}active{% endif %}">
       Referenciales <span class="count">{{ docs_count_ref|default:0 }}</span>
     </a>
-    <a href="?tab=documentos&docs=multidisciplinario{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'multidisciplinario' %}active{% endif %}">
+    <a href="?tab=documentos&amp;docs=multidisciplinario&amp;rev={{ revision.pk }}" class="{% if docs_sub == 'multidisciplinario' %}active{% endif %}">
       Multidisciplinario <span class="count">{{ docs_count_multi|default:0 }}</span>
     </a>
-    <a href="?tab=documentos&docs=multiprincipio{% if revision %}&rev={{ revision.pk }}{% endif %}" class="{% if docs_sub == 'multiprincipio' %}active{% endif %}">
+    <a href="?tab=documentos&amp;docs=multiprincipio&amp;rev={{ revision.pk }}" class="{% if docs_sub == 'multiprincipio' %}active{% endif %}">
       Multiprincipio <span class="count">{{ docs_count_multiprincipio|default:0 }}</span>
     </a>
   </div>
+
+  <section class="panel" style="margin-bottom:1rem;">
+    <div class="panel-head">
+      <div>
+        <h2>Filtros</h2>
+        <p class="muted">Ubica documentos por nombre, consultor, área, estado o fechas.</p>
+      </div>
+      <div class="page-actions" style="margin:0;">
+        <a
+          class="btn btn-ghost"
+          href="{% url 'maestro:indicadores_documentos_export' empresa.pk 'xlsx' %}?{{ request.GET.urlencode }}"
+        >Excel</a>
+        <a
+          class="btn btn-ghost"
+          href="{% url 'maestro:indicadores_documentos_export' empresa.pk 'pdf' %}?{{ request.GET.urlencode }}"
+        >PDF</a>
+      </div>
+    </div>
+    <form method="get" class="filters-docs" style="display:grid; gap:0.75rem;">
+      <input type="hidden" name="tab" value="documentos">
+      <input type="hidden" name="docs" value="{{ docs_sub }}">
+      {% if revision %}<input type="hidden" name="rev" value="{{ revision.pk }}">{% endif %}
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:0.75rem; align-items:end;">
+        <div class="form-row" style="margin:0;">
+          <label for="doc_q">Buscar</label>
+          <input class="input" type="search" name="doc_q" id="doc_q" value="{{ docs_filtros.doc_q }}" placeholder="Código o nombre…">
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="consultor">Consultor (revisado por)</label>
+          <select class="input" name="consultor" id="consultor">
+            <option value="">Todos</option>
+            {% for c in docs_opciones.consultores %}
+              <option value="{{ c }}" {% if docs_filtros.consultor == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="area">Área</label>
+          <select class="input" name="area" id="area">
+            <option value="">Todas</option>
+            {% for a in docs_opciones.areas %}
+              <option value="{{ a }}" {% if docs_filtros.area == a %}selected{% endif %}>{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="estado">Estado</label>
+          <select class="input" name="estado" id="estado">
+            <option value="">Todos</option>
+            {% for e in docs_opciones.estados %}
+              <option value="{{ e }}" {% if docs_filtros.estado == e %}selected{% endif %}>{{ e }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="fecha_desde">Fecha desde</label>
+          <input class="input" type="date" name="fecha_desde" id="fecha_desde" value="{{ docs_filtros.fecha_desde }}">
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="fecha_hasta">Fecha hasta</label>
+          <input class="input" type="date" name="fecha_hasta" id="fecha_hasta" value="{{ docs_filtros.fecha_hasta }}">
+        </div>
+      </div>
+      <p class="muted" style="margin:0; font-size:0.8rem;">
+        Las fechas filtran por fecha límite del plan; si no hay, por fecha de revisión o de carga.
+      </p>
+      <div class="form-actions" style="margin:0;">
+        <button type="submit" class="btn">Aplicar filtros</button>
+        <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}">Limpiar</a>
+        <span class="muted" style="margin-left:auto; font-size:0.85rem;">
+          {{ docs_total_filtrados }} resultado(s)
+        </span>
+      </div>
+    </form>
+  </section>
 
   <section class="panel panel-flush">
     <div class="table-wrap">
@@ -29,6 +104,7 @@
             <th>Estado</th>
             <th>Áreas</th>
             <th>Principios</th>
+            <th>Fechas</th>
             <th></th>
           </tr>
         </thead>
@@ -50,7 +126,7 @@
               <td>
                 <span class="badge
                   {% if d.estado_label == 'Aprobado' %}badge-ok
-                  {% elif d.estado_label == 'Por revisar' %}badge-info
+                  {% elif d.estado_label == 'Por revisar' or d.estado_label == 'Parcial' %}badge-info
                   {% elif d.estado_label == 'Rechazado' %}badge-off
                   {% else %}badge-off{% endif %}">
                   {{ d.estado_label }}
@@ -58,6 +134,16 @@
               </td>
               <td style="font-size:0.82rem;">{% if d.areas %}{{ d.areas|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
               <td class="mono" style="font-size:0.8rem;">{% if d.principios %}{{ d.principios|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td style="font-size:0.78rem; white-space:nowrap;">
+                {% if d.fecha_limite %}<div>Límite: {{ d.fecha_limite|date:"d/m/Y" }}</div>{% endif %}
+                {% if d.fecha_revision %}<div class="muted">Rev.: {{ d.fecha_revision|date:"d/m/Y" }}</div>{% endif %}
+                {% if not d.fecha_limite and not d.fecha_revision and d.fecha_carga %}
+                  <div class="muted">Carga: {{ d.fecha_carga|date:"d/m/Y" }}</div>
+                {% endif %}
+                {% if not d.fecha_limite and not d.fecha_revision and not d.fecha_carga %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
               <td>
                 <details class="ind-doc-detail">
                   <summary>Detalle</summary>
@@ -77,7 +163,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="6">
+              <td colspan="7">
                 <div class="empty-state">
                   <strong>Sin documentos en este filtro</strong>
                 </div>
@@ -87,5 +173,41 @@
         </tbody>
       </table>
     </div>
+
+    {% if docs_page_obj and docs_page_obj.paginator.num_pages > 1 %}
+      <div class="docs-pagination" style="display:flex; flex-wrap:wrap; gap:0.65rem; align-items:center; justify-content:space-between; padding:0.85rem 1rem; border-top:1px solid var(--border, #e2e8f0);">
+        <span class="muted" style="font-size:0.85rem;">
+          Página {{ docs_page_obj.number }} de {{ docs_page_obj.paginator.num_pages }}
+          · {{ docs_total_filtrados }} documento(s)
+        </span>
+        <nav class="docs-pagination-nav" aria-label="Paginación de documentos" style="display:flex; gap:0.3rem; flex-wrap:wrap; align-items:center;">
+          {% if docs_page_obj.has_previous %}
+            <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page=1" title="Primera">«</a>
+            <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.previous_page_number }}">Anterior</a>
+          {% else %}
+            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">«</span>
+            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">Anterior</span>
+          {% endif %}
+
+          {% for n in docs_page_numbers %}
+            {% if n is None %}
+              <span class="muted" style="padding:0 0.25rem;">…</span>
+            {% elif n == docs_page_obj.number %}
+              <span class="btn" aria-current="page" style="min-width:2.25rem; justify-content:center;">{{ n }}</span>
+            {% else %}
+              <a class="btn btn-ghost" style="min-width:2.25rem; justify-content:center;" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ n }}">{{ n }}</a>
+            {% endif %}
+          {% endfor %}
+
+          {% if docs_page_obj.has_next %}
+            <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.next_page_number }}">Siguiente</a>
+            <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.paginator.num_pages }}" title="Última">»</a>
+          {% else %}
+            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">Siguiente</span>
+            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">»</span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
   </section>
 {% endif %}

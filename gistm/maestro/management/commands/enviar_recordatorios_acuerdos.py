@@ -7,7 +7,8 @@ from maestro.acuerdo_recordatorios import enviar_recordatorios_automaticos
 
 class Command(BaseCommand):
     help = (
-        "Envía recordatorios automáticos de acuerdos con fecha de compromiso = hoy. "
+        "Envía recordatorios automáticos de acuerdos según las reglas de cada empresa "
+        "(antes / post vencimiento). Sin reglas, envía el día del compromiso. "
         "Úsalo desde cron en el servidor (ej. una vez al día)."
     )
 

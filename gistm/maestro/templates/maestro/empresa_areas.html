@@ -1,0 +1,247 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Áreas y responsables · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Empresas</p>
+    <h1>Áreas y responsables</h1>
+    <p class="page-desc">
+      {{ empresa.nombre }}{% if empresa.ruc %} · RUC {{ empresa.ruc }}{% endif %}.
+      Define las áreas y las personas de contacto (nombre, DNI de 8 dígitos, teléfono y correo).
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_edit' empresa.pk %}">Editar empresa</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_notificaciones' empresa.pk %}">Notificaciones</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Listado</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1.25rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Nueva área</h2>
+      <p class="muted">Ej. Sustentabilidad, Operaciones, HSEC.</p>
+    </div>
+  </div>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="accion" value="crear_area">
+    <div class="form-grid two-col">
+      <div class="form-row">
+        <label for="{{ area_form.nombre.id_for_label }}">Nombre del área</label>
+        {{ area_form.nombre }}
+        {{ area_form.nombre.errors }}
+      </div>
+      <div class="form-row">
+        <label style="display:flex; align-items:center; gap:0.5rem; margin-top:1.6rem;">
+          {{ area_form.activo }} Activa
+        </label>
+        {{ area_form.activo.errors }}
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top:0.75rem;">
+      <button type="submit" class="btn">Agregar área</button>
+    </div>
+  </form>
+</section>
+
+{% for item in areas_ctx %}
+  {% with area=item.area rf=item.responsable_form %}
+  <section class="panel" style="margin-bottom:1.25rem;">
+    <div class="panel-head">
+      <div>
+        <h2>{{ area.nombre }}</h2>
+        <p class="muted">
+          {% if area.activo %}
+            <span class="badge badge-ok">Activa</span>
+          {% else %}
+            <span class="badge badge-off">Inactiva</span>
+          {% endif %}
+          · {{ area.responsables.count }} responsable(s)
+        </p>
+      </div>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+        <button type="button" class="btn" data-resp-modal="resp-modal-{{ area.pk }}">+ Responsable</button>
+        <form method="post" style="display:inline;">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="toggle_area">
+          <input type="hidden" name="area_id" value="{{ area.pk }}">
+          <button type="submit" class="btn btn-ghost">
+            {% if area.activo %}Desactivar{% else %}Activar{% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>DNI</th>
+            <th>Teléfono</th>
+            <th>Correo</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in area.responsables.all %}
+            <tr>
+              <td><strong>{{ r.nombre }}</strong></td>
+              <td class="mono">{{ r.dni }}</td>
+              <td>{{ r.telefono|default:"—" }}</td>
+              <td>
+                {% if r.correo %}
+                  <a href="mailto:{{ r.correo }}">{{ r.correo }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if r.activo %}
+                  <span class="badge badge-ok">Activo</span>
+                {% else %}
+                  <span class="badge badge-off">Inactivo</span>
+                {% endif %}
+              </td>
+              <td class="actions">
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="toggle_responsable">
+                  <input type="hidden" name="responsable_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem; font-size:0.8rem;">
+                    {% if r.activo %}Desactivar{% else %}Activar{% endif %}
+                  </button>
+                </form>
+                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar a {{ r.nombre }}?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="eliminar_responsable">
+                  <input type="hidden" name="responsable_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem; font-size:0.8rem;">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6">
+                <div class="empty-state" style="padding:1rem;">
+                  <strong>Sin responsables</strong>
+                  Usa «+ Responsable» para agregar el primero.
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div
+    class="modal-backdrop"
+    id="resp-modal-{{ area.pk }}"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="resp-modal-title-{{ area.pk }}"
+  >
+    <div class="modal-panel" style="max-width:min(560px, 100%);">
+      <header>
+        <div>
+          <h3 id="resp-modal-title-{{ area.pk }}">Nuevo responsable</h3>
+          <p class="muted">Área: {{ area.nombre }}</p>
+        </div>
+        <button type="button" class="modal-close" data-resp-modal-close>Cerrar</button>
+      </header>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="crear_responsable">
+        <input type="hidden" name="area_id" value="{{ area.pk }}">
+        <div class="form-grid two-col">
+          <div class="form-row">
+            <label for="{{ rf.nombre.id_for_label }}">Nombre</label>
+            {{ rf.nombre }}
+            {{ rf.nombre.errors }}
+          </div>
+          <div class="form-row">
+            <label for="{{ rf.dni.id_for_label }}">DNI (8 dígitos)</label>
+            {{ rf.dni }}
+            {{ rf.dni.errors }}
+          </div>
+          <div class="form-row">
+            <label for="{{ rf.telefono.id_for_label }}">Número / teléfono</label>
+            {{ rf.telefono }}
+            {{ rf.telefono.errors }}
+          </div>
+          <div class="form-row">
+            <label for="{{ rf.correo.id_for_label }}">Correo</label>
+            {{ rf.correo }}
+            {{ rf.correo.errors }}
+          </div>
+          <div class="form-row span-2">
+            <label style="display:flex; align-items:center; gap:0.5rem;">
+              {{ rf.activo }} Activo
+            </label>
+          </div>
+        </div>
+        {% if rf.non_field_errors %}
+          <div class="info-banner" style="margin:0.5rem 0;">{{ rf.non_field_errors }}</div>
+        {% endif %}
+        <div class="form-actions" style="margin-top:1rem;">
+          <button type="submit" class="btn">Guardar responsable</button>
+          <button type="button" class="btn btn-ghost" data-resp-modal-close>Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endwith %}
+{% empty %}
+  <section class="panel">
+    <div class="empty-state">
+      <strong>Sin áreas todavía</strong>
+      Crea la primera área para comenzar a registrar responsables.
+    </div>
+  </section>
+{% endfor %}
+
+<script>
+  (function () {
+    function openModal(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = false;
+      el.classList.add("is-open");
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal(el) {
+      if (!el) return;
+      el.classList.remove("is-open");
+      el.hidden = true;
+      if (!document.querySelector(".modal-backdrop.is-open")) {
+        document.body.style.overflow = "";
+      }
+    }
+    document.querySelectorAll("[data-resp-modal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openModal(btn.getAttribute("data-resp-modal"));
+      });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (e) {
+        if (e.target === backdrop) closeModal(backdrop);
+      });
+      backdrop.querySelectorAll("[data-resp-modal-close]").forEach(function (btn) {
+        btn.addEventListener("click", function () { closeModal(backdrop); });
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      document.querySelectorAll(".modal-backdrop.is-open").forEach(closeModal);
+    });
+    {% if open_modal_area_id %}
+    openModal("resp-modal-{{ open_modal_area_id }}");
+    {% endif %}
+  })();
+</script>
+{% endblock %}

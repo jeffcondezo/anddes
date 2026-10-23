@@ -1,0 +1,36 @@
+<script>
+(function () {
+  function openRevModal(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = false;
+    el.classList.add("is-open");
+    document.body.style.overflow = "hidden";
+  }
+  function closeRevModal(el) {
+    if (!el) return;
+    el.classList.remove("is-open");
+    el.hidden = true;
+    if (!document.querySelector(".modal-backdrop.is-open")) {
+      document.body.style.overflow = "";
+    }
+  }
+  document.querySelectorAll("[data-rev-open]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      openRevModal(btn.getAttribute("data-rev-open"));
+    });
+  });
+  document.querySelectorAll(".modal-backdrop[id^='rev-modal-']").forEach(function (backdrop) {
+    backdrop.addEventListener("click", function (e) {
+      if (e.target === backdrop) closeRevModal(backdrop);
+    });
+    backdrop.querySelectorAll("[data-rev-close]").forEach(function (btn) {
+      btn.addEventListener("click", function () { closeRevModal(backdrop); });
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    document.querySelectorAll(".modal-backdrop[id^='rev-modal-'].is-open").forEach(closeRevModal);
+  });
+})();
+</script>

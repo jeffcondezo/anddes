@@ -19,16 +19,24 @@ from .models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EmpresaDocumentoPregunta,
+    EmpresaNotificacionRegla,
     EstadoInstalacionRevision,
+    FaseInstalacionRevision,
     EstadoRevisionCriterio,
+    EstadoRevisionPregunta,
     GlosarioTermino,
     OrigenEmpresaDocumento,
     PerfilUsuario,
+    Pregunta,
     Principio,
     Requisito,
+    Responsable,
     Revision,
     RevisionCriterioDesactivado,
+    RolDocumentoCriterio,
     Tema,
+    TipoNotificacionAcuerdo,
     TipoUsuario,
 )
 
@@ -51,7 +59,7 @@ User = get_user_model()
 class EmpresaForm(forms.ModelForm):
     class Meta:
         model = Empresa
-        fields = ["nombre", "ruc", "activo"]
+        fields = ["nombre", "ruc", "tamano_max_mb", "notificaciones_activas", "activo"]
         widgets = {
             "nombre": forms.TextInput(attrs={"class": "input"}),
             "ruc": forms.TextInput(
@@ -65,6 +73,15 @@ class EmpresaForm(forms.ModelForm):
                     "placeholder": "11 dígitos",
                 }
             ),
+            "tamano_max_mb": forms.NumberInput(
+                attrs={
+                    "class": "input",
+                    "min": "1",
+                    "step": "1",
+                    "placeholder": "Ej. 25",
+                }
+            ),
+            "notificaciones_activas": forms.CheckboxInput(attrs={"class": "checkbox"}),
             "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
@@ -72,6 +89,15 @@ class EmpresaForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["ruc"].required = True
         self.fields["ruc"].help_text = "Solo números, exactamente 11 dígitos."
+        self.fields["tamano_max_mb"].label = "Tamaño máximo de archivo (MB)"
+        self.fields["tamano_max_mb"].help_text = (
+            "Límite de peso para evidencias que cargue esta empresa (mínimo 1 MB)."
+        )
+        self.fields["notificaciones_activas"].label = "Envío de notificaciones por correo"
+        self.fields["notificaciones_activas"].help_text = (
+            "Desactívalo si la empresa ya no trabaja con Anddes: no se enviarán "
+            "recordatorios ni avisos por correo."
+        )
 
     def clean_ruc(self):
         ruc = (self.cleaned_data.get("ruc") or "").strip()
@@ -80,6 +106,12 @@ class EmpresaForm(forms.ModelForm):
                 "El RUC debe ser numérico y tener exactamente 11 dígitos."
             )
         return ruc
+
+    def clean_tamano_max_mb(self):
+        valor = self.cleaned_data.get("tamano_max_mb")
+        if valor is None or valor < 1:
+            raise forms.ValidationError("Indica un tamaño máximo de al menos 1 MB.")
+        return valor
 
 
 class AreaForm(forms.ModelForm):
@@ -130,6 +162,195 @@ AreaFormSet = forms.inlineformset_factory(
 )
 
 
+class AreaCreateForm(forms.ModelForm):
+    class Meta:
+        model = Area
+        fields = ["nombre", "activo"]
+        widgets = {
+            "nombre": forms.TextInput(
+                attrs={"class": "input", "placeholder": "Ej. Sustentabilidad, Operaciones"}
+            ),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
+        }
+
+    def __init__(self, *args, empresa=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empresa = empresa
+        self.fields["activo"].initial = True
+
+    def clean_nombre(self):
+        nombre = (self.cleaned_data.get("nombre") or "").strip()
+        if not nombre:
+            raise forms.ValidationError("Indica el nombre del área.")
+        qs = Area.objects.filter(empresa=self.empresa, nombre__iexact=nombre)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if self.empresa and qs.exists():
+            raise forms.ValidationError("Ya existe un área con ese nombre en la empresa.")
+        return nombre
+
+
+class EmpresaNotificacionReglaForm(forms.Form):
+    """
+    Alta de uno o varios días (separados por coma) para un tipo de notificación.
+    El día 0 lo reserva el sistema (aviso el día del vencimiento).
+    """
+
+    tipo = forms.ChoiceField(
+        choices=TipoNotificacionAcuerdo.choices,
+        widget=forms.Select(attrs={"class": "input"}),
+    )
+    dias = forms.CharField(
+        label="Días",
+        widget=forms.TextInput(
+            attrs={
+                "class": "input",
+                "placeholder": "Ej. 2, 4, 5",
+                "autocomplete": "off",
+            }
+        ),
+        help_text=(
+            "Números separados por coma. Antes = días previos al vencimiento; "
+            "post = días posteriores. El día 0 ya lo cubre el sistema."
+        ),
+    )
+    activo = forms.BooleanField(
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "checkbox"}),
+    )
+
+    def __init__(self, *args, empresa=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empresa = empresa
+        self.dias_parseados: list[int] = []
+
+    def clean_dias(self) -> list[int]:
+        from .models import NOTIFICACION_ACUERDO_DIA_SISTEMA
+
+        raw = (self.cleaned_data.get("dias") or "").strip()
+        if not raw:
+            raise ValidationError("Indica al menos un día (ej. 2, 5, 7).")
+        partes = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+        if not partes:
+            raise ValidationError("Indica al menos un día (ej. 2, 5, 7).")
+        valores: list[int] = []
+        vistos: set[int] = set()
+        errores: list[str] = []
+        for parte in partes:
+            if not parte.isdigit():
+                errores.append(f'"{parte}" no es un número válido.')
+                continue
+            n = int(parte)
+            if n == NOTIFICACION_ACUERDO_DIA_SISTEMA:
+                errores.append(
+                    "El día 0 (mismo día del vencimiento) ya lo cubre la "
+                    "configuración base del sistema; no se puede agregar."
+                )
+                continue
+            if n < 1:
+                errores.append(f"El día {n} no es válido; usa enteros mayores a 0.")
+                continue
+            if n in vistos:
+                continue
+            vistos.add(n)
+            valores.append(n)
+        if errores:
+            raise ValidationError(errores)
+        if not valores:
+            raise ValidationError("No quedó ningún día válido para agregar.")
+        return sorted(valores)
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = cleaned.get("tipo")
+        dias_lista = cleaned.get("dias") or []
+        if not self.empresa or not tipo or not dias_lista:
+            return cleaned
+        existentes = set(
+            EmpresaNotificacionRegla.objects.filter(
+                empresa=self.empresa, tipo=tipo, dias__in=dias_lista
+            ).values_list("dias", flat=True)
+        )
+        if existentes:
+            lista = ", ".join(str(d) for d in sorted(existentes))
+            self.add_error(
+                "dias",
+                f"Ya existen reglas de este tipo para el/los día(s): {lista}.",
+            )
+        self.dias_parseados = list(dias_lista)
+        return cleaned
+
+    def save(self) -> list[EmpresaNotificacionRegla]:
+        """Crea una regla por cada día indicado. Devuelve las creadas."""
+        if not self.is_valid():
+            raise ValueError("El formulario no es válido.")
+        if self.empresa is None:
+            raise ValueError("Se requiere empresa.")
+        creadas: list[EmpresaNotificacionRegla] = []
+        activo = bool(self.cleaned_data.get("activo"))
+        tipo = self.cleaned_data["tipo"]
+        for dias in self.cleaned_data["dias"]:
+            obj = EmpresaNotificacionRegla.objects.create(
+                empresa=self.empresa,
+                tipo=tipo,
+                dias=dias,
+                activo=activo,
+            )
+            creadas.append(obj)
+        return creadas
+
+
+class ResponsableForm(forms.ModelForm):
+    class Meta:
+        from .models import Responsable
+
+        model = Responsable
+        fields = ["nombre", "dni", "telefono", "correo", "activo"]
+        widgets = {
+            "nombre": forms.TextInput(attrs={"class": "input", "placeholder": "Nombre completo"}),
+            "dni": forms.TextInput(
+                attrs={
+                    "class": "input",
+                    "placeholder": "8 dígitos",
+                    "inputmode": "numeric",
+                    "pattern": "[0-9]{8}",
+                    "maxlength": "8",
+                    "minlength": "8",
+                }
+            ),
+            "telefono": forms.TextInput(attrs={"class": "input", "placeholder": "Número de contacto"}),
+            "correo": forms.EmailInput(attrs={"class": "input", "placeholder": "correo@empresa.com"}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
+        }
+
+    def __init__(self, *args, area=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.area = area
+        self.fields["activo"].initial = True
+        self.fields["dni"].required = True
+
+    def clean_nombre(self):
+        nombre = (self.cleaned_data.get("nombre") or "").strip()
+        if not nombre:
+            raise forms.ValidationError("Indica el nombre del responsable.")
+        return nombre
+
+    def clean_dni(self):
+        dni = (self.cleaned_data.get("dni") or "").strip()
+        if not dni.isdigit() or len(dni) != 8:
+            raise forms.ValidationError("El DNI debe tener exactamente 8 dígitos numéricos.")
+        return dni
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        if self.area is not None:
+            obj.area = self.area
+        if commit:
+            obj.save()
+        return obj
+
+
 class UsuarioForm(forms.Form):
     email = forms.EmailField(
         label="Correo",
@@ -171,6 +392,14 @@ class UsuarioForm(forms.Form):
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "input", "id": "id_empresas", "size": "6"}),
     )
+    reporta_a = forms.ModelChoiceField(
+        label="Reporta a (jefe)",
+        queryset=User.objects.none(),
+        required=False,
+        empty_label="— Sin jefe —",
+        widget=forms.Select(attrs={"class": "input", "id": "id_reporta_a"}),
+        help_text="Solo para gestores: coordinador o administrador al que reporta.",
+    )
 
     def __init__(self, *args, instance: PerfilUsuario | None = None, **kwargs):
         self.instance = instance
@@ -186,6 +415,18 @@ class UsuarioForm(forms.Form):
             empresas_qs = (empresas_qs | instance.empresas.all()).distinct()
         self.fields["empresas"].queryset = empresas_qs
 
+        jefes_qs = User.objects.filter(
+            is_active=True,
+            perfil__activo=True,
+            perfil__tipo__in=[TipoUsuario.GESTOR, TipoUsuario.ADMINISTRADOR],
+        ).select_related("perfil").order_by("first_name", "last_name", "email")
+        if instance:
+            jefes_qs = jefes_qs.exclude(pk=instance.user_id)
+        self.fields["reporta_a"].queryset = jefes_qs
+        self.fields["reporta_a"].label_from_instance = (
+            lambda u: f"{(u.get_full_name() or '').strip() or u.email} ({u.perfil.get_tipo_display()})"
+        )
+
         if instance:
             user = instance.user
             self.fields["email"].initial = user.email or user.username
@@ -195,6 +436,7 @@ class UsuarioForm(forms.Form):
             self.fields["activo"].initial = instance.activo
             self.fields["empresa"].initial = instance.empresa_id
             self.fields["empresas"].initial = list(instance.empresas.values_list("pk", flat=True))
+            self.fields["reporta_a"].initial = instance.reporta_a_id
             self.fields["email"].widget.attrs["readonly"] = True
             self.fields["email"].help_text = "El correo no se puede modificar (identidad Entra ID)."
 
@@ -215,6 +457,7 @@ class UsuarioForm(forms.Form):
         tipo = cleaned.get("tipo")
         empresa = cleaned.get("empresa")
         empresas = cleaned.get("empresas")
+        reporta_a = cleaned.get("reporta_a")
 
         if tipo == TipoUsuario.CLIENTE and not empresa:
             self.add_error("empresa", "El usuario cliente debe estar asociado a una empresa minera.")
@@ -223,10 +466,31 @@ class UsuarioForm(forms.Form):
         if tipo == TipoUsuario.ADMINISTRADOR:
             cleaned["empresa"] = None
             cleaned["empresas"] = []
+            cleaned["reporta_a"] = None
         if tipo == TipoUsuario.CLIENTE:
             cleaned["empresas"] = []
+            cleaned["reporta_a"] = None
         if tipo == TipoUsuario.GESTOR:
             cleaned["empresa"] = None
+            if reporta_a and self.instance and reporta_a.pk == self.instance.user_id:
+                self.add_error("reporta_a", "Un usuario no puede reportarse a sí mismo.")
+            elif reporta_a:
+                # Ciclo: el jefe (o su cadena) no debe reportar a este usuario.
+                if self.instance and self.instance.user_id:
+                    visto = {self.instance.user_id}
+                    actual = reporta_a
+                    while actual is not None:
+                        if actual.pk in visto:
+                            self.add_error(
+                                "reporta_a",
+                                "Esa jerarquía formaría un ciclo.",
+                            )
+                            break
+                        visto.add(actual.pk)
+                        try:
+                            actual = actual.perfil.reporta_a
+                        except PerfilUsuario.DoesNotExist:
+                            break
         return cleaned
 
     @transaction.atomic
@@ -238,6 +502,7 @@ class UsuarioForm(forms.Form):
         activo = bool(self.cleaned_data.get("activo"))
         empresa = self.cleaned_data.get("empresa")
         empresas = self.cleaned_data.get("empresas") or []
+        reporta_a = self.cleaned_data.get("reporta_a") if tipo == TipoUsuario.GESTOR else None
 
         if self.instance:
             user = self.instance.user
@@ -249,6 +514,7 @@ class UsuarioForm(forms.Form):
             perfil.tipo = tipo
             perfil.activo = activo
             perfil.empresa = empresa if tipo == TipoUsuario.CLIENTE else None
+            perfil.reporta_a = reporta_a
             perfil.save()
         else:
             user = User(username=email, email=email, first_name=first_name, last_name=last_name, is_active=activo)
@@ -259,12 +525,16 @@ class UsuarioForm(forms.Form):
                 tipo=tipo,
                 activo=activo,
                 empresa=empresa if tipo == TipoUsuario.CLIENTE else None,
+                reporta_a=reporta_a,
             )
 
         if tipo == TipoUsuario.GESTOR:
             perfil.empresas.set(empresas)
         else:
             perfil.empresas.clear()
+            if perfil.reporta_a_id:
+                perfil.reporta_a = None
+                perfil.save(update_fields=["reporta_a", "actualizado_en"])
 
         return perfil
 
@@ -272,10 +542,11 @@ class UsuarioForm(forms.Form):
 class TemaForm(forms.ModelForm):
     class Meta:
         model = Tema
-        fields = ["codigo", "nombre"]
+        fields = ["codigo", "nombre", "activo"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "nombre": forms.TextInput(attrs={"class": "input"}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
 
@@ -293,22 +564,24 @@ class GlosarioTerminoForm(forms.ModelForm):
 class PrincipioForm(forms.ModelForm):
     class Meta:
         model = Principio
-        fields = ["codigo", "tema", "descripcion"]
+        fields = ["codigo", "tema", "descripcion", "activo"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "tema": forms.Select(attrs={"class": "input"}),
             "descripcion": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
 
 class RequisitoForm(forms.ModelForm):
     class Meta:
         model = Requisito
-        fields = ["codigo", "principio", "descripcion"]
+        fields = ["codigo", "principio", "descripcion", "activo"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "principio": forms.Select(attrs={"class": "input", "id": "id_principio"}),
             "descripcion": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -328,11 +601,12 @@ class RequisitoForm(forms.ModelForm):
 class CriterioForm(forms.ModelForm):
     class Meta:
         model = Criterio
-        fields = ["codigo", "requisito", "descripcion"]
+        fields = ["codigo", "requisito", "descripcion", "activo"]
         widgets = {
             "codigo": forms.TextInput(attrs={"class": "input"}),
             "requisito": forms.Select(attrs={"class": "input", "id": "id_requisito"}),
             "descripcion": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -387,6 +661,26 @@ class CriterioForm(forms.ModelForm):
         return criterio
 
 
+class PreguntaForm(forms.ModelForm):
+    class Meta:
+        model = Pregunta
+        fields = ["codigo", "criterio", "texto", "orden", "activo"]
+        widgets = {
+            "codigo": forms.TextInput(attrs={"class": "input"}),
+            "criterio": forms.Select(attrs={"class": "input", "id": "id_criterio"}),
+            "texto": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "orden": forms.NumberInput(attrs={"class": "input", "min": "0"}),
+            "activo": forms.CheckboxInput(attrs={"class": "checkbox"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["criterio"].queryset = Criterio.objects.select_related(
+            "requisito", "principio", "tema"
+        ).order_by("codigo")
+        self.fields["orden"].help_text = "Menor número aparece primero."
+
+
 class DocumentoForm(forms.ModelForm):
     class Meta:
         model = Documento
@@ -401,15 +695,22 @@ class DocumentoForm(forms.ModelForm):
 class DocumentoCriterioForm(forms.ModelForm):
     class Meta:
         model = DocumentoCriterio
-        fields = ["documento", "criterio"]
+        fields = ["criterio", "rol", "documento", "documento_secundario"]
         widgets = {
-            "documento": forms.Select(attrs={"class": "input"}),
             "criterio": forms.Select(attrs={"class": "input"}),
+            "rol": forms.Select(attrs={"class": "input"}),
+            "documento": forms.Select(attrs={"class": "input"}),
+            "documento_secundario": forms.Select(attrs={"class": "input"}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["documento"].queryset = Documento.objects.order_by("codigo")
+        docs = Documento.objects.order_by("codigo")
+        self.fields["documento"].queryset = docs
+        self.fields["documento"].label = "Documento principal"
+        self.fields["documento_secundario"].queryset = docs
+        self.fields["documento_secundario"].required = False
+        self.fields["documento_secundario"].empty_label = "— Sin secundario —"
         self.fields["criterio"].queryset = Criterio.objects.select_related(
             "requisito", "principio", "tema"
         ).order_by("codigo")
@@ -417,13 +718,22 @@ class DocumentoCriterioForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         documento = cleaned.get("documento")
+        documento_secundario = cleaned.get("documento_secundario")
         criterio = cleaned.get("criterio")
-        if documento and criterio:
-            qs = DocumentoCriterio.objects.filter(documento=documento, criterio=criterio)
+        if documento and documento_secundario and documento.pk == documento_secundario.pk:
+            self.add_error(
+                "documento_secundario",
+                "El documento secundario debe ser distinto del principal.",
+            )
+        if criterio:
+            qs = DocumentoCriterio.objects.filter(criterio=criterio)
             if self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise ValidationError("Esta relación documento–criterio ya existe en el estándar.")
+                raise ValidationError(
+                    "Este criterio ya tiene una relación estándar. "
+                    "Edítala para cambiar documentos o rol."
+                )
         return cleaned
 
 
@@ -459,6 +769,7 @@ class RevisionForm(forms.ModelForm):
             "nombre",
             "instalacion_deposito",
             "estado",
+            "fase",
             "capacidad",
             "vida_util",
             "fecha_inicio",
@@ -470,6 +781,7 @@ class RevisionForm(forms.ModelForm):
             "nombre": forms.TextInput(attrs={"class": "input", "placeholder": "Opcional"}),
             "instalacion_deposito": forms.TextInput(attrs={"class": "input"}),
             "estado": forms.Select(attrs={"class": "input"}),
+            "fase": forms.Select(attrs={"class": "input"}),
             "capacidad": forms.TextInput(attrs={"class": "input"}),
             "vida_util": forms.TextInput(attrs={"class": "input"}),
             "fecha_inicio": forms.DateInput(
@@ -488,23 +800,31 @@ class RevisionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["instalacion_deposito"].label = "Instalación o depósito"
         self.fields["estado"].label = "Estado"
+        self.fields["fase"].label = "Fase"
         self.fields["capacidad"].label = "Capacidad"
         self.fields["vida_util"].label = "Vida útil"
         self.fields["instalacion_deposito"].required = False
         self.fields["estado"].required = False
+        self.fields["fase"].required = False
         self.fields["capacidad"].required = False
         self.fields["vida_util"].required = False
         self.fields["estado"].choices = [("", "Seleccione…")] + list(
             EstadoInstalacionRevision.choices
+        )
+        self.fields["fase"].choices = [("", "Seleccione…")] + list(
+            FaseInstalacionRevision.choices
         )
         self.fields["fecha_inicio"].label = "Fecha inicio"
         self.fields["fecha_fin"].label = "Fecha fin"
         self.fields["fecha_inicio"].input_formats = ["%Y-%m-%d"]
         self.fields["fecha_fin"].input_formats = ["%Y-%m-%d"]
         self.fields["fecha_inicio"].help_text = (
-            "Inicio del periodo para Plan y Forecast en Indicadores."
+            "Inicio del periodo global (curva Plan / Forecast). "
+            "Las fechas por documento se definen en Crear plan."
         )
-        self.fields["fecha_fin"].help_text = "Fecha meta (100% planificado)."
+        self.fields["fecha_fin"].help_text = (
+            "Fin del periodo global (meta 100%). El detalle por documento está en Crear plan."
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -599,6 +919,21 @@ class EmpresaDocumentoCriterioForm(forms.Form):
         widget=forms.SelectMultiple(attrs={"class": "input", "size": "12"}),
         required=True,
     )
+    rol = forms.ChoiceField(
+        label="Rol",
+        choices=RolDocumentoCriterio.choices,
+        initial=RolDocumentoCriterio.PRINCIPAL,
+        widget=forms.Select(attrs={"class": "input"}),
+        required=True,
+    )
+    documento_secundario = forms.ModelChoiceField(
+        label="Documento secundario (opcional)",
+        queryset=EmpresaDocumento.objects.none(),
+        required=False,
+        empty_label="— Sin secundario —",
+        widget=forms.Select(attrs={"class": "input"}),
+        help_text="Otra fuente de evidencia del mismo criterio en esta revisión.",
+    )
     area = forms.ModelChoiceField(
         label="Área responsable",
         queryset=Area.objects.none(),
@@ -624,9 +959,15 @@ class EmpresaDocumentoCriterioForm(forms.Form):
             .exclude(pk__in=desactivados)
             .order_by("codigo")
         )
+        self.fields["documento_secundario"].queryset = (
+            EmpresaDocumento.objects.filter(revision=revision, activo=True)
+            .exclude(pk=empresa_documento.pk)
+            .order_by("codigo")
+        )
         self.fields["area"].queryset = Area.objects.filter(empresa=empresa, activo=True)
         self.fields["criterios"].help_text = (
-            "Solo se listan criterios aún no asociados a ningún documento de esta revisión."
+            "Solo se listan criterios aún no asociados a ningún documento de esta revisión. "
+            "Este documento queda como principal; puedes indicar uno secundario."
         )
 
     def clean_criterios(self):
@@ -654,8 +995,18 @@ class EmpresaDocumentoCriterioForm(forms.Form):
             raise ValidationError("El área debe pertenecer a la misma empresa del documento.")
         return area
 
+    def clean_documento_secundario(self):
+        sec = self.cleaned_data.get("documento_secundario")
+        if sec and sec.pk == self.empresa_documento.pk:
+            raise ValidationError("El secundario debe ser distinto del documento actual.")
+        if sec and sec.revision_id != self.empresa_documento.revision_id:
+            raise ValidationError("El secundario debe ser de la misma revisión.")
+        return sec
+
     def save(self):
         area = self.cleaned_data["area"]
+        rol = self.cleaned_data["rol"]
+        sec = self.cleaned_data.get("documento_secundario")
         creados = []
         for criterio in self.cleaned_data["criterios"]:
             vinculo, created = EmpresaDocumentoCriterio.objects.get_or_create(
@@ -663,11 +1014,12 @@ class EmpresaDocumentoCriterioForm(forms.Form):
                 criterio=criterio,
                 defaults={
                     "empresa_documento": self.empresa_documento,
+                    "empresa_documento_secundario": sec,
+                    "rol": rol,
                     "area": area,
                 },
             )
             if not created:
-                # Ya existía en otro documento de la revisión: no se mueve aquí.
                 continue
             creados.append(vinculo)
         return creados
@@ -703,6 +1055,21 @@ def _validar_extension_archivo(archivo) -> None:
         )
 
 
+def _validar_tamano_archivo(archivo, tamano_max_mb: int | None) -> None:
+    if not archivo or not tamano_max_mb:
+        return
+    max_bytes = int(tamano_max_mb) * 1024 * 1024
+    peso = getattr(archivo, "size", None)
+    if peso is None:
+        return
+    if peso > max_bytes:
+        peso_mb = peso / (1024 * 1024)
+        raise ValidationError(
+            f"El archivo pesa {peso_mb:.1f} MB y supera el máximo permitido "
+            f"para esta empresa ({tamano_max_mb} MB)."
+        )
+
+
 class DocumentoCargaForm(forms.ModelForm):
     class Meta:
         model = DocumentoCarga
@@ -714,9 +1081,20 @@ class DocumentoCargaForm(forms.ModelForm):
             ),
         }
 
+    def __init__(self, *args, empresa: Empresa | None = None, **kwargs):
+        self.empresa = empresa
+        super().__init__(*args, **kwargs)
+        if empresa and getattr(empresa, "tamano_max_mb", None):
+            self.fields["archivo"].help_text = (
+                f"Máximo {empresa.tamano_max_mb} MB. "
+                "Formatos: PDF, DOC/DOCX, XLS/XLSX o imagen."
+            )
+
     def clean_archivo(self):
         archivo = self.cleaned_data.get("archivo")
         _validar_extension_archivo(archivo)
+        lim = self.empresa.tamano_max_mb if self.empresa else None
+        _validar_tamano_archivo(archivo, lim)
         return archivo
 
     def save(self, commit=True):
@@ -743,10 +1121,10 @@ class DocumentoCargaForm(forms.ModelForm):
 
 class RevisionParcialCargaForm(forms.Form):
     """
-    Revisión por criterio sobre una carga.
+    Revisión por pregunta sobre una carga.
     POST: accion=guardar|aprobar_todos,
-    accion_v_<vinculo_id>=APROBADO|OBSERVADO,
-    obs_v_<vinculo_id>=texto (obligatorio si OBSERVADO).
+    accion_p_<pregunta_respuesta_id>=CUMPLE|NO_CUMPLE,
+    obs_p_<pregunta_respuesta_id>=texto (obligatorio si NO_CUMPLE).
     """
 
     def __init__(self, *args, carga: DocumentoCarga, **kwargs):
@@ -757,7 +1135,19 @@ class RevisionParcialCargaForm(forms.Form):
                 empresa_documento=self.empresa_documento
             )
             .select_related("criterio", "area")
+            .prefetch_related("preguntas__pregunta")
             .order_by("criterio__codigo")
+        )
+        self.preguntas = list(
+            EmpresaDocumentoPregunta.objects.filter(
+                vinculo_criterio__empresa_documento=self.empresa_documento
+            )
+            .select_related("pregunta", "vinculo_criterio", "vinculo_criterio__criterio")
+            .order_by(
+                "vinculo_criterio__criterio__codigo",
+                "pregunta__orden",
+                "pregunta__codigo",
+            )
         )
         super().__init__(*args, **kwargs)
 
@@ -765,39 +1155,39 @@ class RevisionParcialCargaForm(forms.Form):
         cleaned = super().clean()
         data = self.data
         accion = (data.get("accion") or "guardar").strip()
-        decisions: list[tuple[EmpresaDocumentoCriterio, str, str]] = []
+        decisions: list[tuple[EmpresaDocumentoPregunta, str, str]] = []
 
         if accion == "aprobar_todos":
-            for v in self.vinculos:
-                if v.estado_revision != EstadoRevisionCriterio.APROBADO:
-                    decisions.append((v, EstadoRevisionCriterio.APROBADO, ""))
+            for p in self.preguntas:
+                if p.estado_revision != EstadoRevisionPregunta.CUMPLE:
+                    decisions.append((p, EstadoRevisionPregunta.CUMPLE, ""))
             cleaned["decisions"] = decisions
             return cleaned
 
-        for v in self.vinculos:
-            if v.estado_revision == EstadoRevisionCriterio.APROBADO:
+        for p in self.preguntas:
+            if p.estado_revision == EstadoRevisionPregunta.CUMPLE:
                 continue
-            key = f"accion_v_{v.pk}"
+            key = f"accion_p_{p.pk}"
             choice = (data.get(key) or "").strip().upper()
             if choice not in {
-                EstadoRevisionCriterio.APROBADO,
-                EstadoRevisionCriterio.OBSERVADO,
+                EstadoRevisionPregunta.CUMPLE,
+                EstadoRevisionPregunta.NO_CUMPLE,
                 "",
             }:
-                raise ValidationError(f"Acción inválida para {v.criterio.codigo}.")
+                raise ValidationError(f"Acción inválida para {p.pregunta.codigo}.")
             if not choice:
                 continue
-            obs = (data.get(f"obs_v_{v.pk}") or "").strip()
-            if choice == EstadoRevisionCriterio.OBSERVADO and len(obs) < 10:
+            obs = (data.get(f"obs_p_{p.pk}") or "").strip()
+            if choice == EstadoRevisionPregunta.NO_CUMPLE and len(obs) < 10:
                 self.add_error(
                     None,
-                    f"La observación de {v.criterio.codigo} debe tener al menos 10 caracteres.",
+                    f"La observación de {p.pregunta.codigo} debe tener al menos 10 caracteres.",
                 )
-            decisions.append((v, choice, obs))
+            decisions.append((p, choice, obs))
 
         if not decisions and not self.errors:
             raise ValidationError(
-                "Indica al menos un criterio para aprobar u observar, "
+                "Indica al menos una pregunta (cumple / no cumple), "
                 "o usa «Aprobar todos»."
             )
         cleaned["decisions"] = decisions
@@ -816,6 +1206,40 @@ class RechazoDocumentoCargaForm(forms.Form):
         ),
         min_length=10,
         help_text="Este mensaje será visible para el cliente de la empresa minera.",
+    )
+
+
+class DocumentoRevisionConsultorForm(forms.Form):
+    """Etiqueta y % de revisión definidos por el consultor (no afectan el avance)."""
+
+    revision_texto = forms.CharField(
+        label="Revisión",
+        max_length=64,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "input",
+                "placeholder": "Ej. Iniciado, Rev0, RevA, RevB…",
+                "autocomplete": "off",
+            }
+        ),
+        help_text="Texto libre. Vacío = sin revisión definida.",
+    )
+    revision_porcentaje = forms.IntegerField(
+        label="Porcentaje",
+        required=False,
+        min_value=0,
+        max_value=100,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "input",
+                "min": "0",
+                "max": "100",
+                "step": "1",
+                "placeholder": "0–100",
+            }
+        ),
+        help_text="Gestión interna del documento; no modifica el avance calculado.",
     )
 
 
@@ -870,7 +1294,13 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
 
     def __init__(self, *args, revision: Revision, **kwargs):
         self.revision = revision
+        self.empresa = getattr(revision, "empresa", None)
         super().__init__(*args, **kwargs)
+        if self.empresa and getattr(self.empresa, "tamano_max_mb", None):
+            self.fields["archivo"].help_text = (
+                f"Máximo {self.empresa.tamano_max_mb} MB. "
+                "Formatos: PDF, DOC/DOCX, XLS/XLSX o imagen."
+            )
 
     def clean_codigo(self):
         codigo = (self.cleaned_data.get("codigo") or "").strip()
@@ -882,6 +1312,8 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
     def clean_archivo(self):
         archivo = self.cleaned_data.get("archivo")
         _validar_extension_archivo(archivo)
+        lim = self.empresa.tamano_max_mb if self.empresa else None
+        _validar_tamano_archivo(archivo, lim)
         return archivo
 
     def save(self, user, commit=True):
@@ -923,6 +1355,9 @@ class ActividadForm(forms.ModelForm):
             "descripcion",
             "alcance",
             "empresa",
+            "asignado_a",
+            "area",
+            "responsable",
             "inicio",
             "fin",
             "enlace_reunion",
@@ -939,6 +1374,9 @@ class ActividadForm(forms.ModelForm):
             ),
             "alcance": forms.Select(attrs={"class": "input", "id": "id_alcance"}),
             "empresa": forms.Select(attrs={"class": "input", "id": "id_empresa"}),
+            "asignado_a": forms.Select(attrs={"class": "input", "id": "id_asignado_a"}),
+            "area": forms.Select(attrs={"class": "input", "id": "id_area"}),
+            "responsable": forms.Select(attrs={"class": "input", "id": "id_responsable"}),
             "inicio": forms.DateTimeInput(
                 attrs={"class": "input", "type": "datetime-local"},
                 format="%Y-%m-%dT%H:%M",
@@ -954,36 +1392,94 @@ class ActividadForm(forms.ModelForm):
                 }
             ),
         }
+        labels = {
+            "asignado_a": "Asignar a",
+            "area": "Área responsable",
+            "responsable": "Responsable",
+        }
 
-    def __init__(self, *args, empresas_qs=None, documentos_qs=None, **kwargs):
-        from .models import Actividad, AlcanceActividad
+    def __init__(
+        self,
+        *args,
+        user=None,
+        empresas_qs=None,
+        documentos_qs=None,
+        areas_qs=None,
+        responsables_qs=None,
+        asignables_qs=None,
+        **kwargs,
+    ):
+        from .models import Area, AlcanceActividad, Responsable
+        from .permissions import usuarios_asignables
 
+        self._user = user
         super().__init__(*args, **kwargs)
         self.fields["inicio"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
         self.fields["fin"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
         self.fields["empresa"].queryset = empresas_qs or Empresa.objects.none()
         self.fields["empresa"].required = False
         self.fields["empresa"].empty_label = "— Sin empresa —"
+        self.fields["area"].queryset = areas_qs if areas_qs is not None else Area.objects.none()
+        self.fields["area"].required = False
+        self.fields["area"].empty_label = "— Sin área —"
+        self.fields["responsable"].queryset = (
+            responsables_qs if responsables_qs is not None else Responsable.objects.none()
+        )
+        self.fields["responsable"].required = False
+        self.fields["responsable"].empty_label = "— Sin responsable —"
+        self.fields["responsable"].label_from_instance = (
+            lambda r: f"{r.nombre}" + (f" · {r.correo}" if r.correo else "")
+        )
+        qs_asig = asignables_qs
+        if qs_asig is None and user is not None:
+            qs_asig = usuarios_asignables(user)
+        self.fields["asignado_a"].queryset = qs_asig if qs_asig is not None else User.objects.none()
+        self.fields["asignado_a"].required = True
+        self.fields["asignado_a"].label_from_instance = (
+            lambda u: f"{(u.get_full_name() or '').strip() or u.email or u.username}"
+        )
         self.fields["documentos"].queryset = documentos_qs or EmpresaDocumento.objects.none()
         self.fields["documentos"].label_from_instance = (
             lambda d: f"{d.codigo} · {d.nombre}"
         )
         self.fields["alcance"].choices = AlcanceActividad.choices
+        # Ocultar selector si solo puede asignarse a sí mismo.
+        if qs_asig is not None and user is not None:
+            count_asig = qs_asig.count() if hasattr(qs_asig, "count") else len(list(qs_asig))
+            if count_asig <= 1:
+                self.fields["asignado_a"].widget = forms.HiddenInput()
         if not self.is_bound and not self.instance.pk:
-            # default inicio: próxima hora en punto
             from django.utils import timezone as tz
 
             now = tz.localtime(tz.now()).replace(minute=0, second=0, microsecond=0)
             self.initial.setdefault("inicio", (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"))
+            if user is not None:
+                self.initial.setdefault("asignado_a", user.pk)
 
     def clean(self):
         from .models import AlcanceActividad
+        from .permissions import usuarios_asignables
 
         cleaned = super().clean()
         alcance = cleaned.get("alcance")
         empresa = cleaned.get("empresa")
+        area = cleaned.get("area")
+        responsable = cleaned.get("responsable")
+        asignado = cleaned.get("asignado_a")
         if alcance == AlcanceActividad.CON_CLIENTE and not empresa:
             self.add_error("empresa", "Selecciona la empresa del cliente.")
+        if area and not empresa:
+            self.add_error("area", "Selecciona una empresa para asignar el área responsable.")
+        elif area and empresa and area.empresa_id != empresa.pk:
+            self.add_error("area", "El área debe pertenecer a la empresa seleccionada.")
+        if responsable and not area:
+            self.add_error("responsable", "Selecciona el área para filtrar responsables.")
+        elif responsable and area and responsable.area_id != area.pk:
+            self.add_error("responsable", "El responsable debe pertenecer al área seleccionada.")
+        if asignado and self._user is not None:
+            permitidos = set(usuarios_asignables(self._user).values_list("pk", flat=True))
+            if asignado.pk not in permitidos:
+                self.add_error("asignado_a", "No puedes asignar la actividad a ese usuario.")
         return cleaned
 
 
@@ -1048,3 +1544,78 @@ class AcuerdoRecordatorioForm(forms.Form):
             }
         ),
     )
+    responsables = forms.ModelMultipleChoiceField(
+        label="Responsables destinatarios",
+        queryset=Responsable.objects.none(),
+        required=True,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Elige uno o varios responsables de la empresa (irán en To / CC).",
+    )
+
+    def __init__(self, *args, responsables_qs=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["responsables"].queryset = (
+            responsables_qs
+            if responsables_qs is not None
+            else Responsable.objects.none()
+        )
+        self.fields["responsables"].label_from_instance = (
+            lambda r: f"{r.area.nombre} · {r.nombre}"
+            + (f" ({r.correo})" if r.correo else "")
+        )
+
+
+class DocumentoVigenciaAprobacionForm(forms.Form):
+    """Campos obligatorios al aprobar un documento (frecuencia + fechas)."""
+
+    frecuencia_actualizacion = forms.ChoiceField(
+        label="Frecuencia de actualización",
+        choices=[
+            ("MENSUAL", "Mensual"),
+            ("TRIMESTRAL", "Trimestral"),
+            ("SEMESTRAL", "Semestral"),
+            ("ANUAL", "Anual"),
+            ("BIANUAL", "Cada 2 años"),
+            ("OTRO", "Otro / según necesidad"),
+        ],
+        widget=forms.Select(attrs={"class": "input", "id": "id_frecuencia_actualizacion"}),
+    )
+    frecuencia_otro = forms.CharField(
+        label="¿Cada cuánto se actualizará?",
+        required=False,
+        max_length=120,
+        widget=forms.TextInput(
+            attrs={
+                "class": "input",
+                "placeholder": "Ej. cada 18 meses",
+                "id": "id_frecuencia_otro",
+            }
+        ),
+    )
+    fecha_ultima_revision = forms.DateField(
+        label="Rev. 0",
+        widget=forms.DateInput(attrs={"class": "input", "type": "date"}),
+    )
+    fecha_caducidad = forms.DateField(
+        label="Fecha de caducidad",
+        widget=forms.DateInput(attrs={"class": "input", "type": "date"}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        freq = cleaned.get("frecuencia_actualizacion")
+        otro = (cleaned.get("frecuencia_otro") or "").strip()
+        if freq == "OTRO" and len(otro) < 3:
+            self.add_error(
+                "frecuencia_otro",
+                "Indica cada cuánto se actualizará el documento (mín. 3 caracteres).",
+            )
+        cleaned["frecuencia_otro"] = otro if freq == "OTRO" else ""
+        ref = cleaned.get("fecha_ultima_revision")
+        cad = cleaned.get("fecha_caducidad")
+        if ref and cad and cad < ref:
+            self.add_error(
+                "fecha_caducidad",
+                "La caducidad no puede ser anterior a la Rev. 0.",
+            )
+        return cleaned

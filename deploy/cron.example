@@ -1,0 +1,21 @@
+# GISTM — cron de producción (ejecutar 1 vez al día)
+# Ajustar rutas al VPS / contenedor reales.
+#
+# Zona horaria recomendada: America/Lima (o la del servidor de la app).
+#
+# Qué hace `procesar_actividades_diarias`:
+#   1. Actividades PROGRAMADA cuya fecha ya pasó → PASADA
+#   2. Acuerdos ABIERTO cuya fecha de compromiso ya pasó → VENCIDO
+#   3. Avisos in-app de actividades próximas / pasadas
+#   4. Correos de recordatorio de acuerdos (reglas ANTES / POST por empresa)
+#
+# Ejemplo crontab (07:00 todos los días):
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+0 7 * * * cd /opt/gistm/gistm && /opt/gistm/.venv/bin/python manage.py procesar_actividades_diarias >> /var/log/gistm-cron.log 2>&1
+
+# Prueba manual:
+#   cd gistm && python manage.py procesar_actividades_diarias
+#   python manage.py procesar_actividades_diarias --fecha 2026-10-22
+#   python manage.py procesar_actividades_diarias --sin-acuerdos

@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, F, Prefetch, Q
 from django.http import FileResponse, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -21,9 +21,11 @@ from .documento_criterio_excel import (
 
 from .entra import build_auth_url, claims_from_id_token, exchange_code_for_token, new_oauth_state
 from .actividad_mail import (
+    emails_desde_responsables,
     enviar_correo_actividad,
     enviar_correo_acuerdo,
     publicar_mensajes_acuerdo,
+    responsables_con_correo,
 )
 from .avisos import (
     avisar_documento_propio,
@@ -44,7 +46,11 @@ from .indicadores import (
     curva_avance,
     documentos_indicadores,
     documentos_prioritarios,
+    documentos_por_vencer,
+    DIAS_POR_VENCER,
     filtrar_documentos,
+    filtrar_documentos_query,
+    opciones_filtros_documentos,
     filas_empresas_indicadores,
     glosario_items,
     to_json,
@@ -55,7 +61,9 @@ from .forms import (
     AcuerdoForm,
     AcuerdoRecordatorioForm,
     AplicarEstandarRevisionForm,
-    AreaFormSet,
+    AreaCreateForm,
+    EmpresaNotificacionReglaForm,
+    ResponsableForm,
     ClienteDocumentoPropioCargaForm,
     CriterioForm,
     DocumentoCargaForm,
@@ -65,10 +73,13 @@ from .forms import (
     EmpresaDocumentoCriterioForm,
     EmpresaDocumentoPropioForm,
     EmpresaForm,
+    PreguntaForm,
     PrincipioForm,
     RechazoDocumentoCargaForm,
+    DocumentoRevisionConsultorForm,
     RequisitoForm,
     RevisionForm,
+    DocumentoVigenciaAprobacionForm,
     RevisionParcialCargaForm,
     TemaForm,
     GlosarioTerminoForm,
@@ -78,7 +89,13 @@ from .models import (
     Actividad,
     Acuerdo,
     AlcanceActividad,
+    Area,
     AvisoConsultor,
+    CorreoEnvio,
+    PlantillaCorreo,
+    Responsable,
+    TipoCorreoEnvio,
+    TipoNotificacionAcuerdo,
     Criterio,
     EstadoAcuerdo,
     TipoActividad,
@@ -96,6 +113,7 @@ from .models import (
     MotivoIntentoAcceso,
     OrigenEmpresaDocumento,
     PerfilUsuario,
+    Pregunta,
     Principio,
     RegistroLoginExterno,
     Requisito,
@@ -106,18 +124,30 @@ from .models import (
     TipoDocumentoMensaje,
     TipoUsuario,
 )
-from .models import ponderaciones_revision, sincronizar_estado_carga_documento
+from .models import (
+    aplicar_deshabilitados_catalogo_a_revision,
+    aplicar_estandar_a_revision,
+    ponderaciones_revision,
+    sincronizar_actividades_pasadas,
+    sincronizar_acuerdos_vencidos,
+    sincronizar_estado_carga_documento,
+    sincronizar_estado_criterio_desde_preguntas,
+)
 from .messaging import autor_es_consultor, registrar_mensaje, sembrar_mensaje_rechazo_si_falta
 from .permissions import (
     administrador_required,
+    actividades_visibles,
     cliente_required,
     empresas_visibles,
     get_perfil,
+    gestor_admin_o_cliente_required,
     gestor_o_admin_required,
+    puede_ver_actividad,
     puede_ver_empresa,
     usuario_es_administrador,
     usuario_es_cliente,
     usuario_es_gestor,
+    usuarios_asignables,
 )
 from .progress import (
     calcular_progreso_revision,
@@ -126,6 +156,7 @@ from .progress import (
     revisiones_activas_empresa,
 )
 from .activity import eventos_monitoreo_empresa
+from .plan_entrega import arbol_plan_entrega
 
 User = get_user_model()
 
@@ -428,18 +459,17 @@ def empresa_list(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET", "POST"])
 def empresa_create(request: HttpRequest) -> HttpResponse:
     form = EmpresaForm(request.POST or None)
-    formset = AreaFormSet(request.POST or None)
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
-        with transaction.atomic():
-            empresa = form.save()
-            formset.instance = empresa
-            formset.save()
-        messages.success(request, "Empresa creada correctamente.")
-        return redirect("maestro:empresa_list")
+    if request.method == "POST" and form.is_valid():
+        empresa = form.save()
+        messages.success(
+            request,
+            "Empresa creada. Ahora puedes configurar áreas y responsables.",
+        )
+        return redirect("maestro:empresa_areas", pk=empresa.pk)
     return render(
         request,
         "maestro/empresa_form.html",
-        {"form": form, "formset": formset, "titulo": "Nueva empresa"},
+        {"form": form, "titulo": "Nueva empresa"},
     )
 
 
@@ -448,11 +478,8 @@ def empresa_create(request: HttpRequest) -> HttpResponse:
 def empresa_edit(request: HttpRequest, pk: int) -> HttpResponse:
     empresa = get_object_or_404(Empresa, pk=pk)
     form = EmpresaForm(request.POST or None, instance=empresa)
-    formset = AreaFormSet(request.POST or None, instance=empresa)
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
-        with transaction.atomic():
-            form.save()
-            formset.save()
+    if request.method == "POST" and form.is_valid():
+        form.save()
         messages.success(request, "Empresa actualizada correctamente.")
         return redirect("maestro:empresa_list")
     return render(
@@ -460,9 +487,171 @@ def empresa_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "maestro/empresa_form.html",
         {
             "form": form,
-            "formset": formset,
             "titulo": "Editar empresa",
             "empresa": empresa,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_areas(request: HttpRequest, pk: int) -> HttpResponse:
+    """Gestión separada de áreas y responsables de una empresa."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    area_form = AreaCreateForm(empresa=empresa)
+    responsable_forms: dict[int, ResponsableForm] = {}
+
+    if request.method == "POST":
+        accion = (request.POST.get("accion") or "").strip()
+        if accion == "crear_area":
+            area_form = AreaCreateForm(request.POST, empresa=empresa)
+            if area_form.is_valid():
+                area_form.save()
+                messages.success(request, "Área creada.")
+                return redirect("maestro:empresa_areas", pk=empresa.pk)
+        elif accion == "crear_responsable":
+            area_id = (request.POST.get("area_id") or "").strip()
+            area = empresa.areas.filter(pk=area_id).first() if area_id.isdigit() else None
+            if not area:
+                messages.error(request, "Área no válida.")
+                return redirect("maestro:empresa_areas", pk=empresa.pk)
+            prefix = f"resp-{area.pk}"
+            form_resp = ResponsableForm(request.POST, area=area, prefix=prefix)
+            if form_resp.is_valid():
+                form_resp.save()
+                messages.success(request, f"Responsable agregado a {area.nombre}.")
+                return redirect("maestro:empresa_areas", pk=empresa.pk)
+            responsable_forms[area.pk] = form_resp
+            messages.error(request, "Revisa los datos del responsable.")
+            # Se reabre el modal en la plantilla vía open_modal_area_id.
+        elif accion == "toggle_area":
+            area_id = (request.POST.get("area_id") or "").strip()
+            area = empresa.areas.filter(pk=area_id).first() if area_id.isdigit() else None
+            if area:
+                area.activo = not area.activo
+                area.save(update_fields=["activo", "actualizado_en"])
+                messages.success(
+                    request,
+                    f"Área «{area.nombre}» marcada como {'activa' if area.activo else 'inactiva'}.",
+                )
+            return redirect("maestro:empresa_areas", pk=empresa.pk)
+        elif accion == "toggle_responsable":
+            resp_id = (request.POST.get("responsable_id") or "").strip()
+            resp = (
+                Responsable.objects.filter(pk=resp_id, area__empresa=empresa).first()
+                if resp_id.isdigit()
+                else None
+            )
+            if resp:
+                resp.activo = not resp.activo
+                resp.save(update_fields=["activo", "actualizado_en"])
+                messages.success(
+                    request,
+                    f"Responsable «{resp.nombre}» marcado como {'activo' if resp.activo else 'inactivo'}.",
+                )
+            return redirect("maestro:empresa_areas", pk=empresa.pk)
+        elif accion == "eliminar_responsable":
+            resp_id = (request.POST.get("responsable_id") or "").strip()
+            resp = (
+                Responsable.objects.filter(pk=resp_id, area__empresa=empresa).first()
+                if resp_id.isdigit()
+                else None
+            )
+            if resp:
+                nombre = resp.nombre
+                resp.delete()
+                messages.success(request, f"Responsable «{nombre}» eliminado.")
+            return redirect("maestro:empresa_areas", pk=empresa.pk)
+
+    areas = list(
+        empresa.areas.prefetch_related("responsables").order_by("nombre")
+    )
+    areas_ctx = []
+    open_modal_area_id = None
+    for area in areas:
+        form_resp = responsable_forms.get(area.pk) or ResponsableForm(
+            area=area, prefix=f"resp-{area.pk}"
+        )
+        if area.pk in responsable_forms:
+            open_modal_area_id = area.pk
+        areas_ctx.append({"area": area, "responsable_form": form_resp})
+
+    return render(
+        request,
+        "maestro/empresa_areas.html",
+        {
+            "empresa": empresa,
+            "areas_ctx": areas_ctx,
+            "area_form": area_form,
+            "open_modal_area_id": open_modal_area_id,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_notificaciones(request: HttpRequest, pk: int) -> HttpResponse:
+    """Configuración por empresa de avisos pre/post vencimiento de acuerdos."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    regla_form = EmpresaNotificacionReglaForm(empresa=empresa)
+
+    if request.method == "POST":
+        accion = (request.POST.get("accion") or "").strip()
+        if accion == "crear_regla":
+            regla_form = EmpresaNotificacionReglaForm(request.POST, empresa=empresa)
+            if regla_form.is_valid():
+                creadas = regla_form.save()
+                n = len(creadas)
+                messages.success(
+                    request,
+                    f"{n} regla(s) de notificación agregada(s)."
+                    if n != 1
+                    else f"Regla «{creadas[0].etiqueta}» agregada.",
+                )
+                return redirect("maestro:empresa_notificaciones", pk=empresa.pk)
+            messages.error(request, "Revisa los datos de la regla.")
+        elif accion == "toggle_regla":
+            regla_id = (request.POST.get("regla_id") or "").strip()
+            regla = (
+                empresa.notificacion_reglas.filter(pk=regla_id).first()
+                if regla_id.isdigit()
+                else None
+            )
+            if regla:
+                regla.activo = not regla.activo
+                regla.save(update_fields=["activo", "actualizado_en"])
+                messages.success(
+                    request,
+                    f"Regla «{regla.etiqueta}» marcada como "
+                    f"{'activa' if regla.activo else 'inactiva'}.",
+                )
+            return redirect("maestro:empresa_notificaciones", pk=empresa.pk)
+        elif accion == "eliminar_regla":
+            regla_id = (request.POST.get("regla_id") or "").strip()
+            regla = (
+                empresa.notificacion_reglas.filter(pk=regla_id).first()
+                if regla_id.isdigit()
+                else None
+            )
+            if regla:
+                etiqueta = regla.etiqueta
+                regla.delete()
+                messages.success(request, f"Regla «{etiqueta}» eliminada.")
+            return redirect("maestro:empresa_notificaciones", pk=empresa.pk)
+
+    reglas = list(empresa.notificacion_reglas.order_by("tipo", "dias"))
+    reglas_antes = [r for r in reglas if r.tipo == TipoNotificacionAcuerdo.ANTES]
+    reglas_post = [r for r in reglas if r.tipo == TipoNotificacionAcuerdo.POST]
+
+    return render(
+        request,
+        "maestro/empresa_notificaciones.html",
+        {
+            "empresa": empresa,
+            "regla_form": regla_form,
+            "reglas_antes": reglas_antes,
+            "reglas_post": reglas_post,
+            "TipoNotificacionAcuerdo": TipoNotificacionAcuerdo,
         },
     )
 
@@ -515,7 +704,8 @@ def empresa_revision_create(request: HttpRequest, pk: int) -> HttpResponse:
     empresa = get_object_or_404(Empresa, pk=pk)
     form = RevisionForm(request.POST or None, empresa=empresa)
     if request.method == "POST" and form.is_valid():
-        form.save()
+        revision = form.save()
+        aplicar_deshabilitados_catalogo_a_revision(revision)
         messages.success(request, "Revisión creada correctamente.")
         return redirect("maestro:empresa_revision_list", pk=empresa.pk)
     return render(
@@ -871,7 +1061,25 @@ def empresa_documento_criterios(
 
     vinculos = (
         EmpresaDocumentoCriterio.objects.filter(empresa_documento=documento)
-        .select_related("criterio", "criterio__tema", "criterio__principio", "area")
+        .select_related(
+            "criterio",
+            "criterio__tema",
+            "criterio__principio",
+            "area",
+            "empresa_documento_secundario",
+        )
+        .order_by("criterio__codigo")
+    )
+    vinculos_como_secundario = (
+        EmpresaDocumentoCriterio.objects.filter(
+            empresa_documento_secundario=documento
+        )
+        .select_related(
+            "criterio",
+            "criterio__tema",
+            "empresa_documento",
+            "area",
+        )
         .order_by("criterio__codigo")
     )
     return render(
@@ -883,6 +1091,7 @@ def empresa_documento_criterios(
             "documento": documento,
             "form": form,
             "vinculos": vinculos,
+            "vinculos_como_secundario": vinculos_como_secundario,
             "temas": Tema.objects.all(),
             "principios": Principio.objects.select_related("tema").all(),
             "filtro_tema": tema_id,
@@ -1020,6 +1229,20 @@ def tema_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @administrador_required
+@require_http_methods(["POST"])
+def tema_toggle_activo(request: HttpRequest, pk: int) -> HttpResponse:
+    tema = get_object_or_404(Tema, pk=pk)
+    tema.activo = not tema.activo
+    tema.save(update_fields=["activo", "actualizado_en"])
+    estado = "habilitado" if tema.activo else "deshabilitado"
+    messages.success(
+        request,
+        f"Tema {tema.codigo} {estado}. Solo afecta revisiones nuevas.",
+    )
+    return redirect("maestro:tema_list")
+
+
+@administrador_required
 @require_GET
 def glosario_termino_list(request: HttpRequest) -> HttpResponse:
     terminos = GlosarioTermino.objects.all()
@@ -1105,6 +1328,20 @@ def principio_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @administrador_required
+@require_http_methods(["POST"])
+def principio_toggle_activo(request: HttpRequest, pk: int) -> HttpResponse:
+    principio = get_object_or_404(Principio, pk=pk)
+    principio.activo = not principio.activo
+    principio.save(update_fields=["activo", "actualizado_en"])
+    estado = "habilitado" if principio.activo else "deshabilitado"
+    messages.success(
+        request,
+        f"Principio {principio.codigo} {estado}. Solo afecta revisiones nuevas.",
+    )
+    return redirect("maestro:principio_list")
+
+
+@administrador_required
 @require_GET
 def requisito_list(request: HttpRequest) -> HttpResponse:
     requisitos = Requisito.objects.select_related("principio", "principio__tema").all()
@@ -1154,6 +1391,20 @@ def requisito_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "maestro/requisito_form.html",
         {"form": form, "titulo": "Editar requisito", "requisito": requisito},
     )
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def requisito_toggle_activo(request: HttpRequest, pk: int) -> HttpResponse:
+    requisito = get_object_or_404(Requisito, pk=pk)
+    requisito.activo = not requisito.activo
+    requisito.save(update_fields=["activo", "actualizado_en"])
+    estado = "habilitado" if requisito.activo else "deshabilitado"
+    messages.success(
+        request,
+        f"Requisito {requisito.codigo} {estado}. Solo afecta revisiones nuevas.",
+    )
+    return redirect("maestro:requisito_list")
 
 
 @administrador_required
@@ -1221,6 +1472,88 @@ def criterio_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @administrador_required
+@require_http_methods(["POST"])
+def criterio_toggle_activo(request: HttpRequest, pk: int) -> HttpResponse:
+    criterio = get_object_or_404(Criterio, pk=pk)
+    criterio.activo = not criterio.activo
+    criterio.save(update_fields=["activo", "actualizado_en"])
+    estado = "habilitado" if criterio.activo else "deshabilitado"
+    messages.success(
+        request,
+        f"Criterio {criterio.codigo} {estado}. Solo afecta revisiones nuevas.",
+    )
+    return redirect("maestro:criterio_list")
+
+
+@administrador_required
+@require_GET
+def pregunta_list(request: HttpRequest) -> HttpResponse:
+    preguntas = Pregunta.objects.select_related(
+        "criterio", "criterio__requisito", "criterio__principio", "criterio__tema"
+    ).all()
+    criterio_id = (request.GET.get("criterio") or "").strip()
+    if criterio_id.isdigit():
+        preguntas = preguntas.filter(criterio_id=int(criterio_id))
+    return render(
+        request,
+        "maestro/pregunta_list.html",
+        {
+            "preguntas": preguntas,
+            "criterios": Criterio.objects.order_by("codigo"),
+            "filtro_criterio": criterio_id,
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def pregunta_create(request: HttpRequest) -> HttpResponse:
+    form = PreguntaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Pregunta creada correctamente.")
+        return redirect("maestro:pregunta_list")
+    return render(
+        request,
+        "maestro/pregunta_form.html",
+        {"form": form, "titulo": "Nueva pregunta"},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def pregunta_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    pregunta = get_object_or_404(
+        Pregunta.objects.select_related("criterio"),
+        pk=pk,
+    )
+    form = PreguntaForm(request.POST or None, instance=pregunta)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Pregunta actualizada correctamente.")
+        return redirect("maestro:pregunta_list")
+    return render(
+        request,
+        "maestro/pregunta_form.html",
+        {"form": form, "titulo": "Editar pregunta", "pregunta": pregunta},
+    )
+
+
+@administrador_required
+@require_http_methods(["POST"])
+def pregunta_toggle_activo(request: HttpRequest, pk: int) -> HttpResponse:
+    pregunta = get_object_or_404(Pregunta, pk=pk)
+    pregunta.activo = not pregunta.activo
+    pregunta.save(update_fields=["activo", "actualizado_en"])
+    estado = "habilitada" if pregunta.activo else "deshabilitada"
+    messages.success(
+        request,
+        f"Pregunta {pregunta.codigo} {estado}. Solo afecta revisiones nuevas.",
+    )
+    return redirect("maestro:pregunta_list")
+
+
+@administrador_required
 @require_GET
 def documento_list(request: HttpRequest) -> HttpResponse:
     documentos = Documento.objects.all()
@@ -1279,6 +1612,7 @@ def documento_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def documento_criterio_list(request: HttpRequest) -> HttpResponse:
     relaciones = DocumentoCriterio.objects.select_related(
         "documento",
+        "documento_secundario",
         "criterio",
         "criterio__tema",
         "criterio__principio",
@@ -1287,7 +1621,10 @@ def documento_criterio_list(request: HttpRequest) -> HttpResponse:
     tema_id = (request.GET.get("tema") or "").strip()
     principio_id = (request.GET.get("principio") or "").strip()
     if documento_id.isdigit():
-        relaciones = relaciones.filter(documento_id=int(documento_id))
+        doc_pk = int(documento_id)
+        relaciones = relaciones.filter(
+            Q(documento_id=doc_pk) | Q(documento_secundario_id=doc_pk)
+        )
     if tema_id.isdigit():
         relaciones = relaciones.filter(criterio__tema_id=int(tema_id))
     if principio_id.isdigit():
@@ -1355,14 +1692,16 @@ def documento_criterio_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @administrador_required
 @require_GET
 def documento_criterio_plantilla(request: HttpRequest) -> HttpResponse:
+    from datetime import date
     from io import BytesIO
 
     buffer = BytesIO(plantilla_bytes())
     buffer.seek(0)
+    filename = f"relacion_estandar_{date.today().isoformat()}.xlsx"
     return FileResponse(
         buffer,
         as_attachment=True,
-        filename="plantilla_relacion_estandar.xlsx",
+        filename=filename,
         content_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
@@ -1420,8 +1759,14 @@ def empresa_documento_aplicar_estandar(
     revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
     form = AplicarEstandarRevisionForm(request.POST or None, revision=revision)
 
-    estandar = DocumentoCriterio.objects.select_related("documento", "criterio")
-    doc_ids_estandar = set(estandar.values_list("documento_id", flat=True).distinct())
+    estandar = DocumentoCriterio.objects.select_related(
+        "documento", "documento_secundario", "criterio"
+    )
+    doc_ids_estandar: set[int] = set()
+    for rel in estandar:
+        doc_ids_estandar.add(rel.documento_id)
+        if rel.documento_secundario_id:
+            doc_ids_estandar.add(rel.documento_secundario_id)
     ya_docs = set(
         revision.documentos.filter(documento_id__isnull=False).values_list(
             "documento_id", flat=True
@@ -1429,13 +1774,6 @@ def empresa_documento_aplicar_estandar(
     )
     docs_a_activar = len(doc_ids_estandar - ya_docs)
 
-    existentes = set(
-        EmpresaDocumentoCriterio.objects.filter(
-            empresa_documento__revision=revision,
-            empresa_documento__documento_id__isnull=False,
-        ).values_list("empresa_documento__documento_id", "criterio_id")
-    )
-    pares_estandar = set(estandar.values_list("documento_id", "criterio_id"))
     desactivados_ids = set(
         RevisionCriterioDesactivado.objects.filter(revision=revision).values_list(
             "criterio_id", flat=True
@@ -1446,75 +1784,17 @@ def empresa_documento_aplicar_estandar(
             "criterio_id", flat=True
         )
     )
-    # Un criterio solo puede ir a un documento: contar el primer par estándar disponible.
-    vistos_criterio: set[int] = set(criterios_ya_asignados)
-    vinculos_a_crear = 0
-    for doc_id, crit_id in sorted(pares_estandar):
-        if crit_id in desactivados_ids or crit_id in vistos_criterio:
-            continue
-        if (doc_id, crit_id) in existentes:
-            continue
-        vinculos_a_crear += 1
-        vistos_criterio.add(crit_id)
+    vinculos_a_crear = sum(
+        1
+        for rel in estandar
+        if rel.criterio_id not in desactivados_ids
+        and rel.criterio_id not in criterios_ya_asignados
+    )
 
     if request.method == "POST" and form.is_valid():
         area = form.cleaned_data["area"]
-        docs_creados = 0
-        vinculos_creados = 0
         with transaction.atomic():
-            for documento in Documento.objects.filter(pk__in=doc_ids_estandar):
-                emp_doc, created = EmpresaDocumento.objects.get_or_create(
-                    revision=revision,
-                    documento=documento,
-                    defaults={
-                        "codigo": documento.codigo,
-                        "nombre": documento.nombre,
-                        "tipo_documento": documento.tipo_documento,
-                        "origen": OrigenEmpresaDocumento.CATALOGO,
-                        "activo": True,
-                    },
-                )
-                if created:
-                    docs_creados += 1
-
-            emp_docs = {
-                ed.documento_id: ed
-                for ed in EmpresaDocumento.objects.filter(
-                    revision=revision, documento_id__in=doc_ids_estandar
-                )
-            }
-            desactivados_ids = set(
-                RevisionCriterioDesactivado.objects.filter(revision=revision).values_list(
-                    "criterio_id", flat=True
-                )
-            )
-            criterios_ya_asignados = set(
-                EmpresaDocumentoCriterio.objects.filter(revision=revision).values_list(
-                    "criterio_id", flat=True
-                )
-            )
-            for rel in DocumentoCriterio.objects.filter(
-                documento_id__in=doc_ids_estandar
-            ).order_by("id"):
-                if rel.criterio_id in desactivados_ids:
-                    continue
-                if rel.criterio_id in criterios_ya_asignados:
-                    continue
-                emp_doc = emp_docs.get(rel.documento_id)
-                if emp_doc is None:
-                    continue
-                _, created = EmpresaDocumentoCriterio.objects.get_or_create(
-                    revision=revision,
-                    criterio=rel.criterio,
-                    defaults={
-                        "empresa_documento": emp_doc,
-                        "area": area,
-                    },
-                )
-                if created:
-                    vinculos_creados += 1
-                    criterios_ya_asignados.add(rel.criterio_id)
-
+            docs_creados, vinculos_creados = aplicar_estandar_a_revision(revision, area)
         messages.success(
             request,
             f"Estándar aplicado: {docs_creados} documento(s) activados, "
@@ -1548,13 +1828,9 @@ def _cliente_contexto_revision(request: HttpRequest) -> tuple[Empresa, Revision 
 @cliente_required
 @require_GET
 def mi_empresa_dashboard(request: HttpRequest) -> HttpResponse:
-    empresa, revision = _cliente_contexto_revision(request)
-    progreso = calcular_progreso_revision(revision) if revision else None
-    return render(
-        request,
-        "maestro/mi_empresa_dashboard.html",
-        {"empresa": empresa, "revision": revision, "progreso": progreso},
-    )
+    """Redirige al dashboard de indicadores de la empresa del cliente."""
+    empresa, _revision = _cliente_contexto_revision(request)
+    return redirect("maestro:indicadores_empresa", pk=empresa.pk)
 
 
 @cliente_required
@@ -1609,7 +1885,11 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
             "Este documento no tiene criterios asociados y no forma parte de la carga solicitada.",
         )
         return redirect("maestro:mi_empresa_documentos")
-    form = DocumentoCargaForm(request.POST or None, request.FILES or None)
+    form = DocumentoCargaForm(
+        request.POST or None,
+        request.FILES or None,
+        empresa=empresa,
+    )
     if request.method == "POST" and form.is_valid():
         carga = form.save(commit=False)
         carga.empresa_documento = documento
@@ -1618,7 +1898,8 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
         carga.save()
         obs = (carga.observaciones or "").strip()
         texto = (
-            f"Se cargó una nueva evidencia: {carga.nombre_original or carga.archivo.name}."
+            f"Versión {carga.version}: se cargó "
+            f"{carga.nombre_original or carga.archivo.name}."
             + (f"\n\nObservaciones: {obs}" if obs else "")
         )
         registrar_mensaje(
@@ -1626,7 +1907,7 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
             texto=texto,
             autor=request.user,
             es_consultor=False,
-            tipo=TipoDocumentoMensaje.RESPUESTA,
+            tipo=TipoDocumentoMensaje.VERSION,
             carga=carga,
         )
         try:
@@ -1724,6 +2005,10 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
         .order_by("-creado_en")
         .first()
     )
+    versiones = list(
+        DocumentoCarga.objects.filter(empresa_documento=documento)
+        .order_by("-version", "-creado_en")
+    )
     return render(
         request,
         "maestro/documento_conversacion.html",
@@ -1734,9 +2019,125 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
             "mensajes": mensajes_qs,
             "form": form,
             "carga_actual": carga_actual,
+            "versiones": versiones,
             "es_cliente": es_cliente,
             "es_consultor": es_consultor,
         },
+    )
+
+
+SESSION_APROBACION_PENDIENTE = "aprobacion_pendiente_vigencia"
+
+
+def _doc_tiene_vigencia(doc: EmpresaDocumento) -> bool:
+    if not (
+        doc.frecuencia_actualizacion
+        and doc.fecha_ultima_revision
+        and doc.fecha_caducidad
+    ):
+        return False
+    if doc.frecuencia_actualizacion == "OTRO" and not (doc.frecuencia_otro or "").strip():
+        return False
+    return True
+
+
+def _quedaria_aprobado(carga: DocumentoCarga, decisions: list) -> bool:
+    """True si, tras aplicar decisions, todas las preguntas quedarían CUMPLE."""
+    from .models import EstadoRevisionPregunta, EmpresaDocumentoPregunta
+
+    estados = {
+        p.pk: p.estado_revision
+        for p in EmpresaDocumentoPregunta.objects.filter(
+            vinculo_criterio__empresa_documento_id=carga.empresa_documento_id
+        )
+    }
+    if not estados:
+        return False
+    for pregunta, estado, _obs in decisions:
+        estados[pregunta.pk] = estado
+    return all(e == EstadoRevisionPregunta.CUMPLE for e in estados.values())
+
+
+def _guardar_aprobacion_pendiente(
+    request: HttpRequest,
+    *,
+    empresa: Empresa,
+    doc: EmpresaDocumento,
+    carga: DocumentoCarga,
+    decisions: list,
+) -> None:
+    request.session[SESSION_APROBACION_PENDIENTE] = {
+        "empresa_id": empresa.pk,
+        "doc_id": doc.pk,
+        "carga_id": carga.pk,
+        "decisions": [
+            {"pregunta_id": p.pk, "estado": estado, "obs": obs}
+            for p, estado, obs in decisions
+        ],
+    }
+    request.session.modified = True
+
+
+def _leer_aprobacion_pendiente(request: HttpRequest, doc_id: int) -> dict | None:
+    data = request.session.get(SESSION_APROBACION_PENDIENTE) or {}
+    if data.get("doc_id") != doc_id:
+        return None
+    return data
+
+
+def _limpiar_aprobacion_pendiente(request: HttpRequest) -> None:
+    if SESSION_APROBACION_PENDIENTE in request.session:
+        del request.session[SESSION_APROBACION_PENDIENTE]
+        request.session.modified = True
+
+
+def _decisions_desde_pendiente(data: dict, doc: EmpresaDocumento) -> list:
+    from .models import EmpresaDocumentoPregunta
+
+    ids = [d["pregunta_id"] for d in data.get("decisions") or []]
+    preguntas = {
+        p.pk: p
+        for p in EmpresaDocumentoPregunta.objects.filter(
+            pk__in=ids,
+            vinculo_criterio__empresa_documento=doc,
+        )
+    }
+    out = []
+    for d in data.get("decisions") or []:
+        p = preguntas.get(d["pregunta_id"])
+        if p:
+            out.append((p, d["estado"], d.get("obs") or ""))
+    return out
+
+
+def _revertir_aprobacion_sin_vigencia(doc: EmpresaDocumento, *, user) -> None:
+    """Devuelve preguntas/criterios/carga al estado pendiente (cancelar vigencia)."""
+    from .models import EmpresaDocumentoPregunta, EstadoRevisionPregunta
+
+    EmpresaDocumentoPregunta.objects.filter(
+        vinculo_criterio__empresa_documento=doc,
+        estado_revision=EstadoRevisionPregunta.CUMPLE,
+    ).update(
+        estado_revision=EstadoRevisionPregunta.PENDIENTE,
+        observacion="",
+        revisado_por=None,
+        revisado_en=None,
+    )
+    for vinculo in EmpresaDocumentoCriterio.objects.filter(empresa_documento=doc):
+        sincronizar_estado_criterio_desde_preguntas(vinculo, revisado_por=user)
+    sincronizar_estado_carga_documento(doc, revisado_por=user)
+    doc.frecuencia_actualizacion = ""
+    doc.frecuencia_otro = ""
+    doc.fecha_ultima_revision = None
+    doc.fecha_caducidad = None
+    doc.save(
+        update_fields=[
+            "frecuencia_actualizacion",
+            "frecuencia_otro",
+            "fecha_ultima_revision",
+            "fecha_caducidad",
+            "actualizado_en",
+        ]
     )
 
 
@@ -1850,7 +2251,13 @@ def seguimiento_documento_asociar_criterios(
 
     vinculos = (
         EmpresaDocumentoCriterio.objects.filter(empresa_documento=documento)
-        .select_related("criterio", "criterio__tema", "criterio__principio", "area")
+        .select_related(
+            "criterio",
+            "criterio__tema",
+            "criterio__principio",
+            "area",
+            "empresa_documento_secundario",
+        )
         .order_by("criterio__codigo")
     )
     return render(
@@ -1948,27 +2355,101 @@ def seguimiento_empresa_pendientes(request: HttpRequest, pk: int) -> HttpRespons
     )
 
 
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def empresa_revision_plan(request: HttpRequest, pk: int, rev_id: int) -> HttpResponse:
+    """
+    Plan de entrega por documento (configuración previa al seguimiento).
+    No genera notificaciones; plantilla de fechas límite del consultor.
+    """
+    from datetime import datetime as dt
+
+    empresa = get_object_or_404(Empresa, pk=pk)
+    revision = get_object_or_404(Revision, pk=rev_id, empresa=empresa)
+
+    if request.method == "POST":
+        docs = {
+            d.pk: d
+            for d in EmpresaDocumento.objects.filter(revision=revision, activo=True)
+        }
+        actualizados = 0
+        errores = 0
+        for doc_id, doc in docs.items():
+            raw = (request.POST.get(f"fecha_limite_{doc_id}") or "").strip()
+            nueva = None
+            if raw:
+                try:
+                    nueva = dt.strptime(raw, "%Y-%m-%d").date()
+                except ValueError:
+                    errores += 1
+                    continue
+            if doc.fecha_limite_entrega != nueva:
+                doc.fecha_limite_entrega = nueva
+                doc.save(update_fields=["fecha_limite_entrega", "actualizado_en"])
+                actualizados += 1
+        if errores:
+            messages.warning(
+                request,
+                f"Plan guardado con {actualizados} cambio(s). "
+                f"{errores} fecha(s) con formato inválido se omitieron.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Plan de entrega guardado ({actualizados} documento(s) actualizado(s)).",
+            )
+        return redirect(
+            "maestro:empresa_revision_plan",
+            pk=empresa.pk,
+            rev_id=revision.pk,
+        )
+
+    arbol = arbol_plan_entrega(revision)
+    total_docs = sum(len(p.documentos) for t in arbol for p in t.principios)
+    con_fecha = sum(
+        1
+        for t in arbol
+        for p in t.principios
+        for d in p.documentos
+        if d.fecha_limite_entrega
+    )
+    return render(
+        request,
+        "maestro/empresa_plan.html",
+        {
+            "empresa": empresa,
+            "revision": revision,
+            "arbol": arbol,
+            "total_docs": total_docs,
+            "con_fecha": con_fecha,
+        },
+    )
+
+
 def _aplicar_revision_parcial_carga(
     *,
     carga: DocumentoCarga,
     decisions: list,
     user,
 ) -> tuple[int, int]:
-    """Aplica decisiones por criterio y sincroniza la carga. Devuelve (aprobados, observados)."""
+    """Aplica decisiones por pregunta, sync criterios y carga. Devuelve (cumplen, no_cumplen)."""
+    from .models import EstadoRevisionPregunta
+
     ahora = timezone.now()
-    n_aprob = 0
-    n_obs = 0
-    for vinculo, estado, obs in decisions:
-        vinculo.estado_revision = estado
-        vinculo.revisado_por = user
-        vinculo.revisado_en = ahora
-        if estado == EstadoRevisionCriterio.APROBADO:
-            vinculo.observacion = ""
-            n_aprob += 1
+    n_ok = 0
+    n_no = 0
+    vinculos_tocados: dict[int, EmpresaDocumentoCriterio] = {}
+    for respuesta, estado, obs in decisions:
+        respuesta.estado_revision = estado
+        respuesta.revisado_por = user
+        respuesta.revisado_en = ahora
+        if estado == EstadoRevisionPregunta.CUMPLE:
+            respuesta.observacion = ""
+            n_ok += 1
         else:
-            vinculo.observacion = obs
-            n_obs += 1
-        vinculo.save(
+            respuesta.observacion = obs
+            n_no += 1
+        respuesta.save(
             update_fields=[
                 "estado_revision",
                 "observacion",
@@ -1977,20 +2458,64 @@ def _aplicar_revision_parcial_carga(
                 "actualizado_en",
             ]
         )
-        if estado == EstadoRevisionCriterio.OBSERVADO:
+        vinculos_tocados[respuesta.vinculo_criterio_id] = respuesta.vinculo_criterio
+        if estado == EstadoRevisionPregunta.NO_CUMPLE:
             registrar_mensaje(
                 empresa_documento=carga.empresa_documento,
-                texto=obs,
+                texto=f"{respuesta.pregunta.codigo}: {obs}",
                 autor=user,
                 es_consultor=True,
                 tipo=TipoDocumentoMensaje.OBSERVACION,
                 carga=carga,
-                criterio=vinculo.criterio,
+                criterio=respuesta.vinculo_criterio.criterio,
             )
+    for vinculo in vinculos_tocados.values():
+        sincronizar_estado_criterio_desde_preguntas(vinculo, revisado_por=user)
     sincronizar_estado_carga_documento(
         carga.empresa_documento, revisado_por=user
     )
-    return n_aprob, n_obs
+    return n_ok, n_no
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def seguimiento_documento_revision_consultor(
+    request: HttpRequest, pk: int, doc_id: int
+) -> HttpResponse:
+    """Define o actualiza la etiqueta/% de revisión del consultor (no afecta el avance)."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:seguimiento_list")
+    doc = get_object_or_404(
+        EmpresaDocumento.objects.select_related("revision"),
+        pk=doc_id,
+        revision__empresa=empresa,
+    )
+    form = DocumentoRevisionConsultorForm(request.POST)
+    next_url = (request.POST.get("next") or "").strip()
+    fallback = _seguimiento_url(
+        "maestro:seguimiento_empresa_revision",
+        empresa.pk,
+        doc.revision,
+    )
+    if not form.is_valid():
+        messages.error(request, "Revisa la etiqueta y el porcentaje (0–100).")
+        return redirect(next_url or fallback)
+
+    texto = (form.cleaned_data.get("revision_texto") or "").strip()
+    pct = form.cleaned_data.get("revision_porcentaje")
+    doc.revision_texto = texto
+    doc.revision_porcentaje = pct
+    doc.save(update_fields=["revision_texto", "revision_porcentaje", "actualizado_en"])
+    if texto or pct is not None:
+        msg = f"{doc.codigo}: revisión «{texto or '—'}»"
+        if pct is not None:
+            msg += f" · {pct}%"
+        messages.success(request, msg + ".")
+    else:
+        messages.success(request, f"{doc.codigo}: se quitó la revisión del consultor.")
+    return redirect(next_url or fallback)
 
 
 @gestor_o_admin_required
@@ -2040,27 +2565,44 @@ def seguimiento_carga_revisar(request: HttpRequest, pk: int, carga_id: int) -> H
             _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
         )
 
-    n_aprob, n_obs = _aplicar_revision_parcial_carga(
+    decisions = form.cleaned_data["decisions"]
+    # Aprobación total solo se confirma al guardar vigencia.
+    if _quedaria_aprobado(carga, decisions) and not _doc_tiene_vigencia(doc):
+        _guardar_aprobacion_pendiente(
+            request, empresa=empresa, doc=doc, carga=carga, decisions=decisions
+        )
+        messages.info(
+            request,
+            f"{doc.codigo}: para confirmar la aprobación debes registrar la vigencia "
+            "(frecuencia, Rev. 0 y caducidad). Si cancelas, no se aprueba.",
+        )
+        return redirect(
+            "maestro:seguimiento_documento_vigencia",
+            pk=empresa.pk,
+            doc_id=doc.pk,
+        )
+
+    n_ok, n_no = _aplicar_revision_parcial_carga(
         carga=carga,
-        decisions=form.cleaned_data["decisions"],
+        decisions=decisions,
         user=request.user,
     )
     carga.refresh_from_db()
     if carga.estado_revision == EstadoRevisionCarga.APROBADO:
         messages.success(
             request,
-            f"{doc.codigo}: todos los criterios aprobados. El documento queda aprobado.",
+            f"{doc.codigo}: documento aprobado (vigencia ya estaba registrada).",
         )
     else:
         parts = []
-        if n_aprob:
-            parts.append(f"{n_aprob} criterio(s) aprobado(s)")
-        if n_obs:
-            parts.append(f"{n_obs} con observación")
+        if n_ok:
+            parts.append(f"{n_ok} pregunta(s) cumplen")
+        if n_no:
+            parts.append(f"{n_no} no cumplen")
         messages.success(
             request,
             f"{doc.codigo}: {', '.join(parts) or 'revisión guardada'}. "
-            "Los criterios aprobados ya suman al avance.",
+            "El avance parcial de las preguntas ya suma a criterios, requisitos, principios y temas.",
         )
     return redirect(
         _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
@@ -2105,22 +2647,344 @@ def seguimiento_carga_aprobar(request: HttpRequest, pk: int, carga_id: int) -> H
         )
     form = RevisionParcialCargaForm({"accion": "aprobar_todos"}, carga=carga)
     if not form.is_valid():
-        messages.error(request, "No hay criterios pendientes para aprobar.")
+        messages.error(request, "No hay preguntas pendientes para marcar como cumplen.")
         return redirect(
             _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
         )
+    decisions = form.cleaned_data["decisions"]
+    if _quedaria_aprobado(carga, decisions) and not _doc_tiene_vigencia(doc):
+        _guardar_aprobacion_pendiente(
+            request, empresa=empresa, doc=doc, carga=carga, decisions=decisions
+        )
+        messages.info(
+            request,
+            f"{doc.codigo}: para confirmar la aprobación debes registrar la vigencia. "
+            "Si cancelas, el documento no se aprueba.",
+        )
+        return redirect(
+            "maestro:seguimiento_documento_vigencia",
+            pk=empresa.pk,
+            doc_id=doc.pk,
+        )
     _aplicar_revision_parcial_carga(
         carga=carga,
-        decisions=form.cleaned_data["decisions"],
+        decisions=decisions,
         user=request.user,
     )
     messages.success(
         request,
-        f"Evidencia de {doc.codigo} aprobada (todos los criterios). Ya cuenta en el avance.",
+        f"Evidencia de {doc.codigo}: documento aprobado (vigencia ya registrada).",
     )
     return redirect(
         _seguimiento_url("maestro:seguimiento_empresa_revision", empresa.pk, revision)
     )
+
+
+@gestor_o_admin_required
+@require_http_methods(["GET", "POST"])
+def seguimiento_documento_vigencia(
+    request: HttpRequest, pk: int, doc_id: int
+) -> HttpResponse:
+    """Paso obligatorio: vigencia. Sin guardar, la aprobación no se confirma."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:seguimiento_list")
+    doc = get_object_or_404(
+        EmpresaDocumento.objects.select_related("revision"),
+        pk=doc_id,
+        revision__empresa=empresa,
+    )
+    carga = (
+        DocumentoCarga.objects.filter(empresa_documento=doc, activo=True)
+        .order_by("-creado_en")
+        .first()
+    )
+    pendiente = _leer_aprobacion_pendiente(request, doc.pk)
+    aprobado_sin_vigencia = bool(
+        carga
+        and carga.estado_revision == EstadoRevisionCarga.APROBADO
+        and not _doc_tiene_vigencia(doc)
+    )
+    aprobado_con_vigencia = bool(
+        carga
+        and carga.estado_revision == EstadoRevisionCarga.APROBADO
+        and _doc_tiene_vigencia(doc)
+    )
+    if not pendiente and not aprobado_sin_vigencia and not aprobado_con_vigencia:
+        messages.warning(
+            request,
+            "No hay una aprobación pendiente. Vuelve a marcar el documento como cumple.",
+        )
+        return redirect(
+            _seguimiento_url(
+                "maestro:seguimiento_empresa_revision", empresa.pk, doc.revision
+            )
+        )
+
+    # Cancelar: revierte / descarta aprobación
+    if request.method == "POST" and (request.POST.get("accion") or "").strip() == "cancelar":
+        if pendiente:
+            _limpiar_aprobacion_pendiente(request)
+            messages.warning(
+                request,
+                f"{doc.codigo}: se canceló el registro de vigencia. "
+                "La aprobación no se aplicó; el documento sigue en su estado anterior.",
+            )
+        elif aprobado_sin_vigencia:
+            _revertir_aprobacion_sin_vigencia(doc, user=request.user)
+            messages.warning(
+                request,
+                f"{doc.codigo}: se revirtió la aprobación porque la vigencia es obligatoria.",
+            )
+        else:
+            messages.info(request, "No había cambios que cancelar.")
+        return redirect(
+            _seguimiento_url(
+                "maestro:seguimiento_empresa_revision", empresa.pk, doc.revision
+            )
+        )
+
+    initial = {
+        "frecuencia_actualizacion": doc.frecuencia_actualizacion or "ANUAL",
+        "frecuencia_otro": doc.frecuencia_otro or "",
+        "fecha_ultima_revision": doc.fecha_ultima_revision or timezone.localdate(),
+        "fecha_caducidad": doc.fecha_caducidad,
+    }
+    if request.method == "POST":
+        form = DocumentoVigenciaAprobacionForm(request.POST)
+    else:
+        form = DocumentoVigenciaAprobacionForm(initial=initial)
+
+    if request.method == "POST" and form.is_valid():
+        # Primero vigencia, luego (si hay pendiente) aplicar la aprobación.
+        doc.frecuencia_actualizacion = form.cleaned_data["frecuencia_actualizacion"]
+        doc.frecuencia_otro = form.cleaned_data.get("frecuencia_otro") or ""
+        doc.fecha_ultima_revision = form.cleaned_data["fecha_ultima_revision"]
+        doc.fecha_caducidad = form.cleaned_data["fecha_caducidad"]
+        doc.save(
+            update_fields=[
+                "frecuencia_actualizacion",
+                "frecuencia_otro",
+                "fecha_ultima_revision",
+                "fecha_caducidad",
+                "actualizado_en",
+            ]
+        )
+        if pendiente:
+            decisions = _decisions_desde_pendiente(pendiente, doc)
+            if decisions:
+                _aplicar_revision_parcial_carga(
+                    carga=carga,
+                    decisions=decisions,
+                    user=request.user,
+                )
+            _limpiar_aprobacion_pendiente(request)
+        freq_txt = doc.get_frecuencia_actualizacion_display()
+        if doc.frecuencia_actualizacion == "OTRO" and doc.frecuencia_otro:
+            freq_txt = f"{freq_txt}: {doc.frecuencia_otro}"
+        registrar_mensaje(
+            empresa_documento=doc,
+            texto=(
+                "Documento aprobado con vigencia: "
+                f"frecuencia {freq_txt}, "
+                f"Rev. 0 {doc.fecha_ultima_revision:%d/%m/%Y}, "
+                f"caduca {doc.fecha_caducidad:%d/%m/%Y}."
+            ),
+            autor=request.user,
+            es_consultor=True,
+            tipo=TipoDocumentoMensaje.SISTEMA,
+            carga=carga,
+        )
+        messages.success(
+            request,
+            f"{doc.codigo}: vigencia guardada y documento aprobado.",
+        )
+        return redirect(
+            _seguimiento_url(
+                "maestro:seguimiento_empresa_revision", empresa.pk, doc.revision
+            )
+        )
+
+    return render(
+        request,
+        "maestro/seguimiento_documento_vigencia.html",
+        {
+            "empresa": empresa,
+            "documento": doc,
+            "revision": doc.revision,
+            "carga": carga,
+            "form": form,
+            "pendiente_aprobacion": bool(pendiente),
+            "aprobado_sin_vigencia": aprobado_sin_vigencia,
+        },
+    )
+
+
+@gestor_o_admin_required
+@require_http_methods(["POST"])
+def seguimiento_carga_revertir(request: HttpRequest, pk: int, carga_id: int) -> HttpResponse:
+    """Revierte aprobación de un criterio o de todos los aprobados (error de usuario)."""
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        return redirect("maestro:seguimiento_list")
+    carga = get_object_or_404(
+        DocumentoCarga.objects.select_related(
+            "empresa_documento", "empresa_documento__revision"
+        ),
+        pk=carga_id,
+        activo=True,
+        empresa_documento__revision__empresa=empresa,
+    )
+    doc = carga.empresa_documento
+    revision = doc.revision
+    next_url = (request.POST.get("next") or "").strip()
+    fallback = _seguimiento_url(
+        "maestro:seguimiento_empresa_revision", empresa.pk, revision
+    )
+
+    from .models import EmpresaDocumentoPregunta, EstadoRevisionPregunta
+
+    vinculo_id = (request.POST.get("vinculo_id") or "").strip()
+    pregunta_id = (request.POST.get("pregunta_id") or "").strip()
+    ahora = timezone.now()
+
+    if pregunta_id.isdigit():
+        respuesta = get_object_or_404(
+            EmpresaDocumentoPregunta.objects.select_related(
+                "pregunta", "vinculo_criterio", "vinculo_criterio__criterio"
+            ),
+            pk=int(pregunta_id),
+            vinculo_criterio__empresa_documento=doc,
+            estado_revision=EstadoRevisionPregunta.CUMPLE,
+        )
+        respuesta.estado_revision = EstadoRevisionPregunta.PENDIENTE
+        respuesta.observacion = ""
+        respuesta.revisado_por = request.user
+        respuesta.revisado_en = ahora
+        respuesta.save(
+            update_fields=[
+                "estado_revision",
+                "observacion",
+                "revisado_por",
+                "revisado_en",
+                "actualizado_en",
+            ]
+        )
+        sincronizar_estado_criterio_desde_preguntas(
+            respuesta.vinculo_criterio, revisado_por=request.user
+        )
+        sincronizar_estado_carga_documento(doc, revisado_por=request.user)
+        texto = (
+            f"Se revirtió «cumple» de la pregunta {respuesta.pregunta.codigo}. "
+            "Vuelve a quedar pendiente."
+        )
+        registrar_mensaje(
+            empresa_documento=doc,
+            texto=texto,
+            autor=request.user,
+            es_consultor=True,
+            tipo=TipoDocumentoMensaje.SISTEMA,
+            carga=carga,
+            criterio=respuesta.vinculo_criterio.criterio,
+        )
+        messages.success(request, f"{doc.codigo}: {texto}")
+        return redirect(next_url or fallback)
+
+    qs = EmpresaDocumentoCriterio.objects.filter(
+        empresa_documento=doc,
+        estado_revision=EstadoRevisionCriterio.APROBADO,
+    ).select_related("criterio")
+    if vinculo_id.isdigit():
+        qs = qs.filter(pk=int(vinculo_id))
+    vinculos = list(qs)
+    if not vinculos:
+        # También permitir revertir todas las preguntas CUMPLE del documento
+        respuestas = list(
+            EmpresaDocumentoPregunta.objects.filter(
+                vinculo_criterio__empresa_documento=doc,
+                estado_revision=EstadoRevisionPregunta.CUMPLE,
+            ).select_related("pregunta", "vinculo_criterio", "vinculo_criterio__criterio")
+        )
+        if not respuestas:
+            messages.info(request, "No hay aprobaciones para revertir en este documento.")
+            return redirect(next_url or fallback)
+        for respuesta in respuestas:
+            respuesta.estado_revision = EstadoRevisionPregunta.PENDIENTE
+            respuesta.observacion = ""
+            respuesta.revisado_por = request.user
+            respuesta.revisado_en = ahora
+            respuesta.save(
+                update_fields=[
+                    "estado_revision",
+                    "observacion",
+                    "revisado_por",
+                    "revisado_en",
+                    "actualizado_en",
+                ]
+            )
+        tocados = {r.vinculo_criterio_id: r.vinculo_criterio for r in respuestas}
+        for vinculo in tocados.values():
+            sincronizar_estado_criterio_desde_preguntas(
+                vinculo, revisado_por=request.user
+            )
+        sincronizar_estado_carga_documento(doc, revisado_por=request.user)
+        texto = (
+            f"Se revirtió el cumplimiento de {len(respuestas)} pregunta(s). "
+            "Vuelven a quedar pendientes."
+        )
+        registrar_mensaje(
+            empresa_documento=doc,
+            texto=texto,
+            autor=request.user,
+            es_consultor=True,
+            tipo=TipoDocumentoMensaje.SISTEMA,
+            carga=carga,
+        )
+        messages.success(request, f"{doc.codigo}: {texto}")
+        return redirect(next_url or fallback)
+
+    codigos: list[str] = []
+    for vinculo in vinculos:
+        EmpresaDocumentoPregunta.objects.filter(
+            vinculo_criterio=vinculo,
+            estado_revision=EstadoRevisionPregunta.CUMPLE,
+        ).update(
+            estado_revision=EstadoRevisionPregunta.PENDIENTE,
+            observacion="",
+            revisado_por=request.user,
+            revisado_en=ahora,
+        )
+        sincronizar_estado_criterio_desde_preguntas(
+            vinculo, revisado_por=request.user
+        )
+        codigos.append(vinculo.criterio.codigo)
+
+    sincronizar_estado_carga_documento(doc, revisado_por=request.user)
+    carga.refresh_from_db()
+
+    if len(codigos) == 1:
+        texto = (
+            f"Se revirtió el cumplimiento del criterio {codigos[0]} "
+            "(todas sus preguntas). Vuelve a quedar pendiente."
+        )
+    else:
+        texto = (
+            f"Se revirtió el cumplimiento de {len(codigos)} criterio(s) "
+            f"({', '.join(codigos)}). Vuelven a quedar pendientes."
+        )
+    registrar_mensaje(
+        empresa_documento=doc,
+        texto=texto,
+        autor=request.user,
+        es_consultor=True,
+        tipo=TipoDocumentoMensaje.SISTEMA,
+        carga=carga,
+        criterio=vinculos[0].criterio if len(vinculos) == 1 else None,
+    )
+    messages.success(request, f"{doc.codigo}: {texto}")
+    return redirect(next_url or fallback)
 
 
 @gestor_o_admin_required
@@ -2290,15 +3154,16 @@ def _documentos_para_actividad(empresa: Empresa | None) -> list:
     )
 
 
-@gestor_o_admin_required
+@gestor_admin_o_cliente_required
 @require_GET
 def actividad_calendario(request: HttpRequest) -> HttpResponse:
+    sincronizar_actividades_pasadas()
     anio, mes = parse_anio_mes(request.GET)
     empresas = empresas_visibles(request.user)
     qs = (
-        Actividad.objects.filter(creado_por=request.user)
+        actividades_visibles(request.user)
         .filter(Q(empresa__isnull=True) | Q(empresa__in=empresas))
-        .select_related("empresa", "creado_por")
+        .select_related("empresa", "creado_por", "asignado_a")
         .prefetch_related("documentos")
         .exclude(estado=EstadoActividad.CANCELADA)
     )
@@ -2313,6 +3178,10 @@ def actividad_calendario(request: HttpRequest) -> HttpResponse:
         qs.filter(inicio__gte=timezone.now(), estado=EstadoActividad.PROGRAMADA).order_by(
             "inicio"
         )[:12]
+    )
+    atrasadas = list(
+        qs.filter(estado=EstadoActividad.PASADA)
+        .order_by(F("fin").asc(nulls_last=True), "inicio")[:12]
     )
     nombres_mes = [
         "",
@@ -2338,10 +3207,12 @@ def actividad_calendario(request: HttpRequest) -> HttpResponse:
             "mes_nombre": nombres_mes[mes],
             "semanas": semanas,
             "proximas": proximas,
+            "atrasadas": atrasadas,
             "prev_anio": prev_y,
             "prev_mes": prev_m,
             "next_anio": next_y,
             "next_mes": next_m,
+            "solo_lectura": usuario_es_cliente(request.user),
         },
     )
 
@@ -2358,22 +3229,62 @@ def actividad_crear(request: HttpRequest) -> HttpResponse:
     docs_qs = EmpresaDocumento.objects.filter(
         pk__in=[d.pk for d in _documentos_para_actividad(empresa)]
     ).order_by("codigo")
+    areas_qs = (
+        empresa.areas.filter(activo=True).order_by("nombre")
+        if empresa
+        else Area.objects.none()
+    )
+    area_id = (request.POST.get("area") or request.GET.get("area") or "").strip()
+    area_sel = None
+    if area_id.isdigit():
+        area_sel = areas_qs.filter(pk=int(area_id)).first()
+    responsables_qs = (
+        area_sel.responsables.filter(activo=True).order_by("nombre")
+        if area_sel
+        else Responsable.objects.none()
+    )
 
     form = ActividadForm(
         request.POST or None,
+        user=request.user,
         empresas_qs=empresas,
         documentos_qs=docs_qs,
+        areas_qs=areas_qs,
+        responsables_qs=responsables_qs,
+        asignables_qs=usuarios_asignables(request.user),
     )
     if request.method == "GET":
         if empresa:
             form.initial["empresa"] = empresa.pk
+        if area_sel:
+            form.initial["area"] = area_sel.pk
         alcance_q = (request.GET.get("alcance") or "").strip()
         if alcance_q in {AlcanceActividad.PERSONAL, AlcanceActividad.CON_CLIENTE}:
             form.initial["alcance"] = alcance_q
+        # Prefill desde el calendario: ?fecha=YYYY-MM-DD o ?inicio=YYYY-MM-DDTHH:MM
+        inicio_q = (request.GET.get("inicio") or request.GET.get("fecha") or "").strip()
+        if inicio_q:
+            from datetime import datetime as dt_parse
+            from datetime import timedelta as td_parse
+
+            parsed = None
+            for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    parsed = dt_parse.strptime(inicio_q, fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is not None:
+                if parsed.hour == 0 and parsed.minute == 0 and "T" not in inicio_q and " " not in inicio_q:
+                    parsed = parsed.replace(hour=9, minute=0)
+                form.initial["inicio"] = parsed.strftime("%Y-%m-%dT%H:%M")
+                form.initial["fin"] = (parsed + td_parse(hours=1)).strftime("%Y-%m-%dT%H:%M")
 
     if request.method == "POST" and form.is_valid():
         actividad = form.save(commit=False)
         actividad.creado_por = request.user
+        if not actividad.asignado_a_id:
+            actividad.asignado_a = request.user
         actividad.tipo = TipoActividad.GENERAL
         actividad.estado = EstadoActividad.PROGRAMADA
         # Correo automático solo si es con cliente (sin checkbox).
@@ -2383,7 +3294,9 @@ def actividad_crear(request: HttpRequest) -> HttpResponse:
 
         if actividad.enviar_correo:
             try:
-                ok, msg = enviar_correo_actividad(actividad)
+                ok, msg = enviar_correo_actividad(
+                    actividad, enviado_por=request.user
+                )
                 if ok:
                     messages.success(request, f"Actividad creada. {msg}")
                 else:
@@ -2428,19 +3341,29 @@ def actividad_crear(request: HttpRequest) -> HttpResponse:
     )
 
 
-@gestor_o_admin_required
+@gestor_admin_o_cliente_required
 @require_GET
 def actividad_detalle(request: HttpRequest, pk: int) -> HttpResponse:
+    sincronizar_actividades_pasadas()
     actividad = get_object_or_404(
-        Actividad.objects.select_related("empresa", "creado_por", "actividad_padre")
-        .prefetch_related("documentos", "acuerdos__documentos"),
+        Actividad.objects.select_related(
+            "empresa",
+            "creado_por",
+            "asignado_a",
+            "actividad_padre",
+            "area",
+            "responsable",
+        ).prefetch_related("documentos", "acuerdos__documentos"),
         pk=pk,
-        creado_por=request.user,
     )
+    if not puede_ver_actividad(request.user, actividad):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return redirect("maestro:actividad_calendario")
     if actividad.empresa_id and not puede_ver_empresa(request.user, actividad.empresa):
         messages.error(request, "No tienes acceso a esta actividad.")
         return redirect("maestro:actividad_calendario")
 
+    solo_lectura = usuario_es_cliente(request.user)
     docs_qs = actividad.documentos.all().order_by("codigo")
     now_local = timezone.localtime(timezone.now())
     default_dt = (now_local + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
@@ -2456,6 +3379,15 @@ def actividad_detalle(request: HttpRequest, pk: int) -> HttpResponse:
         .prefetch_related("documentos")
         .order_by("-creado_en")
     )
+    responsables_qs = (
+        responsables_con_correo(actividad.empresa_id)
+        if actividad.empresa_id and not solo_lectura
+        else Responsable.objects.none()
+    )
+    # Agrupar por área para el modal de recordatorio
+    responsables_por_area: dict[str, list] = {}
+    for r in responsables_qs:
+        responsables_por_area.setdefault(r.area.nombre, []).append(r)
     return render(
         request,
         "maestro/actividad_detalle.html",
@@ -2463,14 +3395,21 @@ def actividad_detalle(request: HttpRequest, pk: int) -> HttpResponse:
             "actividad": actividad,
             "acuerdo_form": acuerdo_form,
             "acuerdos": acuerdos,
-            "recordatorio_form": AcuerdoRecordatorioForm(),
-            "puede_derivar": actividad.estado != EstadoActividad.CANCELADA,
+            "recordatorio_form": AcuerdoRecordatorioForm(responsables_qs=responsables_qs),
+            "responsables_por_area": responsables_por_area,
+            "puede_derivar": (
+                not solo_lectura and actividad.estado != EstadoActividad.CANCELADA
+            ),
+            "solo_lectura": solo_lectura,
         },
     )
 
 
 def _actividad_padre_ok(request: HttpRequest, pk: int) -> Actividad | None:
-    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    actividad = get_object_or_404(Actividad, pk=pk)
+    if not puede_ver_actividad(request.user, actividad):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return None
     if actividad.empresa_id and not puede_ver_empresa(request.user, actividad.empresa):
         messages.error(request, "No tienes acceso a esta actividad.")
         return None
@@ -2507,18 +3446,20 @@ def actividad_crear_acuerdo(request: HttpRequest, pk: int) -> HttpResponse:
     if docs:
         acuerdo.documentos.set(docs)
 
-    if padre.empresa_id:
-        try:
-            ok, mail_msg = enviar_correo_acuerdo(acuerdo, es_recordatorio=False)
+    # Solo consultor: correo al consultor, sin mensajes en el hilo del cliente.
+    # Con cliente: correo a clientes + mensajes en documentos.
+    try:
+        ok, mail_msg = enviar_correo_acuerdo(
+            acuerdo, es_recordatorio=False, enviado_por=request.user
+        )
+        if padre.alcance != AlcanceActividad.PERSONAL:
             publicar_mensajes_acuerdo(acuerdo, request.user)
-            if ok:
-                messages.success(request, "Acuerdo guardado y notificado.")
-            else:
-                messages.warning(request, f"Acuerdo guardado. {mail_msg}")
-        except Exception as exc:  # noqa: BLE001
-            messages.warning(request, f"Acuerdo guardado, pero no se pudo notificar: {exc}")
-    else:
-        messages.success(request, "Acuerdo guardado.")
+        if ok:
+            messages.success(request, "Acuerdo guardado y notificado.")
+        else:
+            messages.warning(request, f"Acuerdo guardado. {mail_msg}")
+    except Exception as exc:  # noqa: BLE001
+        messages.warning(request, f"Acuerdo guardado, pero no se pudo notificar: {exc}")
 
     return redirect("maestro:actividad_detalle", pk=padre.pk)
 
@@ -2548,26 +3489,35 @@ def _redirect_acuerdo(request: HttpRequest, acuerdo: Acuerdo) -> HttpResponse:
     return redirect("maestro:actividad_detalle", pk=acuerdo.actividad_id)
 
 
-@gestor_o_admin_required
+@gestor_admin_o_cliente_required
 @require_GET
 def acuerdo_bandeja(request: HttpRequest) -> HttpResponse:
     """Bandeja global de acuerdos de las empresas visibles."""
+    sincronizar_acuerdos_vencidos()
     empresas = empresas_visibles(request.user)
     estado = (request.GET.get("estado") or "abiertos").strip().lower()
     filtro = (request.GET.get("filtro") or "todos").strip().lower()
     empresa_q = (request.GET.get("empresa") or "").strip()
+    solo_lectura = usuario_es_cliente(request.user)
 
+    base_q = Q(empresa__in=empresas) | Q(
+        empresa__isnull=True, actividad__empresa__in=empresas
+    )
+    if solo_lectura:
+        # Cliente: solo acuerdos de actividades compartidas con la empresa.
+        base_q &= Q(actividad__alcance=AlcanceActividad.CON_CLIENTE)
     qs = (
-        Acuerdo.objects.filter(
-            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas)
-        )
+        Acuerdo.objects.filter(base_q)
         .exclude(estado=EstadoAcuerdo.CANCELADO)
         .select_related("empresa", "actividad", "actividad__empresa", "creado_por")
         .prefetch_related("documentos")
         .order_by("fecha_compromiso", "-creado_en")
     )
     if estado == "abiertos":
+        # Pendientes vigentes (aún no vencidos).
         qs = qs.filter(estado=EstadoAcuerdo.ABIERTO)
+    elif estado == "vencidos":
+        qs = qs.filter(estado=EstadoAcuerdo.VENCIDO)
     elif estado == "cumplidos":
         qs = qs.filter(estado=EstadoAcuerdo.CUMPLIDO)
     elif estado != "todos":
@@ -2582,7 +3532,7 @@ def acuerdo_bandeja(request: HttpRequest) -> HttpResponse:
     now = timezone.now()
     hoy = timezone.localdate()
     if filtro == "vencidos":
-        qs = qs.filter(estado=EstadoAcuerdo.ABIERTO, fecha_compromiso__lt=now)
+        qs = qs.filter(estado=EstadoAcuerdo.VENCIDO)
     elif filtro == "hoy":
         qs = qs.filter(
             estado=EstadoAcuerdo.ABIERTO,
@@ -2600,15 +3550,38 @@ def acuerdo_bandeja(request: HttpRequest) -> HttpResponse:
     acuerdos = list(qs[:300])
     contadores = {
         "abiertos": Acuerdo.objects.filter(
-            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas),
-            estado=EstadoAcuerdo.ABIERTO,
+            base_q, estado=EstadoAcuerdo.ABIERTO
         ).count(),
         "vencidos": Acuerdo.objects.filter(
-            Q(empresa__in=empresas) | Q(empresa__isnull=True, actividad__empresa__in=empresas),
-            estado=EstadoAcuerdo.ABIERTO,
-            fecha_compromiso__lt=now,
+            base_q, estado=EstadoAcuerdo.VENCIDO
         ).count(),
     }
+    # Responsables por empresa para el modal de recordatorio (JSON en plantilla).
+    empresa_ids = {
+        (a.empresa_id or a.actividad.empresa_id)
+        for a in acuerdos
+        if (a.empresa_id or a.actividad.empresa_id)
+    }
+    responsables_por_empresa: dict[int, list[dict]] = {eid: [] for eid in empresa_ids}
+    if empresa_ids:
+        for r in (
+            Responsable.objects.filter(
+                area__empresa_id__in=empresa_ids,
+                area__activo=True,
+                activo=True,
+            )
+            .exclude(correo="")
+            .select_related("area")
+            .order_by("area__nombre", "nombre")
+        ):
+            responsables_por_empresa.setdefault(r.area.empresa_id, []).append(
+                {
+                    "id": r.pk,
+                    "nombre": r.nombre,
+                    "correo": r.correo,
+                    "area": r.area.nombre,
+                }
+            )
     return render(
         request,
         "maestro/acuerdo_bandeja.html",
@@ -2620,7 +3593,8 @@ def acuerdo_bandeja(request: HttpRequest) -> HttpResponse:
             "empresas": empresas.filter(activo=True),
             "contadores": contadores,
             "now": now,
-            "recordatorio_form": AcuerdoRecordatorioForm(),
+            "responsables_por_empresa": responsables_por_empresa,
+            "solo_lectura": solo_lectura,
         },
     )
 
@@ -2677,27 +3651,47 @@ def aviso_marcar_todos(request: HttpRequest) -> HttpResponse:
 @gestor_o_admin_required
 @require_http_methods(["POST"])
 def acuerdo_enviar_recordatorio(request: HttpRequest, pk: int) -> HttpResponse:
+    from .actividad_mail import acuerdo_es_solo_consultor
+
     acuerdo = _acuerdo_accesible(request, pk)
     if acuerdo is None:
         return redirect("maestro:acuerdo_bandeja")
 
-    if acuerdo.estado != EstadoAcuerdo.ABIERTO:
-        messages.error(request, "Solo se puede recordar acuerdos abiertos.")
+    if acuerdo.estado not in (EstadoAcuerdo.ABIERTO, EstadoAcuerdo.VENCIDO):
+        messages.error(request, "Solo se puede recordar acuerdos abiertos o vencidos.")
         return _redirect_acuerdo(request, acuerdo)
-    if not acuerdo.empresa_id:
+
+    solo_consultor = acuerdo_es_solo_consultor(acuerdo)
+    if not solo_consultor and not acuerdo.empresa_id:
         messages.error(request, "Este acuerdo no tiene empresa para notificar.")
         return _redirect_acuerdo(request, acuerdo)
 
-    form = AcuerdoRecordatorioForm(request.POST)
-    nota = form.cleaned_data.get("mensaje", "").strip() if form.is_valid() else ""
+    nota = (request.POST.get("mensaje") or "").strip()
+    emails = None
+    if not solo_consultor:
+        responsables_qs = responsables_con_correo(acuerdo.empresa_id)
+        form = AcuerdoRecordatorioForm(request.POST, responsables_qs=responsables_qs)
+        if not form.is_valid():
+            messages.error(
+                request,
+                "Selecciona al menos un responsable con correo para enviar el recordatorio.",
+            )
+            return _redirect_acuerdo(request, acuerdo)
+        nota = (form.cleaned_data.get("mensaje") or "").strip()
+        emails = emails_desde_responsables(form.cleaned_data["responsables"])
 
     try:
         ok, mail_msg = enviar_correo_acuerdo(
-            acuerdo, es_recordatorio=True, mensaje_extra=nota
+            acuerdo,
+            es_recordatorio=True,
+            mensaje_extra=nota,
+            destinatarios=emails,
+            enviado_por=request.user,
         )
-        publicar_mensajes_acuerdo(acuerdo, request.user, solo_pendientes=True)
+        if not solo_consultor:
+            publicar_mensajes_acuerdo(acuerdo, request.user, solo_pendientes=True)
         if ok:
-            messages.success(request, "Recordatorio enviado.")
+            messages.success(request, mail_msg)
         else:
             messages.info(request, mail_msg)
     except Exception as exc:  # noqa: BLE001
@@ -2712,6 +3706,9 @@ def acuerdo_marcar_cumplido(request: HttpRequest, pk: int) -> HttpResponse:
     acuerdo = _acuerdo_accesible(request, pk)
     if acuerdo is None:
         return redirect("maestro:acuerdo_bandeja")
+    if acuerdo.estado not in (EstadoAcuerdo.ABIERTO, EstadoAcuerdo.VENCIDO):
+        messages.info(request, "Este acuerdo ya está cerrado.")
+        return _redirect_acuerdo(request, acuerdo)
     acuerdo.estado = EstadoAcuerdo.CUMPLIDO
     acuerdo.save(update_fields=["estado", "actualizado_en"])
     messages.success(request, "Acuerdo marcado como cumplido.")
@@ -2721,37 +3718,97 @@ def acuerdo_marcar_cumplido(request: HttpRequest, pk: int) -> HttpResponse:
 @gestor_o_admin_required
 @require_http_methods(["POST"])
 def actividad_completar(request: HttpRequest, pk: int) -> HttpResponse:
-    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    actividad = get_object_or_404(Actividad, pk=pk)
+    if not puede_ver_actividad(request.user, actividad):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return redirect("maestro:actividad_calendario")
+    if actividad.estado not in (
+        EstadoActividad.PROGRAMADA,
+        EstadoActividad.PASADA,
+    ):
+        messages.info(request, "Esta actividad ya está cerrada.")
+        return redirect("maestro:actividad_detalle", pk=actividad.pk)
     actividad.estado = EstadoActividad.COMPLETADA
     actividad.save(update_fields=["estado", "actualizado_en"])
-    messages.success(request, "Actividad marcada como completada.")
+    messages.success(request, "Actividad marcada como completada (se realizó).")
     return redirect("maestro:actividad_detalle", pk=actividad.pk)
 
 
 @gestor_o_admin_required
 @require_http_methods(["POST"])
 def actividad_cancelar(request: HttpRequest, pk: int) -> HttpResponse:
-    actividad = get_object_or_404(Actividad, pk=pk, creado_por=request.user)
+    """Cierra la actividad como no realizada (anulación o vencida sin ejecutarse)."""
+    actividad = get_object_or_404(Actividad, pk=pk)
+    if not puede_ver_actividad(request.user, actividad):
+        messages.error(request, "No tienes acceso a esta actividad.")
+        return redirect("maestro:actividad_calendario")
+    if actividad.estado not in (
+        EstadoActividad.PROGRAMADA,
+        EstadoActividad.PASADA,
+    ):
+        messages.info(request, "Esta actividad ya está cerrada.")
+        return redirect("maestro:actividad_detalle", pk=actividad.pk)
     actividad.estado = EstadoActividad.CANCELADA
     actividad.save(update_fields=["estado", "actualizado_en"])
-    messages.success(request, "Actividad cancelada.")
-    return redirect("maestro:actividad_calendario")
+    messages.success(
+        request,
+        "Actividad marcada como «No se llevó a cabo».",
+    )
+    return redirect("maestro:actividad_detalle", pk=actividad.pk)
 
 
-@gestor_o_admin_required
+@gestor_admin_o_cliente_required
 @require_GET
 def indicadores_list(request: HttpRequest) -> HttpResponse:
+    if usuario_es_cliente(request.user):
+        perfil = get_perfil(request.user)
+        return redirect("maestro:indicadores_empresa", pk=perfil.empresa_id)
     empresas = list(empresas_visibles(request.user).filter(activo=True))
     filas = filas_empresas_indicadores(empresas)
     return render(request, "maestro/indicadores_list.html", {"filas": filas})
 
 
-@gestor_o_admin_required
+def _parse_fecha_get(raw: str):
+    from datetime import datetime as dt
+
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return dt.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _documentos_indicadores_filtrados(request: HttpRequest, empresa, revision, progreso):
+    """Lista de documentos de indicadores con subtab + filtros de query."""
+    docs_sub = (request.GET.get("docs") or "todos").strip().lower()
+    if docs_sub not in DOC_SUBTABS:
+        docs_sub = "todos"
+    todos = documentos_indicadores(revision, progreso, empresa=empresa)
+    base = filtrar_documentos(todos, docs_sub)
+    filtrados = filtrar_documentos_query(
+        base,
+        q=(request.GET.get("doc_q") or "").strip(),
+        consultor=(request.GET.get("consultor") or "").strip(),
+        area=(request.GET.get("area") or "").strip(),
+        estado=(request.GET.get("estado") or "").strip(),
+        fecha_desde=_parse_fecha_get(request.GET.get("fecha_desde") or ""),
+        fecha_hasta=_parse_fecha_get(request.GET.get("fecha_hasta") or ""),
+    )
+    return todos, docs_sub, filtrados
+
+
+@gestor_admin_o_cliente_required
 @require_GET
 def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
+    from django.core.paginator import Paginator
+
     empresa = get_object_or_404(Empresa, pk=pk)
     if not puede_ver_empresa(request.user, empresa):
         messages.error(request, "No tienes acceso a esta empresa.")
+        if usuario_es_cliente(request.user):
+            return redirect("maestro:home")
         return redirect("maestro:indicadores_list")
 
     tab = (request.GET.get("tab") or "general").strip().lower()
@@ -2775,6 +3832,7 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         "tabs": TABS,
         "docs_sub": docs_sub,
         "glosario_q": glosario_q,
+        "solo_lectura": usuario_es_cliente(request.user),
         "principios_avance": [],
         "documentos_ind": [],
         "cobertura": None,
@@ -2787,6 +3845,20 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         "chart_tablero_estandar_json": "{}",
         "chart_curva_json": "{}",
         "docs_prioritarios": [],
+        "docs_por_vencer": [],
+        "dias_por_vencer": DIAS_POR_VENCER,
+        "docs_filtros": {
+            "doc_q": (request.GET.get("doc_q") or "").strip(),
+            "consultor": (request.GET.get("consultor") or "").strip(),
+            "area": (request.GET.get("area") or "").strip(),
+            "estado": (request.GET.get("estado") or "").strip(),
+            "fecha_desde": (request.GET.get("fecha_desde") or "").strip(),
+            "fecha_hasta": (request.GET.get("fecha_hasta") or "").strip(),
+        },
+        "docs_opciones": {"areas": [], "estados": [], "consultores": []},
+        "docs_page_obj": None,
+        "docs_page_numbers": [],
+        "docs_total_filtrados": 0,
     }
 
     if progreso:
@@ -2804,9 +3876,12 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
             context["docs_prioritarios"] = documentos_prioritarios(
                 revision, progreso
             )
+            context["docs_por_vencer"] = documentos_por_vencer(revision, progreso)
         if tab == "documentos":
-            todos = documentos_indicadores(revision, progreso, empresa=empresa)
-            context["documentos_ind"] = filtrar_documentos(todos, docs_sub)
+            todos, docs_sub, filtrados = _documentos_indicadores_filtrados(
+                request, empresa, revision, progreso
+            )
+            context["docs_sub"] = docs_sub
             context["docs_count_todos"] = len(todos)
             context["docs_count_ref"] = len(filtrar_documentos(todos, "referenciales"))
             context["docs_count_multi"] = len(
@@ -2815,6 +3890,28 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
             context["docs_count_multiprincipio"] = len(
                 filtrar_documentos(todos, "multiprincipio")
             )
+            # Opciones de filtro sobre el subtab (sin filtros avanzados)
+            base_sub = filtrar_documentos(todos, docs_sub)
+            context["docs_opciones"] = opciones_filtros_documentos(base_sub)
+            context["docs_total_filtrados"] = len(filtrados)
+            paginator = Paginator(filtrados, 15)
+            page_obj = paginator.get_page(request.GET.get("page") or 1)
+            context["docs_page_obj"] = page_obj
+            context["documentos_ind"] = list(page_obj.object_list)
+            # Ventana de páginas alrededor de la actual (±2) + primera/última
+            total_pages = paginator.num_pages
+            current = page_obj.number
+            window = set(range(max(1, current - 2), min(total_pages, current + 2) + 1))
+            window.add(1)
+            window.add(total_pages)
+            page_nums: list[int | None] = []
+            prev_n: int | None = None
+            for n in sorted(window):
+                if prev_n is not None and n - prev_n > 1:
+                    page_nums.append(None)  # ellipsis
+                page_nums.append(n)
+                prev_n = n
+            context["docs_page_numbers"] = page_nums
         if tab == "estandar" and revision:
             context["cobertura"] = cobertura_estandar(revision, progreso)
 
@@ -2830,3 +3927,188 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         ]
 
     return render(request, "maestro/indicadores_empresa.html", context)
+
+
+@gestor_admin_o_cliente_required
+@require_GET
+def indicadores_documentos_export(request: HttpRequest, pk: int, formato: str) -> HttpResponse:
+    from .indicadores_export import exportar_documentos_excel, exportar_documentos_pdf
+
+    empresa = get_object_or_404(Empresa, pk=pk)
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta empresa.")
+        if usuario_es_cliente(request.user):
+            return redirect("maestro:home")
+        return redirect("maestro:indicadores_list")
+    revision = _revision_seguimiento(empresa, request)
+    if not revision:
+        messages.warning(request, "No hay revisión activa para exportar.")
+        return redirect("maestro:indicadores_empresa", pk=empresa.pk)
+    progreso = calcular_progreso_revision(revision)
+    _todos, _sub, filtrados = _documentos_indicadores_filtrados(
+        request, empresa, revision, progreso
+    )
+    etiqueta = revision.etiqueta
+    if formato == "xlsx":
+        return exportar_documentos_excel(
+            filtrados,
+            empresa_nombre=empresa.nombre,
+            revision_etiqueta=etiqueta,
+        )
+    if formato == "pdf":
+        return exportar_documentos_pdf(
+            filtrados,
+            empresa_nombre=empresa.nombre,
+            revision_etiqueta=etiqueta,
+        )
+    messages.error(request, "Formato de exportación no válido.")
+    return redirect(
+        f"{reverse('maestro:indicadores_empresa', args=[empresa.pk])}"
+        f"?tab=documentos&rev={revision.pk}"
+    )
+
+
+@gestor_o_admin_required
+@require_GET
+def recordatorio_list(request: HttpRequest) -> HttpResponse:
+    """Historial de correos enviados (To cliente / CC). Por defecto: solo hoy."""
+    empresas = empresas_visibles(request.user)
+    empresa_ids = list(empresas.values_list("pk", flat=True))
+    qs = CorreoEnvio.objects.select_related(
+        "empresa", "acuerdo", "actividad", "enviado_por"
+    ).order_by("-enviado_en")
+    if not usuario_es_administrador(request.user):
+        qs = qs.filter(empresa_id__in=empresa_ids)
+
+    hoy = timezone.localdate()
+    fecha_raw = (request.GET.get("fecha") or "").strip()
+    if fecha_raw:
+        try:
+            fecha = datetime.strptime(fecha_raw, "%Y-%m-%d").date()
+        except ValueError:
+            fecha = hoy
+    else:
+        fecha = hoy
+    inicio = timezone.make_aware(datetime.combine(fecha, datetime.min.time()))
+    fin = inicio + timedelta(days=1)
+    qs = qs.filter(enviado_en__gte=inicio, enviado_en__lt=fin)
+
+    tipo = (request.GET.get("tipo") or "").strip()
+    if tipo in {c.value for c in TipoCorreoEnvio}:
+        qs = qs.filter(tipo=tipo)
+    empresa_q = (request.GET.get("empresa") or "").strip()
+    if empresa_q.isdigit() and int(empresa_q) in empresa_ids:
+        qs = qs.filter(empresa_id=int(empresa_q))
+    envios = list(qs[:400])
+    return render(
+        request,
+        "maestro/recordatorio_list.html",
+        {
+            "envios": envios,
+            "empresas": empresas.filter(activo=True),
+            "tipo": tipo,
+            "empresa_q": empresa_q,
+            "fecha": fecha,
+            "es_hoy": fecha == hoy,
+            "tipos": TipoCorreoEnvio.choices,
+            "total": len(envios),
+        },
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def plantilla_correo_list(request: HttpRequest) -> HttpResponse:
+    from .email_templates import asegurar_plantilla_acuerdo
+
+    asegurar_plantilla_acuerdo()
+    plantillas = PlantillaCorreo.objects.order_by("nombre")
+    return render(
+        request,
+        "maestro/plantilla_correo_list.html",
+        {"plantillas": plantillas},
+    )
+
+
+@administrador_required
+@require_http_methods(["GET", "POST"])
+def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    from django.contrib.staticfiles.storage import staticfiles_storage
+
+    from .email_templates import (
+        asegurar_plantilla_acuerdo,
+        contexto_correo_acuerdo,
+    )
+
+    asegurar_plantilla_acuerdo()
+    plantilla = get_object_or_404(PlantillaCorreo, pk=pk)
+    tab = (request.POST.get("tab") or request.GET.get("tab") or "html").strip().lower()
+    if tab not in {"html", "preview"}:
+        tab = "html"
+
+    if request.method == "POST":
+        nombre = (request.POST.get("nombre") or "").strip() or plantilla.nombre
+        html = request.POST.get("html") or ""
+        descripcion = request.POST.get("descripcion") or ""
+        activo = request.POST.get("activo") == "on"
+        if not html.strip():
+            messages.error(request, "El HTML de la plantilla no puede estar vacío.")
+            tab = "html"
+        else:
+            plantilla.nombre = nombre[:120]
+            plantilla.html = html
+            plantilla.descripcion = descripcion
+            plantilla.activo = activo
+            plantilla.actualizado_por = request.user
+            plantilla.save()
+            messages.success(request, "Plantilla de correo guardada.")
+            return redirect(
+                f"{reverse('maestro:plantilla_correo_edit', args=[plantilla.pk])}?tab={tab}"
+            )
+
+    # Vista previa: logo por URL estática (CID solo funciona en el correo enviado).
+    acuerdo = (
+        Acuerdo.objects.select_related("empresa")
+        .filter(empresa__isnull=False)
+        .order_by("-creado_en")
+        .first()
+    )
+    preview_html = ""
+    logo_url = request.build_absolute_uri(
+        staticfiles_storage.url("maestro/img/logotipo.png")
+    )
+    if acuerdo:
+        ctx = contexto_correo_acuerdo(
+            acuerdo,
+            es_recordatorio=True,
+            tipo_regla=TipoNotificacionAcuerdo.ANTES,
+            dias_regla=1,
+            logo_src=logo_url,
+            es_preview=True,
+            cta_url=request.build_absolute_uri("/"),
+        )
+        ctx["asunto"] = f"[Vista previa] {acuerdo.titulo}"
+        html_src = request.POST.get("html") if request.method == "POST" else plantilla.html
+        try:
+            from django.template import Context, Template
+
+            preview_html = Template(html_src or plantilla.html).render(
+                Context(ctx, autoescape=True)
+            )
+        except Exception as exc:  # noqa: BLE001
+            preview_html = f"<p style='color:#b42318'>Error en la plantilla: {exc}</p>"
+            tab = "html"
+    else:
+        preview_html = (
+            "<p class='muted'>Crea un acuerdo de prueba para ver la vista previa con datos reales.</p>"
+        )
+
+    return render(
+        request,
+        "maestro/plantilla_correo_form.html",
+        {
+            "plantilla": plantilla,
+            "preview_html": preview_html,
+            "tab": tab,
+        },
+    )

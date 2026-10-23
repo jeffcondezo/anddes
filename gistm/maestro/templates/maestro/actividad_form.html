@@ -49,6 +49,33 @@
       </div>
 
       <div class="form-row">
+        <label for="id_asignado_a">Asignar a</label>
+        {{ form.asignado_a }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          Consultor del equipo que ejecutará la actividad. Los jefes pueden asignar a sus subordinados.
+        </p>
+        {{ form.asignado_a.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_area">Área responsable</label>
+        {{ form.area }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          Áreas de la empresa. Elige empresa primero; luego se filtran los responsables.
+        </p>
+        {{ form.area.errors }}
+      </div>
+
+      <div class="form-row">
+        <label for="id_responsable">Responsable</label>
+        {{ form.responsable }}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+          Responsables del área seleccionada (nombre, correo, etc. del maestro).
+        </p>
+        {{ form.responsable.errors }}
+      </div>
+
+      <div class="form-row">
         <label for="id_inicio">Inicio</label>
         {{ form.inicio }}
         {{ form.inicio.errors }}
@@ -137,19 +164,24 @@
 <script>
   (function () {
     var empresa = document.getElementById("id_empresa");
-    function reloadForEmpresa() {
-      if (!empresa) return;
+    var area = document.getElementById("id_area");
+    function reloadFiltros(resetArea) {
       var url = new URL(window.location.href);
-      if (empresa.value) url.searchParams.set("empresa", empresa.value);
+      if (empresa && empresa.value) url.searchParams.set("empresa", empresa.value);
       else url.searchParams.delete("empresa");
-      // Conservar el alcance elegido al recargar docs
+      if (resetArea) {
+        url.searchParams.delete("area");
+      } else if (area && area.value) {
+        url.searchParams.set("area", area.value);
+      } else {
+        url.searchParams.delete("area");
+      }
       var alcance = document.getElementById("id_alcance");
       if (alcance && alcance.value) url.searchParams.set("alcance", alcance.value);
       window.location.href = url.toString();
     }
-    if (empresa) {
-      empresa.addEventListener("change", reloadForEmpresa);
-    }
+    if (empresa) empresa.addEventListener("change", function () { reloadFiltros(true); });
+    if (area) area.addEventListener("change", function () { reloadFiltros(false); });
   })();
 </script>
 {% endblock %}

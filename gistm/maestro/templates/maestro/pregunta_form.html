@@ -1,0 +1,60 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}{{ titulo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Preguntas</p>
+    <h1>{{ titulo }}</h1>
+    <p class="page-desc">
+      Las preguntas son el último eslabón: se cumplen o no. El criterio se aprueba cuando
+      todas sus preguntas cumplen.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:pregunta_list' %}">Volver al listado</a>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="post" class="form-grid two-col" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="span-2">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <label for="id_codigo">Código</label>
+      {{ form.codigo }}
+      {{ form.codigo.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_criterio">Criterio</label>
+      {{ form.criterio }}
+      {{ form.criterio.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_orden">Orden</label>
+      {{ form.orden }}
+      {{ form.orden.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_texto">Texto de la pregunta</label>
+      {{ form.texto }}
+      {{ form.texto.errors }}
+    </div>
+    <div class="form-row span-2">
+      <label for="id_activo" style="display:flex;align-items:center;gap:0.5rem;">
+        {{ form.activo }}
+        Habilitada para revisiones nuevas
+      </label>
+      <small style="color:#667780;">Si se deshabilita, no se siembra al crear vínculos en revisiones nuevas.</small>
+      {{ form.activo.errors }}
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Guardar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:pregunta_list' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

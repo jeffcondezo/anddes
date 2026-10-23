@@ -1,0 +1,184 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Editar correo · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Administración · Correos</p>
+    <h1>{{ plantilla.nombre }}</h1>
+    <p class="page-desc">
+      Edita el HTML del correo. Variables con sintaxis Django:
+      <code>{% templatetag openvariable %} logo_src {% templatetag closevariable %}</code>,
+      <code>{% templatetag openvariable %} titulo_correo {% templatetag closevariable %}</code>, etc.
+      En envíos reales el logo va embebido (CID); aquí se previsualiza desde archivos estáticos.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:plantilla_correo_list' %}">Volver</a>
+  </div>
+</header>
+
+{% if plantilla.descripcion %}
+  <section class="panel" style="margin-bottom:1rem;">
+    <p class="muted" style="margin:0;white-space:pre-wrap;">{{ plantilla.descripcion }}</p>
+  </section>
+{% endif %}
+
+<form method="post" class="panel plantilla-correo-editor" id="plantilla-correo-form">
+  {% csrf_token %}
+  <input type="hidden" name="tab" id="plantilla-tab-field" value="{{ tab }}">
+
+  <div style="display:grid;gap:1rem;margin-bottom:1rem;">
+    <label style="display:grid;gap:0.35rem;">
+      <span>Nombre</span>
+      <input type="text" name="nombre" class="input" value="{{ plantilla.nombre }}" maxlength="120" required>
+    </label>
+    <label style="display:grid;gap:0.35rem;">
+      <span>Descripción / ayuda</span>
+      <textarea name="descripcion" class="input" rows="2">{{ plantilla.descripcion }}</textarea>
+    </label>
+    <label style="display:flex;align-items:center;gap:0.5rem;">
+      <input type="checkbox" name="activo" {% if plantilla.activo %}checked{% endif %}>
+      <span>Plantilla activa (si se desactiva, se usa el HTML del repositorio)</span>
+    </label>
+  </div>
+
+  <div class="plantilla-tabs" role="tablist" aria-label="Editor de correo">
+    <button type="button" class="plantilla-tab{% if tab != 'preview' %} is-active{% endif %}" role="tab" aria-selected="{% if tab != 'preview' %}true{% else %}false{% endif %}" data-plantilla-tab="html" id="tab-btn-html">
+      HTML
+    </button>
+    <button type="button" class="plantilla-tab{% if tab == 'preview' %} is-active{% endif %}" role="tab" aria-selected="{% if tab == 'preview' %}true{% else %}false{% endif %}" data-plantilla-tab="preview" id="tab-btn-preview">
+      Vista previa
+    </button>
+  </div>
+
+  <div class="plantilla-tab-panels">
+    <div
+      class="plantilla-tab-panel{% if tab != 'preview' %} is-active{% endif %}"
+      role="tabpanel"
+      id="panel-html"
+      data-plantilla-panel="html"
+      {% if tab == 'preview' %}hidden{% endif %}
+    >
+      <label style="display:grid;gap:0.35rem;">
+        <span class="muted" style="font-size:0.85rem;">Código HTML de la plantilla</span>
+        <textarea
+          name="html"
+          id="plantilla-html"
+          class="input plantilla-html-area"
+          rows="24"
+          required
+        >{{ plantilla.html }}</textarea>
+      </label>
+    </div>
+
+    <div
+      class="plantilla-tab-panel{% if tab == 'preview' %} is-active{% endif %}"
+      role="tabpanel"
+      id="panel-preview"
+      data-plantilla-panel="preview"
+      {% if tab != 'preview' %}hidden{% endif %}
+    >
+      <p class="muted" style="margin:0 0 0.75rem;">
+        Render con datos de un acuerdo reciente. Guarda los cambios del HTML para actualizar la vista previa.
+      </p>
+      <iframe
+        id="plantilla-preview-frame"
+        class="plantilla-preview-frame"
+        title="Vista previa del correo"
+        sandbox=""
+      ></iframe>
+      {{ preview_html|json_script:"plantilla-preview-json" }}
+    </div>
+  </div>
+
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;">
+    <button type="submit" class="btn">Guardar plantilla</button>
+    <a class="btn btn-ghost" href="{% url 'maestro:plantilla_correo_list' %}">Cancelar</a>
+  </div>
+</form>
+
+<style>
+  .plantilla-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border, #e3e7eb);
+    margin-bottom: 1rem;
+  }
+  .plantilla-tab {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0.65rem 1rem;
+    font: inherit;
+    font-weight: 600;
+    color: #5a6570;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .plantilla-tab:hover { color: #0d5f95; }
+  .plantilla-tab.is-active {
+    color: #0d5f95;
+    border-bottom-color: #0d5f95;
+  }
+  .plantilla-html-area {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    min-height: 28rem;
+    resize: vertical;
+  }
+  .plantilla-preview-frame {
+    width: 100%;
+    min-height: 32rem;
+    border: 1px solid var(--border, #e3e7eb);
+    border-radius: 8px;
+    background: #eef1f4;
+  }
+</style>
+
+<script>
+(function () {
+  const form = document.getElementById("plantilla-correo-form");
+  if (!form) return;
+  const tabField = document.getElementById("plantilla-tab-field");
+  const buttons = form.querySelectorAll("[data-plantilla-tab]");
+  const panels = form.querySelectorAll("[data-plantilla-panel]");
+  const frame = document.getElementById("plantilla-preview-frame");
+  const previewJson = document.getElementById("plantilla-preview-json");
+
+  function showTab(name) {
+    tabField.value = name;
+    buttons.forEach(function (btn) {
+      const on = btn.getAttribute("data-plantilla-tab") === name;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    panels.forEach(function (panel) {
+      const on = panel.getAttribute("data-plantilla-panel") === name;
+      panel.classList.toggle("is-active", on);
+      if (on) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "");
+    });
+    if (name === "preview" && frame && previewJson && !frame.dataset.loaded) {
+      try {
+        frame.srcdoc = JSON.parse(previewJson.textContent);
+        frame.dataset.loaded = "1";
+      } catch (err) {
+        frame.srcdoc = "<p>No se pudo cargar la vista previa.</p>";
+      }
+    }
+  }
+
+  buttons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      showTab(btn.getAttribute("data-plantilla-tab"));
+    });
+  });
+
+  showTab(tabField.value || "html");
+})();
+</script>
+{% endblock %}

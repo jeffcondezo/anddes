@@ -5,6 +5,7 @@ from .models import (
     Acuerdo,
     Area,
     AvisoConsultor,
+    CorreoEnvio,
     Criterio,
     Documento,
     DocumentoCarga,
@@ -13,9 +14,12 @@ from .models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EmpresaDocumentoPregunta,
     GlosarioTermino,
     IntentoAcceso,
     PerfilUsuario,
+    PlantillaCorreo,
+    Pregunta,
     Principio,
     RegistroLoginExterno,
     Requisito,
@@ -40,9 +44,10 @@ class EmpresaDocumentoInline(admin.TabularInline):
 
 class EmpresaDocumentoCriterioInline(admin.TabularInline):
     model = EmpresaDocumentoCriterio
+    fk_name = "empresa_documento"
     extra = 0
-    fields = ("criterio", "area")
-    raw_id_fields = ("criterio", "area")
+    fields = ("criterio", "rol", "empresa_documento_secundario", "area")
+    raw_id_fields = ("criterio", "empresa_documento_secundario", "area")
 
 
 @admin.register(Empresa)
@@ -61,6 +66,7 @@ class RevisionAdmin(admin.ModelAdmin):
         "nombre",
         "instalacion_deposito",
         "estado",
+        "fase",
         "capacidad",
         "vida_util",
         "fecha_inicio",
@@ -68,7 +74,7 @@ class RevisionAdmin(admin.ModelAdmin):
         "activo",
         "creado_en",
     )
-    list_filter = ("activo", "estado", "anio", "empresa")
+    list_filter = ("activo", "estado", "fase", "anio", "empresa")
     search_fields = ("nombre", "instalacion_deposito", "empresa__nombre")
     raw_id_fields = ("empresa",)
     inlines = [EmpresaDocumentoInline]
@@ -110,15 +116,28 @@ class EmpresaDocumentoAdmin(admin.ModelAdmin):
 
 @admin.register(EmpresaDocumentoCriterio)
 class EmpresaDocumentoCriterioAdmin(admin.ModelAdmin):
-    list_display = ("empresa_documento", "criterio", "area", "creado_en")
-    list_filter = ("empresa_documento__revision__empresa", "area")
+    list_display = (
+        "empresa_documento",
+        "empresa_documento_secundario",
+        "rol",
+        "criterio",
+        "area",
+        "creado_en",
+    )
+    list_filter = ("rol", "empresa_documento__revision__empresa", "area")
     search_fields = (
         "empresa_documento__codigo",
+        "empresa_documento_secundario__codigo",
         "criterio__codigo",
         "area__nombre",
         "empresa_documento__revision__empresa__nombre",
     )
-    raw_id_fields = ("empresa_documento", "criterio", "area")
+    raw_id_fields = (
+        "empresa_documento",
+        "empresa_documento_secundario",
+        "criterio",
+        "area",
+    )
 
 
 @admin.register(DocumentoCarga)
@@ -252,7 +271,8 @@ class RegistroLoginExternoAdmin(admin.ModelAdmin):
 
 @admin.register(Tema)
 class TemaAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "nombre", "creado_en")
+    list_display = ("codigo", "nombre", "activo", "creado_en")
+    list_filter = ("activo",)
     search_fields = ("codigo", "nombre")
 
 
@@ -265,25 +285,48 @@ class GlosarioTerminoAdmin(admin.ModelAdmin):
 
 @admin.register(Principio)
 class PrincipioAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "tema", "suma_ponderacion")
-    list_filter = ("tema",)
+    list_display = ("codigo", "tema", "suma_ponderacion", "activo")
+    list_filter = ("activo", "tema")
     search_fields = ("codigo", "descripcion")
     readonly_fields = ("suma_ponderacion",)
 
 
 @admin.register(Requisito)
 class RequisitoAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "principio", "creado_en")
-    list_filter = ("principio__tema", "principio")
+    list_display = ("codigo", "principio", "activo", "creado_en")
+    list_filter = ("activo", "principio__tema", "principio")
     search_fields = ("codigo", "descripcion")
 
 
 @admin.register(Criterio)
 class CriterioAdmin(admin.ModelAdmin):
-    list_display = ("codigo", "requisito", "principio", "tema", "ponderacion")
-    list_filter = ("tema", "principio", "requisito")
+    list_display = ("codigo", "requisito", "principio", "tema", "ponderacion", "activo")
+    list_filter = ("activo", "tema", "principio", "requisito")
     search_fields = ("codigo", "descripcion")
     readonly_fields = ("principio", "tema", "ponderacion")
+
+
+@admin.register(Pregunta)
+class PreguntaAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "criterio", "orden", "activo", "creado_en")
+    list_filter = ("activo", "criterio__tema", "criterio")
+    search_fields = ("codigo", "texto", "criterio__codigo")
+    raw_id_fields = ("criterio",)
+
+
+@admin.register(EmpresaDocumentoPregunta)
+class EmpresaDocumentoPreguntaAdmin(admin.ModelAdmin):
+    list_display = (
+        "pregunta",
+        "vinculo_criterio",
+        "revision",
+        "estado_revision",
+        "revisado_en",
+    )
+    list_filter = ("estado_revision", "revision__empresa", "revision__anio")
+    search_fields = ("pregunta__codigo", "observacion")
+    raw_id_fields = ("vinculo_criterio", "pregunta", "revision")
+    readonly_fields = ("creado_en", "actualizado_en")
 
 
 @admin.register(Documento)
@@ -295,7 +338,42 @@ class DocumentoAdmin(admin.ModelAdmin):
 
 @admin.register(DocumentoCriterio)
 class DocumentoCriterioAdmin(admin.ModelAdmin):
-    list_display = ("documento", "criterio", "creado_en")
-    list_filter = ("documento", "criterio__tema", "criterio__principio")
-    search_fields = ("documento__codigo", "documento__nombre", "criterio__codigo")
-    raw_id_fields = ("documento", "criterio")
+    list_display = (
+        "criterio",
+        "rol",
+        "documento",
+        "documento_secundario",
+        "creado_en",
+    )
+    list_filter = ("rol", "documento", "criterio__tema", "criterio__principio")
+    search_fields = (
+        "documento__codigo",
+        "documento__nombre",
+        "documento_secundario__codigo",
+        "criterio__codigo",
+    )
+    raw_id_fields = ("documento", "documento_secundario", "criterio")
+
+
+@admin.register(CorreoEnvio)
+class CorreoEnvioAdmin(admin.ModelAdmin):
+    list_display = (
+        "enviado_en",
+        "tipo",
+        "asunto",
+        "empresa",
+        "exito",
+        "automatico",
+    )
+    list_filter = ("tipo", "exito", "automatico", "enviado_en")
+    search_fields = ("asunto", "destinatarios_to", "destinatarios_cc", "empresa__nombre")
+    raw_id_fields = ("empresa", "acuerdo", "actividad", "enviado_por")
+    readonly_fields = ("enviado_en",)
+
+
+@admin.register(PlantillaCorreo)
+class PlantillaCorreoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "codigo", "activo", "actualizado_en", "actualizado_por")
+    list_filter = ("activo",)
+    search_fields = ("nombre", "codigo")
+    readonly_fields = ("creado_en", "actualizado_en")

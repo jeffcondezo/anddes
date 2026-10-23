@@ -1,0 +1,196 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Notificaciones · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Empresas</p>
+    <h1>Notificaciones de acuerdos</h1>
+    <p class="page-desc">
+      {{ empresa.nombre }}{% if empresa.ruc %} · RUC {{ empresa.ruc }}{% endif %}.
+      Define <strong>días extra</strong> (antes o después del vencimiento) en los que se envía correo.
+      El formato visual es el de <a href="{% url 'maestro:plantilla_correo_list' %}">Administración → Correos</a>.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_edit' empresa.pk %}">Editar empresa</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_areas' empresa.pk %}">Áreas</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Listado</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1.25rem;border-left:3px solid #0d5f95;">
+  <p style="margin:0 0 0.65rem;">
+    <strong>Configuración base del sistema:</strong>
+    el <strong>día 0</strong> (mismo día del vencimiento / caducidad) siempre se envía un recordatorio.
+    No hace falta —y no se permite— agregarlo como regla de la empresa.
+    Estas reglas aplican a <strong>acuerdos</strong> y a <strong>caducidad de documentos</strong> aprobados.
+  </p>
+  <p style="margin:0;" class="muted">
+    Envío de correos para esta empresa:
+    {% if empresa.notificaciones_activas %}
+      <span class="badge badge-ok">Activo</span>
+    {% else %}
+      <span class="badge badge-off">Desactivado</span>
+    {% endif %}
+    · se cambia en
+    <a href="{% url 'maestro:empresa_edit' empresa.pk %}">editar empresa</a>.
+  </p>
+</section>
+
+<section class="panel" style="margin-bottom:1.25rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Agregar días</h2>
+      <p class="muted">Varios días a la vez, separados por coma (ej. <code>2, 4, 5</code>).</p>
+    </div>
+  </div>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="accion" value="crear_regla">
+    <div class="form-grid two-col">
+      <div class="form-row">
+        <label for="{{ regla_form.tipo.id_for_label }}">Tipo</label>
+        {{ regla_form.tipo }}
+        {{ regla_form.tipo.errors }}
+      </div>
+      <div class="form-row">
+        <label for="{{ regla_form.dias.id_for_label }}">Días</label>
+        {{ regla_form.dias }}
+        <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem;">{{ regla_form.dias.help_text }}</p>
+        {{ regla_form.dias.errors }}
+      </div>
+      <div class="form-row span-2">
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          {{ regla_form.activo }} Activa
+        </label>
+        {{ regla_form.activo.errors }}
+      </div>
+    </div>
+    {% if regla_form.non_field_errors %}
+      <div class="info-banner" style="margin-top:0.75rem;">{{ regla_form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-actions" style="margin-top:0.85rem;">
+      <button type="submit" class="btn">Agregar</button>
+    </div>
+  </form>
+  <p class="muted" style="margin:0.85rem 0 0;font-size:0.85rem;">
+    Ejemplos: antes <strong>2, 5, 7</strong> · post <strong>3, 7, 14</strong> (días exactos respecto al vencimiento).
+  </p>
+</section>
+
+<section class="panel" style="margin-bottom:1.25rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Antes del vencimiento</h2>
+      <p class="muted">Más el aviso automático del día 0 (sistema).</p>
+    </div>
+  </div>
+  {% if reglas_antes %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Intervalo</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reglas_antes %}
+            <tr>
+              <td><strong>{{ r.etiqueta }}</strong> <span class="muted mono">({{ r.dias }} d)</span></td>
+              <td>
+                {% if r.activo %}
+                  <span class="badge badge-ok">Activa</span>
+                {% else %}
+                  <span class="badge badge-off">Inactiva</span>
+                {% endif %}
+              </td>
+              <td class="actions">
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="toggle_regla">
+                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;">
+                    {% if r.activo %}Desactivar{% else %}Activar{% endif %}
+                  </button>
+                </form>
+                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar esta regla?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="eliminar_regla">
+                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;color:var(--danger);">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state" style="margin:0.5rem 0;">
+      <strong>Solo el día del vencimiento (sistema)</strong>
+      Agrega días extra si quieres avisos previos (ej. 2, 5).
+    </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <h2>Post vencimiento</h2>
+      <p class="muted">Un envío el día N exacto después del compromiso (no es un intervalo reiterativo).</p>
+    </div>
+  </div>
+  {% if reglas_post %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Intervalo</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reglas_post %}
+            <tr>
+              <td><strong>{{ r.etiqueta }}</strong> <span class="muted mono">({{ r.dias }} d)</span></td>
+              <td>
+                {% if r.activo %}
+                  <span class="badge badge-ok">Activa</span>
+                {% else %}
+                  <span class="badge badge-off">Inactiva</span>
+                {% endif %}
+              </td>
+              <td class="actions">
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="toggle_regla">
+                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;">
+                    {% if r.activo %}Desactivar{% else %}Activar{% endif %}
+                  </button>
+                </form>
+                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar esta regla?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="eliminar_regla">
+                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
+                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;color:var(--danger);">Eliminar</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state" style="margin:0.5rem 0;">
+      <strong>Sin reglas post vencimiento</strong>
+      Ej.: <code>3, 7, 14</code> para recordar a los 3, 7 y 14 días después.
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

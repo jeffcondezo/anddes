@@ -16,6 +16,16 @@ urlpatterns = [
     path("empresas/", views.empresa_list, name="empresa_list"),
     path("empresas/nueva/", views.empresa_create, name="empresa_create"),
     path("empresas/<int:pk>/editar/", views.empresa_edit, name="empresa_edit"),
+    path(
+        "empresas/<int:pk>/areas/",
+        views.empresa_areas,
+        name="empresa_areas",
+    ),
+    path(
+        "empresas/<int:pk>/notificaciones/",
+        views.empresa_notificaciones,
+        name="empresa_notificaciones",
+    ),
     path("empresas/<int:pk>/revisiones/", views.empresa_revision_list, name="empresa_revision_list"),
     path("empresas/<int:pk>/revisiones/nueva/", views.empresa_revision_create, name="empresa_revision_create"),
     path(
@@ -27,6 +37,11 @@ urlpatterns = [
         "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/",
         views.empresa_documento_list,
         name="empresa_documento_list",
+    ),
+    path(
+        "empresas/<int:pk>/revisiones/<int:rev_id>/plan/",
+        views.empresa_revision_plan,
+        name="empresa_revision_plan",
     ),
     path(
         "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/criterios/desactivar/",
@@ -78,6 +93,11 @@ urlpatterns = [
     path("catalogo/temas/", views.tema_list, name="tema_list"),
     path("catalogo/temas/nuevo/", views.tema_create, name="tema_create"),
     path("catalogo/temas/<int:pk>/editar/", views.tema_edit, name="tema_edit"),
+    path(
+        "catalogo/temas/<int:pk>/toggle-activo/",
+        views.tema_toggle_activo,
+        name="tema_toggle_activo",
+    ),
     path("catalogo/glosario/", views.glosario_termino_list, name="glosario_termino_list"),
     path(
         "catalogo/glosario/nuevo/",
@@ -92,12 +112,39 @@ urlpatterns = [
     path("catalogo/principios/", views.principio_list, name="principio_list"),
     path("catalogo/principios/nuevo/", views.principio_create, name="principio_create"),
     path("catalogo/principios/<int:pk>/editar/", views.principio_edit, name="principio_edit"),
+    path(
+        "catalogo/principios/<int:pk>/toggle-activo/",
+        views.principio_toggle_activo,
+        name="principio_toggle_activo",
+    ),
     path("catalogo/requisitos/", views.requisito_list, name="requisito_list"),
     path("catalogo/requisitos/nuevo/", views.requisito_create, name="requisito_create"),
     path("catalogo/requisitos/<int:pk>/editar/", views.requisito_edit, name="requisito_edit"),
+    path(
+        "catalogo/requisitos/<int:pk>/toggle-activo/",
+        views.requisito_toggle_activo,
+        name="requisito_toggle_activo",
+    ),
     path("catalogo/criterios/", views.criterio_list, name="criterio_list"),
     path("catalogo/criterios/nuevo/", views.criterio_create, name="criterio_create"),
     path("catalogo/criterios/<int:pk>/editar/", views.criterio_edit, name="criterio_edit"),
+    path(
+        "catalogo/criterios/<int:pk>/toggle-activo/",
+        views.criterio_toggle_activo,
+        name="criterio_toggle_activo",
+    ),
+    path("catalogo/preguntas/", views.pregunta_list, name="pregunta_list"),
+    path("catalogo/preguntas/nuevo/", views.pregunta_create, name="pregunta_create"),
+    path(
+        "catalogo/preguntas/<int:pk>/editar/",
+        views.pregunta_edit,
+        name="pregunta_edit",
+    ),
+    path(
+        "catalogo/preguntas/<int:pk>/toggle-activo/",
+        views.pregunta_toggle_activo,
+        name="pregunta_toggle_activo",
+    ),
     path("catalogo/documentos/", views.documento_list, name="documento_list"),
     path("catalogo/documentos/nuevo/", views.documento_create, name="documento_create"),
     path("catalogo/documentos/<int:pk>/editar/", views.documento_edit, name="documento_edit"),
@@ -187,6 +234,16 @@ urlpatterns = [
         name="seguimiento_carga_aprobar",
     ),
     path(
+        "seguimiento/<int:pk>/documentos/<int:doc_id>/vigencia/",
+        views.seguimiento_documento_vigencia,
+        name="seguimiento_documento_vigencia",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/revertir/",
+        views.seguimiento_carga_revertir,
+        name="seguimiento_carga_revertir",
+    ),
+    path(
         "seguimiento/empresas/<int:pk>/cargas/<int:carga_id>/rechazar/",
         views.seguimiento_carga_rechazar,
         name="seguimiento_carga_rechazar",
@@ -196,12 +253,22 @@ urlpatterns = [
         views.seguimiento_documento_asociar_criterios,
         name="seguimiento_documento_asociar_criterios",
     ),
+    path(
+        "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/revision-consultor/",
+        views.seguimiento_documento_revision_consultor,
+        name="seguimiento_documento_revision_consultor",
+    ),
     # Indicadores (dashboards internos)
     path("indicadores/", views.indicadores_list, name="indicadores_list"),
     path(
         "indicadores/empresas/<int:pk>/",
         views.indicadores_empresa,
         name="indicadores_empresa",
+    ),
+    path(
+        "indicadores/empresas/<int:pk>/documentos/export/<str:formato>/",
+        views.indicadores_documentos_export,
+        name="indicadores_documentos_export",
     ),
     # Actividades / acuerdos / avisos (consultor)
     path("actividades/", views.actividad_calendario, name="actividad_calendario"),
@@ -222,6 +289,17 @@ urlpatterns = [
         "acuerdos/<int:pk>/cumplido/",
         views.acuerdo_marcar_cumplido,
         name="acuerdo_marcar_cumplido",
+    ),
+    path("recordatorios/", views.recordatorio_list, name="recordatorio_list"),
+    path(
+        "correos/",
+        views.plantilla_correo_list,
+        name="plantilla_correo_list",
+    ),
+    path(
+        "correos/<int:pk>/",
+        views.plantilla_correo_edit,
+        name="plantilla_correo_edit",
     ),
     path("avisos/", views.aviso_list, name="aviso_list"),
     path(

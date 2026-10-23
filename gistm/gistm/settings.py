@@ -134,10 +134,11 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# MEDIA_ROOT solo para tests (FileSystemStorage). En runtime los archivos van a Azure Blob.
+MEDIA_ROOT = BASE_DIR / 'media_test' if TESTING else BASE_DIR / 'media'
 
-# Azure Blob Storage (evidencias / FileField).
-# Solo connection string + container (como en el lab). Si falta CONNECTION_STRING → disco local.
+# Almacenamiento de archivos (evidencias / FileField): solo Azure Blob Storage.
+# En `manage.py test` se usa disco local en memoria/carpeta de prueba para no tocar Blob.
 AZURE_STORAGE_CONNECTION_STRING = (os.getenv('AZURE_STORAGE_CONNECTION_STRING') or '').strip()
 AZURE_STORAGE_CONTAINER = (
     os.getenv('AZURE_STORAGE_CONTAINER')
@@ -145,16 +146,50 @@ AZURE_STORAGE_CONTAINER = (
     or 'gistm-media'
 ).strip()
 
-if AZURE_STORAGE_CONNECTION_STRING and not TESTING:
+if TESTING:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+            'OPTIONS': {
+                'location': str(MEDIA_ROOT),
+                'base_url': MEDIA_URL,
+            },
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
+else:
+    if not AZURE_STORAGE_CONNECTION_STRING:
+        raise ValueError(
+            'AZURE_STORAGE_CONNECTION_STRING es obligatoria: '
+            'todos los archivos se guardan en Azure Blob Storage.'
+        )
+    try:
+        from storages.backends.azure_storage import AzureStorage  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(
+            'No se pudo cargar storages.backends.azure_storage.AzureStorage. '
+            'Instala django-storages[azure].'
+        ) from exc
+
+    # Connection string con AccountKey → django-storages puede generar SAS temporal.
+    # Solo SharedAccessSignature (sin AccountKey) → no regenerar SAS; usar el de la cadena.
+    _cs_lower = AZURE_STORAGE_CONNECTION_STRING.lower()
+    _azure_sas_only = (
+        'sharedaccesssignature=' in _cs_lower and 'accountkey=' not in _cs_lower
+    )
+    _azure_storage_options = {
+        'connection_string': AZURE_STORAGE_CONNECTION_STRING,
+        'azure_container': AZURE_STORAGE_CONTAINER,
+        'overwrite_files': True,
+    }
+    if not _azure_sas_only:
+        _azure_storage_options['expiration_secs'] = 3600
     STORAGES = {
         'default': {
             'BACKEND': 'storages.backends.azure_storage.AzureStorage',
-            'OPTIONS': {
-                'connection_string': AZURE_STORAGE_CONNECTION_STRING,
-                'azure_container': AZURE_STORAGE_CONTAINER,
-                'expiration_secs': 3600,
-                'overwrite_files': True,
-            },
+            'OPTIONS': _azure_storage_options,
         },
         'staticfiles': {
             'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
@@ -180,14 +215,29 @@ AZURE_AD_REQUIRE_LOGIN = os.getenv('AZURE_AD_REQUIRE_LOGIN', 'True').lower() in 
 )
 AZURE_AD_AUTHORITY = f'https://login.microsoftonline.com/{AZURE_AD_TENANT_ID}'
 
-# Correo (desarrollo: consola; producción: configurar SMTP vía env)
-EMAIL_BACKEND = os.getenv(
-    'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend',
-)
-EMAIL_HOST = os.getenv('EMAIL_HOST', '')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587') or '587')
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('1', 'true', 'yes')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@anddes.com')
+# Correo: solo Azure Communication Services (Email). Sin SMTP ni otros backends.
+AZURE_COMMUNICATION_CONNECTION_STRING = (
+    os.getenv('AZURE_COMMUNICATION_CONNECTION_STRING') or ''
+).strip()
+AZURE_COMMUNICATION_SENDER_ADDRESS = (
+    os.getenv('AZURE_COMMUNICATION_SENDER_ADDRESS') or ''
+).strip()
+AZURE_COMMUNICATION_EMAIL_DOMAIN = (
+    os.getenv('AZURE_COMMUNICATION_EMAIL_DOMAIN') or ''
+).strip()
+# Backend propio: pasa contentId a ACS para logos inline (cid:), no como adjunto.
+EMAIL_BACKEND = 'gistm.azure_email_backend.EmailBackend'
+DEFAULT_FROM_EMAIL = (
+    os.getenv('DEFAULT_FROM_EMAIL')
+    or AZURE_COMMUNICATION_SENDER_ADDRESS
+    or 'noreply@anddes.com'
+).strip()
+
+# Avisos de actividades: días antes del vencimiento (1 = mañana, 0 = día del vencimiento).
+# El cron `procesar_actividades_diarias` usa estos umbrales.
+_ACTIVIDAD_AVISO_DIAS = (os.getenv('ACTIVIDAD_AVISO_DIAS_ANTES') or '1,0').strip()
+ACTIVIDAD_AVISO_DIAS_ANTES = tuple(
+    int(x.strip())
+    for x in _ACTIVIDAD_AVISO_DIAS.split(',')
+    if x.strip().lstrip('-').isdigit()
+) or (1, 0)

@@ -410,18 +410,26 @@
     <h1>{{ empresa.nombre }}</h1>
     <p class="page-desc">
       {% if revision %}
-        Revisión: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).
+        Revisión: <strong>{{ revision.etiqueta }}</strong> ({{ revision.anio }}).<br>
+        Instalación: <strong>{{ revision.instalacion_deposito|default:"—" }}</strong>
+        · Estado: <strong>{% if revision.estado %}{{ revision.get_estado_display }}{% else %}—{% endif %}</strong>
+        · Capacidad: <strong>{{ revision.capacidad|default:"—" }}</strong>
+        · Vida útil: <strong>{{ revision.vida_util|default:"—" }}</strong>.
       {% else %}
         No hay una revisión activa para esta empresa.
       {% endif %}
     </p>
   </div>
   <div class="page-actions">
-    <a class="btn btn-ghost" href="{% url 'maestro:indicadores_list' %}">Todas las empresas</a>
-    {% if revision %}
-      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Seguimiento</a>
+    {% if not solo_lectura %}
+      <a class="btn btn-ghost" href="{% url 'maestro:indicadores_list' %}">Todas las empresas</a>
+      {% if revision %}
+        <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}?rev={{ revision.pk }}">Seguimiento</a>
+      {% else %}
+        <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Seguimiento</a>
+      {% endif %}
     {% else %}
-      <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Seguimiento</a>
+      <a class="btn" href="{% url 'maestro:mi_empresa_documentos' %}">Mis documentos</a>
     {% endif %}
   </div>
 </header>
@@ -463,16 +471,38 @@
 
   {% if tab == 'general' and progreso %}
   const curva = {{ chart_curva_json|safe }};
+  const general = {{ chart_general_json|safe }};
+  const temas = {{ chart_temas_json|safe }};
   const curvaEl = document.getElementById("chart-curva-avance");
+  const donutEl = document.getElementById("chart-docs-donut");
+  const temasEl = document.getElementById("chart-temas-barras");
+  const donutSub = document.getElementById("ind-donut-sub");
+  const temasSub = document.getElementById("ind-temas-sub");
+  const curvaSub = document.getElementById("ind-curva-sub");
+  let temaFiltro = "";
+  let estadoFiltro = ""; // "" | "aprobados" | "pendientes"
+  let chartDonut = null;
+  let chartTemas = null;
+  let chartCurva = null;
+  const colorMutedBar = "rgba(148, 163, 184, 0.45)";
+
+  function curvaSeriesForFilter() {
+    if (temaFiltro && curva.por_tema && curva.por_tema[temaFiltro]) {
+      return curva.por_tema[temaFiltro];
+    }
+    return { plan: curva.plan, real: curva.real, forecast: curva.forecast };
+  }
+
   if (curvaEl && curva.labels && curva.labels.length && !curva.sin_fechas) {
-    new Chart(curvaEl, {
+    const series0 = curvaSeriesForFilter();
+    chartCurva = new Chart(curvaEl, {
       type: "line",
       data: {
         labels: curva.labels,
         datasets: [
           {
             label: "% Plan",
-            data: curva.plan,
+            data: series0.plan,
             borderColor: "#6bc2dc",
             backgroundColor: "transparent",
             tension: 0.25,
@@ -481,7 +511,7 @@
           },
           {
             label: "% Real",
-            data: curva.real,
+            data: series0.real,
             borderColor: "#0069aa",
             backgroundColor: "transparent",
             tension: 0.25,
@@ -491,7 +521,7 @@
           },
           {
             label: "% Forecast",
-            data: curva.forecast,
+            data: series0.forecast,
             borderColor: "#e8913a",
             backgroundColor: "transparent",
             borderDash: [6, 4],
@@ -530,35 +560,141 @@
     });
   }
 
-  const general = {{ chart_general_json|safe }};
-  const donutEl = document.getElementById("chart-docs-donut");
+  function donutValuesForFilter() {
+    if (temaFiltro && general.por_tema && general.por_tema[temaFiltro]) {
+      const t = general.por_tema[temaFiltro];
+      return [t.aprobados || 0, t.pendientes || 0];
+    }
+    const o = general.overall || {};
+    return [
+      o.aprobados != null ? o.aprobados : (general.docs_donut.values[0] || 0),
+      o.pendientes != null ? o.pendientes : (general.docs_donut.values[1] || 0),
+    ];
+  }
+
+  function filterDocRows() {
+    ["ind-prio-body", "ind-vencer-body"].forEach(function (id) {
+      const body = document.getElementById(id);
+      if (!body) return;
+      const rows = body.querySelectorAll("tr.ind-doc-row");
+      let visible = 0;
+      rows.forEach(function (row) {
+        const temasAttr = (row.getAttribute("data-temas") || "").split(",").filter(Boolean);
+        const aprobado = row.getAttribute("data-aprobado") === "1";
+        let ok = true;
+        if (temaFiltro && temasAttr.indexOf(temaFiltro) === -1) ok = false;
+        if (estadoFiltro === "aprobados" && !aprobado) ok = false;
+        if (estadoFiltro === "pendientes" && aprobado) ok = false;
+        row.hidden = !ok;
+        if (ok) visible += 1;
+      });
+      const emptyFilter = body.querySelector("tr.ind-empty-filter");
+      const emptyStatic = body.querySelector("tr.ind-empty-static");
+      if (emptyFilter) emptyFilter.hidden = !(rows.length && visible === 0);
+      if (emptyStatic) emptyStatic.hidden = rows.length > 0;
+      const countSel = id === "ind-prio-body" ? "[data-count-prioritarios]" : "[data-count-vencer]";
+      const countEl = document.querySelector(countSel);
+      if (countEl) countEl.textContent = String(rows.length ? visible : 0);
+    });
+  }
+
+  function applyGeneralFilters() {
+    if (chartDonut) {
+      chartDonut.data.datasets[0].data = donutValuesForFilter();
+      const baseColors = [colors.ok, colors.muted];
+      chartDonut.data.datasets[0].backgroundColor = baseColors.map(function (c, i) {
+        if (!estadoFiltro) return c;
+        const key = i === 0 ? "aprobados" : "pendientes";
+        return estadoFiltro === key ? c : colorMutedBar;
+      });
+      chartDonut.update();
+    }
+    if (chartTemas) {
+      chartTemas.data.datasets[0].backgroundColor = (temas.labels || []).map(function (code) {
+        if (!temaFiltro) return colors.primary;
+        return code === temaFiltro ? colors.primary : colorMutedBar;
+      });
+      chartTemas.update();
+    }
+    if (chartCurva) {
+      const series = curvaSeriesForFilter();
+      chartCurva.data.datasets[0].data = series.plan;
+      chartCurva.data.datasets[1].data = series.real;
+      chartCurva.data.datasets[2].data = series.forecast;
+      chartCurva.update();
+    }
+    if (donutSub) {
+      if (temaFiltro && estadoFiltro) {
+        donutSub.textContent = "Filtro: tema " + temaFiltro + " · " + estadoFiltro + " (clic de nuevo para quitar).";
+      } else if (temaFiltro) {
+        donutSub.textContent = "Documentos del tema " + temaFiltro + ". Clic en una porción para filtrar por estado.";
+      } else if (estadoFiltro) {
+        donutSub.textContent = "Filtro: " + estadoFiltro + ". Clic de nuevo en la porción para quitar.";
+      } else {
+        donutSub.textContent = "Aprobados vs pendientes. Clic en una porción para filtrar.";
+      }
+    }
+    if (temasSub) {
+      temasSub.textContent = temaFiltro
+        ? "Tema activo: " + temaFiltro + " · clic de nuevo para quitar el filtro."
+        : "Clic en un tema para filtrar donut, curva y listas. Clic de nuevo para quitar.";
+    }
+    if (curvaSub) {
+      if (temaFiltro && curva.por_tema && curva.por_tema[temaFiltro]) {
+        curvaSub.textContent = "Curva del tema " + temaFiltro + " · Plan / Real / Forecast sobre documentos de ese tema.";
+      } else if (temaFiltro) {
+        curvaSub.textContent = "Tema " + temaFiltro + " sin documentos asociados; se muestra la curva global.";
+      } else if (curva.fecha_inicio && curva.fecha_fin) {
+        curvaSub.textContent = "% Plan, % Real y % Forecast · vista global. Selecciona un tema para adaptar la curva.";
+      }
+    }
+    filterDocRows();
+  }
+
   if (donutEl && general.docs_donut) {
-    new Chart(donutEl, {
+    chartDonut = new Chart(donutEl, {
       type: "doughnut",
       data: {
         labels: general.docs_donut.labels,
         datasets: [{
-          data: general.docs_donut.values,
+          data: donutValuesForFilter(),
           backgroundColor: [colors.ok, colors.muted],
           borderWidth: 0,
         }],
       },
       options: {
         maintainAspectRatio: false,
+        onHover: function (evt, elements) {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
+        onClick: function (_evt, elements) {
+          if (!elements.length) {
+            estadoFiltro = "";
+          } else {
+            const key = elements[0].index === 0 ? "aprobados" : "pendientes";
+            estadoFiltro = estadoFiltro === key ? "" : key;
+          }
+          applyGeneralFilters();
+        },
         plugins: {
           legend: {
             position: "bottom",
             labels: { boxWidth: 10, padding: 8, font: { size: 11 } },
+          },
+          tooltip: {
+            callbacks: {
+              afterBody: function () {
+                return "Clic para filtrar listas por estado";
+              },
+            },
           },
         },
         cutout: "62%",
       },
     });
   }
-  const temas = {{ chart_temas_json|safe }};
-  const temasEl = document.getElementById("chart-temas-barras");
   if (temasEl && temas.labels && temas.labels.length) {
-    new Chart(temasEl, {
+    chartTemas = new Chart(temasEl, {
       type: "bar",
       data: {
         labels: temas.labels,
@@ -572,6 +708,18 @@
       },
       options: {
         maintainAspectRatio: false,
+        onHover: function (evt, elements) {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
+        onClick: function (_evt, elements) {
+          if (!elements.length) {
+            temaFiltro = "";
+          } else {
+            const code = temas.labels[elements[0].index];
+            temaFiltro = temaFiltro === code ? "" : code;
+          }
+          applyGeneralFilters();
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -593,6 +741,9 @@
                 }
                 return base;
               },
+              afterBody: function () {
+                return "Clic para filtrar donut y listas";
+              },
             },
           },
         },
@@ -607,6 +758,7 @@
       },
     });
   }
+  applyGeneralFilters();
   {% endif %}
 
   {% if tab == 'progreso' and progreso %}
@@ -614,8 +766,13 @@
   const temasByCode = {};
   (tablero.temas || []).forEach(function (t) { temasByCode[t.codigo] = t; });
 
-  let temaActivo = tablero.tema_activo || "";
+  const urlParams = new URLSearchParams(window.location.search);
+  const temaFromUrl = (urlParams.get("tema") || "").trim();
+  let temaActivo = (temaFromUrl && temasByCode[temaFromUrl])
+    ? temaFromUrl
+    : (tablero.tema_activo || "");
   let principioFiltro = "";
+  let requisitoFiltro = "";
   let chartPrincipios = null;
   let chartRequisitos = null;
   let temaActual = null;
@@ -628,6 +785,8 @@
   const docsBody = document.getElementById("ind-tabla-docs-body");
   const critsBody = document.getElementById("ind-tabla-crits-body");
   const docUrlTpl = "{% url 'maestro:documento_conversacion' 999999 %}".replace("999999", "__ID__");
+  const colorMuted = "rgba(148, 163, 184, 0.45)";
+  const colorActive = colors.primary;
 
   function pctPlugin(anchor) {
     return {
@@ -661,11 +820,11 @@
 
   function estadoDotClass(estado) {
     const e = (estado || "").toLowerCase();
-    if (e === "revb" || e === "cumplido") return "is-revb is-ok";
-    if (e === "reva") return "is-reva";
-    if (e === "rev0") return "is-rev0";
-    if (e === "iniciado") return "is-iniciado";
-    if (e === "pendiente") return "is-pendiente";
+    if (e === "revb" || e === "cumplido" || e === "aprobado") return "is-revb is-ok";
+    if (e === "reva" || e === "rechazado") return "is-reva";
+    if (e === "rev0" || e === "por revisar" || e === "parcial") return "is-rev0";
+    if (e === "iniciado" || e === "pendiente de carga") return "is-iniciado";
+    if (e === "pendiente" || e === "sin revisión") return "is-pendiente";
     return "";
   }
 
@@ -683,23 +842,38 @@
     let crits = temaActual.criterios || [];
     if (principioFiltro) {
       crits = crits.filter(function (c) { return c.principio === principioFiltro; });
-      const codes = {};
-      crits.forEach(function (c) { codes[c.codigo] = true; });
-      // docs already scoped to tema; keep all docs of tema when filtering principios
+      docs = docs.filter(function (d) {
+        return (d.principios || []).indexOf(principioFiltro) !== -1;
+      });
+    }
+    if (requisitoFiltro) {
+      crits = crits.filter(function (c) { return c.requisito === requisitoFiltro; });
+      docs = docs.filter(function (d) {
+        return (d.requisitos || []).indexOf(requisitoFiltro) !== -1;
+      });
     }
     if (docsBody) {
       if (!docs.length) {
-        docsBody.innerHTML = '<tr><td colspan="5" class="muted">Sin documentos asociados a este tema.</td></tr>';
+        docsBody.innerHTML = '<tr><td colspan="6" class="muted">Sin documentos con el filtro actual.</td></tr>';
       } else {
         docsBody.innerHTML = docs.map(function (d) {
           const href = docUrlTpl.replace("__ID__", String(d.id));
-          const dot = estadoDotClass(d.estado);
+          const revision = d.revision || d.estado || "Sin revisión";
+          const estadoSis = d.estado_sistema || "—";
+          const dotRev = estadoDotClass(revision);
+          const dotSis = estadoDotClass(estadoSis);
           return (
             "<tr>" +
             '<td><a href="' + href + '">' + escapeHtml(d.nombre) + "</a>" +
             '<div class="muted" style="font-size:0.74rem;">' + escapeHtml(d.codigo) + "</div></td>" +
-            '<td><span class="ind-estado"><span class="ind-estado-dot ' + dot + '"></span>' +
-            escapeHtml(d.estado) + "</span></td>" +
+            '<td><span class="ind-estado"><span class="ind-estado-dot ' + dotRev + '"></span>' +
+            escapeHtml(revision) +
+            (d.revision_porcentaje != null && d.revision_porcentaje !== ""
+              ? ' <span class="muted">(' + d.revision_porcentaje + '%)</span>'
+              : "") +
+            "</span></td>" +
+            '<td><span class="ind-estado"><span class="ind-estado-dot ' + dotSis + '"></span>' +
+            escapeHtml(estadoSis) + "</span></td>" +
             "<td>" + escapeHtml(d.elaborador) + "</td>" +
             "<td>" + escapeHtml(d.area) + "</td>" +
             '<td><div class="ind-avance"><span>' + d.avance + '%</span>' +
@@ -711,7 +885,7 @@
     }
     if (critsBody) {
       if (!crits.length) {
-        critsBody.innerHTML = '<tr><td colspan="3" class="muted">Sin criterios en este tema.</td></tr>';
+        critsBody.innerHTML = '<tr><td colspan="3" class="muted">Sin criterios con el filtro actual.</td></tr>';
       } else {
         critsBody.innerHTML = crits.map(function (c) {
           const dot = estadoDotClass(c.estado_clave === "ok" ? "cumplido" : "pendiente");
@@ -728,15 +902,27 @@
     }
   }
 
+  function barColors(items, selectedCode) {
+    return items.map(function (item) {
+      if (!selectedCode) return colorActive;
+      return item.codigo === selectedCode ? colorActive : colorMuted;
+    });
+  }
+
   function renderRequisitos() {
     if (!reqEl || !temaActual) return;
     let reqs = temaActual.requisitos || [];
     if (principioFiltro) {
       reqs = reqs.filter(function (r) { return r.principio === principioFiltro; });
     }
+    if (requisitoFiltro && !reqs.some(function (r) { return r.codigo === requisitoFiltro; })) {
+      requisitoFiltro = "";
+    }
     if (reqSub) {
-      const filtro = principioFiltro ? " · " + principioFiltro : "";
-      reqSub.textContent = temaActual.codigo + " · " + reqs.length + " requisito(s)" + filtro;
+      const parts = [temaActual.codigo, reqs.length + " requisito(s)"];
+      if (principioFiltro) parts.push(principioFiltro);
+      if (requisitoFiltro) parts.push(requisitoFiltro);
+      reqSub.textContent = parts.join(" · ") + (principioFiltro || requisitoFiltro ? " (clic para quitar filtro)" : "");
     }
     if (reqWrap) {
       const h = Math.max(280, Math.min(560, 48 + reqs.length * 26));
@@ -750,7 +936,7 @@
         datasets: [{
           label: "% cumplimiento",
           data: reqs.map(function (r) { return r.pct; }),
-          backgroundColor: colors.primary,
+          backgroundColor: barColors(reqs, requisitoFiltro),
           borderRadius: 4,
           maxBarThickness: 18,
         }],
@@ -760,6 +946,20 @@
         indexAxis: "y",
         maintainAspectRatio: false,
         layout: { padding: { right: 36 } },
+        onHover: function (evt, elements) {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
+        onClick: function (_evt, elements) {
+          if (!elements.length) {
+            requisitoFiltro = "";
+          } else {
+            const r = reqs[elements[0].index];
+            if (!r) return;
+            requisitoFiltro = requisitoFiltro === r.codigo ? "" : r.codigo;
+          }
+          renderRequisitos();
+          renderTablas();
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -773,6 +973,9 @@
                 const base = ctx.parsed.x != null ? ctx.parsed.x + "%" : "—";
                 if (r) return base + " (" + r.completos + "/" + r.total + " criterios)";
                 return base;
+              },
+              afterBody: function () {
+                return "Clic para filtrar documentos y criterios";
               },
             },
           },
@@ -795,7 +998,8 @@
     temaActual = tema;
     const princs = tema.principios || [];
     if (princSub) {
-      princSub.textContent = tema.codigo + " · " + tema.nombre + " · " + tema.pct + "%";
+      const filtro = principioFiltro ? " · filtro " + principioFiltro + " (clic para quitar)" : " · clic en un principio para filtrar";
+      princSub.textContent = tema.codigo + " · " + tema.nombre + " · " + tema.pct + "%" + filtro;
     }
     if (chartPrincipios) chartPrincipios.destroy();
     chartPrincipios = new Chart(princEl, {
@@ -805,7 +1009,7 @@
         datasets: [{
           label: "% cumplimiento",
           data: princs.map(function (p) { return p.pct; }),
-          backgroundColor: colors.primary,
+          backgroundColor: barColors(princs, principioFiltro),
           borderRadius: 6,
           maxBarThickness: 36,
         }],
@@ -814,16 +1018,25 @@
       options: {
         maintainAspectRatio: false,
         layout: { padding: { top: 18 } },
+        onHover: function (evt, elements) {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         onClick: function (_evt, elements) {
           if (!elements.length) {
             principioFiltro = "";
+            requisitoFiltro = "";
           } else {
             const p = princs[elements[0].index];
             if (!p) return;
-            principioFiltro = principioFiltro === p.codigo ? "" : p.codigo;
+            if (principioFiltro === p.codigo) {
+              principioFiltro = "";
+              requisitoFiltro = "";
+            } else {
+              principioFiltro = p.codigo;
+              requisitoFiltro = "";
+            }
           }
-          renderRequisitos();
-          renderTablas();
+          renderPrincipios(temaActual);
         },
         plugins: {
           legend: { display: false },
@@ -838,6 +1051,9 @@
                 const base = ctx.parsed.y != null ? ctx.parsed.y + "%" : "—";
                 if (p) return base + " (" + p.completos + "/" + p.total + " criterios)";
                 return base;
+              },
+              afterBody: function () {
+                return "Clic para filtrar requisitos, documentos y criterios";
               },
             },
           },
@@ -861,6 +1077,7 @@
     if (!tema) return;
     temaActivo = codigo;
     principioFiltro = "";
+    requisitoFiltro = "";
     document.querySelectorAll(".ind-tema-btn").forEach(function (btn) {
       const on = btn.getAttribute("data-tema") === codigo;
       btn.classList.toggle("is-active", on);

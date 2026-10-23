@@ -35,6 +35,14 @@
       {{ form.descripcion }}
       {{ form.descripcion.errors }}
     </div>
+    <div class="form-row span-2">
+      <label for="id_activo" style="display:flex;align-items:center;gap:0.5rem;">
+        {{ form.activo }}
+        Habilitado para revisiones nuevas
+      </label>
+      <small style="color:#667780;">Si se deshabilita, sus criterios no se incluyen al crear una revisión nueva.</small>
+      {{ form.activo.errors }}
+    </div>
     {% if principio %}
       <div class="form-row span-2">
         <label>Suma ponderación</label>

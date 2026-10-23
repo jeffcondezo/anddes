@@ -7,7 +7,9 @@
   <div>
     <p class="page-kicker">Relación estándar</p>
     <h1>{{ titulo }}</h1>
-    <p class="page-desc">Define un par del mapeo maestro Documento ↔ Criterio.</p>
+    <p class="page-desc">
+      Un criterio tiene un documento principal y, si aplica, uno secundario (rol Complementario).
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_list' %}">Volver al listado</a>
@@ -21,14 +23,24 @@
       <div class="span-2">{{ form.non_field_errors }}</div>
     {% endif %}
     <div class="form-row">
-      <label for="id_documento">Documento</label>
+      <label for="id_criterio">Criterio</label>
+      {{ form.criterio }}
+      {{ form.criterio.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_rol">Rol</label>
+      {{ form.rol }}
+      {{ form.rol.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_documento">Documento principal</label>
       {{ form.documento }}
       {{ form.documento.errors }}
     </div>
     <div class="form-row">
-      <label for="id_criterio">Criterio</label>
-      {{ form.criterio }}
-      {{ form.criterio.errors }}
+      <label for="id_documento_secundario">Documento secundario</label>
+      {{ form.documento_secundario }}
+      {{ form.documento_secundario.errors }}
     </div>
     <div class="form-actions span-2">
       <button type="submit" class="btn">Guardar</button>

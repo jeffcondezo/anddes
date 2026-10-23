@@ -5,10 +5,14 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <p class="page-kicker">Operación</p>
+    <p class="page-kicker">{% if solo_lectura %}Mi empresa{% else %}Operación{% endif %}</p>
     <h1>Bandeja de acuerdos</h1>
     <p class="page-desc">
-      Compromisos abiertos, vencidos y cumplidos de tus empresas.
+      {% if solo_lectura %}
+        Compromisos abiertos, vencidos y cumplidos de tu empresa (solo consulta).
+      {% else %}
+        Compromisos abiertos, vencidos y cumplidos de tus empresas.
+      {% endif %}
       {% if contadores.vencidos %}
         <strong>{{ contadores.vencidos }} vencido{{ contadores.vencidos|pluralize }}</strong>.
       {% endif %}
@@ -25,6 +29,7 @@
       <span class="muted" style="font-size:0.8rem;">Estado</span>
       <select name="estado" class="input" onchange="this.form.submit()">
         <option value="abiertos" {% if estado == 'abiertos' %}selected{% endif %}>Abiertos ({{ contadores.abiertos }})</option>
+        <option value="vencidos" {% if estado == 'vencidos' %}selected{% endif %}>Vencidos ({{ contadores.vencidos }})</option>
         <option value="cumplidos" {% if estado == 'cumplidos' %}selected{% endif %}>Cumplidos</option>
         <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
       </select>
@@ -38,6 +43,7 @@
         <option value="proximos" {% if filtro == 'proximos' %}selected{% endif %}>Próximos 7 días</option>
       </select>
     </label>
+    {% if not solo_lectura %}
     <label style="display:grid;gap:0.25rem;min-width:12rem;flex:1;">
       <span class="muted" style="font-size:0.8rem;">Empresa</span>
       <select name="empresa" class="input" onchange="this.form.submit()">
@@ -47,6 +53,7 @@
         {% endfor %}
       </select>
     </label>
+    {% endif %}
   </form>
 </section>
 
@@ -85,11 +92,9 @@
             </td>
             <td>
               {% if a.estado == 'ABIERTO' %}
-                {% if a.fecha_compromiso and a.fecha_compromiso < now %}
-                  <span class="badge badge-off">Vencido</span>
-                {% else %}
-                  <span class="badge badge-info">Abierto</span>
-                {% endif %}
+                <span class="badge badge-info">Abierto</span>
+              {% elif a.estado == 'VENCIDO' %}
+                <span class="badge badge-warn">Vencido</span>
               {% elif a.estado == 'CUMPLIDO' %}
                 <span class="badge badge-ok">Cumplido</span>
               {% else %}
@@ -107,18 +112,28 @@
             </td>
             <td>{{ a.creado_por.get_full_name|default:a.creado_por.email }}</td>
             <td class="actions" style="white-space:nowrap;">
-              {% if a.actividad.creado_por_id == request.user.id %}
+              {% if solo_lectura %}
+                <a href="{% url 'maestro:actividad_detalle' a.actividad_id %}">Ver actividad</a>
+              {% elif a.actividad.creado_por_id == request.user.id %}
                 <a href="{% url 'maestro:actividad_detalle' a.actividad_id %}">Actividad</a>
               {% endif %}
-              {% if a.estado == 'ABIERTO' %}
-                {% if emp %}
-                  <button type="button" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;" data-open-recordatorio="{{ a.pk }}">Recordar</button>
+              {% if not solo_lectura %}
+                {% if a.estado == 'ABIERTO' or a.estado == 'VENCIDO' %}
+                  {% if emp %}
+                    <button
+                      type="button"
+                      class="btn btn-ghost"
+                      style="padding:0.25rem 0.5rem;font-size:0.8rem;"
+                      data-open-recordatorio="{{ a.pk }}"
+                      data-empresa-id="{{ emp.pk }}"
+                    >Recordar</button>
+                  {% endif %}
+                  <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline;margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;">Cumplido</button>
+                  </form>
                 {% endif %}
-                <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline;margin:0;">
-                  {% csrf_token %}
-                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;">Cumplido</button>
-                </form>
               {% endif %}
             </td>
           </tr>
@@ -128,7 +143,11 @@
             <td colspan="7">
               <div class="empty-state">
                 <strong>No hay acuerdos con estos filtros</strong>
-                Crea acuerdos desde el detalle de una actividad con cliente.
+                {% if solo_lectura %}
+                  Cuando el consultor registre compromisos con tu empresa, aparecerán aquí.
+                {% else %}
+                  Crea acuerdos desde el detalle de una actividad con cliente.
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -138,6 +157,7 @@
   </div>
 </section>
 
+{% if not solo_lectura %}
 <dialog id="modal-recordatorio" class="modal-dialog">
   <form method="post" id="form-recordatorio">
     {% csrf_token %}
@@ -146,27 +166,65 @@
       <h2>Enviar recordatorio</h2>
       <button type="button" class="btn btn-ghost" data-close-recordatorio>Cerrar</button>
     </header>
-    <p class="muted" style="margin:0 0 0.75rem;">Nota opcional para el cliente (se incluye en el correo).</p>
+    <p class="muted" style="margin:0 0 0.75rem;">
+      Elige responsables de la empresa (To + CC). Opcionalmente agrega una nota.
+    </p>
+    <div id="recordatorio-responsables" style="margin-bottom:0.85rem;"></div>
     <label style="display:grid;gap:0.35rem;">
       <span>Nota</span>
-      <textarea name="mensaje" class="input" rows="4" placeholder="Ej.: Recordamos el compromiso de esta semana…"></textarea>
+      <textarea name="mensaje" class="input" rows="3" placeholder="Ej.: Recordamos el compromiso de esta semana…"></textarea>
     </label>
     <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
       <button type="button" class="btn btn-ghost" data-close-recordatorio>Cancelar</button>
-      <button type="submit" class="btn">Enviar correo</button>
+      <button type="submit" class="btn" id="btn-enviar-recordatorio">Enviar correo</button>
     </div>
   </form>
 </dialog>
+
+{{ responsables_por_empresa|json_script:"responsables-por-empresa-data" }}
 
 <script>
 (function () {
   const modal = document.getElementById("modal-recordatorio");
   const form = document.getElementById("form-recordatorio");
-  if (!modal || !form) return;
+  const box = document.getElementById("recordatorio-responsables");
+  const btnSend = document.getElementById("btn-enviar-recordatorio");
+  const dataEl = document.getElementById("responsables-por-empresa-data");
+  if (!modal || !form || !box || !dataEl) return;
+  let byEmpresa = {};
+  try { byEmpresa = JSON.parse(dataEl.textContent); } catch (e) { byEmpresa = {}; }
+
+  function renderResponsables(empresaId) {
+    const lista = byEmpresa[String(empresaId)] || byEmpresa[empresaId] || [];
+    if (!lista.length) {
+      box.innerHTML = '<p class="muted">No hay responsables con correo en esta empresa. Configúralos en Empresas → Áreas.</p>';
+      if (btnSend) btnSend.disabled = true;
+      return;
+    }
+    if (btnSend) btnSend.disabled = false;
+    const porArea = {};
+    lista.forEach(function (r) {
+      if (!porArea[r.area]) porArea[r.area] = [];
+      porArea[r.area].push(r);
+    });
+    let html = '<p style="margin:0 0 0.35rem;font-weight:650;font-size:0.85rem;">Destinatarios</p>';
+    Object.keys(porArea).sort().forEach(function (area) {
+      html += '<p style="margin:0.45rem 0 0.2rem;font-size:0.82rem;font-weight:600;">' + area + '</p>';
+      porArea[area].forEach(function (r) {
+        html += '<label style="display:flex;gap:0.4rem;align-items:flex-start;margin:0.2rem 0;font-size:0.88rem;">'
+          + '<input type="checkbox" name="responsables" value="' + r.id + '">'
+          + '<span>' + r.nombre + ' <span class="muted">(' + r.correo + ')</span></span></label>';
+      });
+    });
+    box.innerHTML = html;
+  }
+
   document.querySelectorAll("[data-open-recordatorio]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       const id = btn.getAttribute("data-open-recordatorio");
+      const empId = btn.getAttribute("data-empresa-id");
       form.action = "{% url 'maestro:acuerdo_enviar_recordatorio' 0 %}".replace("/0/", "/" + id + "/");
+      renderResponsables(empId);
       if (typeof modal.showModal === "function") modal.showModal();
     });
   });
@@ -177,4 +235,5 @@
   });
 })();
 </script>
+{% endif %}
 {% endblock %}

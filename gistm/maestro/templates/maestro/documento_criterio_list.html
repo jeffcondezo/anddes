@@ -13,7 +13,7 @@
     </p>
   </div>
   <div class="page-actions">
-    <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Plantilla</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}" title="Descarga las relaciones actuales en Excel (backup editable)">Descargar Excel</a>
     <button type="button" class="btn btn-ghost" data-open-importar-excel>Importar desde Excel</button>
     {% if total_relaciones %}
       <button type="button" class="btn btn-ghost" data-open-borrar-relaciones>Borrar relaciones actuales</button>
@@ -35,10 +35,10 @@
       <button type="button" class="btn btn-ghost" data-close-importar-excel>Cerrar</button>
     </header>
     <p class="muted" style="margin:0 0 0.75rem;">
-      Sube un archivo <span class="mono">.xlsx</span> con la hoja
-      <span class="mono">Documento_x_Criterio</span>
-      (columnas <span class="mono">ID_Documento</span> e <span class="mono">ID_Criterio</span>).
-      Puedes descargar la plantilla si aún no la tienes.
+      Flujo recomendado: <strong>Descargar Excel</strong> (trae las relaciones actuales + hoja
+      <span class="mono">Instrucciones</span>), editar, <strong>Borrar relaciones actuales</strong> e
+      <strong>Importar</strong>. En la hoja de datos: verde = obligatorio, ámbar = se usa (opcional),
+      gris = solo referencia.
     </p>
     <label class="form-row" style="display:grid;gap:0.35rem;">
       <span>Archivo Excel</span>
@@ -51,7 +51,7 @@
       >
     </label>
     <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
-      <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Descargar plantilla</a>
+      <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Descargar Excel actual</a>
       <button type="button" class="btn btn-ghost" data-close-importar-excel>Cancelar</button>
       <button type="submit" class="btn">Importar</button>
     </div>
@@ -129,8 +129,10 @@
     <table class="data">
       <thead>
         <tr>
-          <th>Documento</th>
           <th>Criterio</th>
+          <th>Rol</th>
+          <th>Documento principal</th>
+          <th>Documento secundario</th>
           <th>Tema</th>
           <th>Principio</th>
           <th></th>
@@ -139,11 +141,20 @@
       <tbody>
         {% for relacion in relaciones %}
           <tr>
+            <td class="mono">{{ relacion.criterio.codigo }}</td>
+            <td>{{ relacion.get_rol_display }}</td>
             <td>
               <span class="mono">{{ relacion.documento.codigo }}</span>
-              <div class="muted" style="font-size:0.82rem;">{{ relacion.documento.nombre|truncatechars:50 }}</div>
+              <div class="muted" style="font-size:0.82rem;">{{ relacion.documento.nombre|truncatechars:40 }}</div>
             </td>
-            <td class="mono">{{ relacion.criterio.codigo }}</td>
+            <td>
+              {% if relacion.documento_secundario %}
+                <span class="mono">{{ relacion.documento_secundario.codigo }}</span>
+                <div class="muted" style="font-size:0.82rem;">{{ relacion.documento_secundario.nombre|truncatechars:40 }}</div>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
             <td>{{ relacion.criterio.tema.codigo }}</td>
             <td class="mono">{{ relacion.criterio.principio.codigo }}</td>
             <td class="actions">
@@ -156,7 +167,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">
+            <td colspan="7">
               <div class="empty-state">
                 <strong>No hay relaciones estándar</strong>
                 Crea pares documento–criterio, descarga la plantilla o importa un Excel.

@@ -77,6 +77,14 @@
       {{ form.descripcion }}
       {{ form.descripcion.errors }}
     </div>
+    <div class="form-row span-2">
+      <label for="id_activo" style="display:flex;align-items:center;gap:0.5rem;">
+        {{ form.activo }}
+        Habilitado para revisiones nuevas
+      </label>
+      <small style="color:#667780;">Si se deshabilita, no se incluye al crear una revisión nueva. No afecta histórico ni revisiones en curso.</small>
+      {{ form.activo.errors }}
+    </div>
     <div class="form-actions span-2">
       <button type="submit" class="btn">Guardar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:criterio_list' %}">Cancelar</a>

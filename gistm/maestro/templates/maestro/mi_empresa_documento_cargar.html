@@ -39,6 +39,9 @@
     <div class="form-row">
       <label for="id_archivo">Archivo (PDF, DOC, XLS o imagen)</label>
       {{ form.archivo }}
+      {% if form.archivo.help_text %}
+        <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem;">{{ form.archivo.help_text }}</p>
+      {% endif %}
       {{ form.archivo.errors }}
     </div>
     <div class="form-row">

@@ -61,6 +61,9 @@ class DocumentoIndicador:
     revisado_por: str = ""
     clasificacion: str = "referenciales"  # referenciales | multidisciplinario
     es_multiprincipio: bool = False  # criterios de 2+ principios distintos
+    fecha_limite: object | None = None  # date | None
+    fecha_carga: object | None = None
+    fecha_revision: object | None = None
 
 
 @dataclass
@@ -90,6 +93,35 @@ class DocumentoPrioritario:
     codigo: str
     area: str
     estado_label: str
+    temas: list[str] = field(default_factory=list)
+    aprobado: bool = False
+
+
+@dataclass
+class DocumentoPorVencer:
+    id: int
+    nombre: str
+    codigo: str
+    area: str
+    estado_label: str
+    fecha_limite: object  # date
+    dias: int  # negativos = vencido
+    temas: list[str] = field(default_factory=list)
+    aprobado: bool = False
+
+    @property
+    def dias_abs(self) -> int:
+        return abs(self.dias)
+
+
+def _temas_de_documento_progreso(doc) -> list[str]:
+    temas: list[str] = []
+    for v in getattr(doc, "vinculos", None) or []:
+        tema = getattr(getattr(v, "criterio", None), "tema", None)
+        codigo = getattr(tema, "codigo", None) if tema else None
+        if codigo and codigo not in temas:
+            temas.append(codigo)
+    return temas
 
 
 def _pct(parte: int, total: int) -> float:
@@ -199,6 +231,18 @@ def documentos_indicadores(
                     principios.append(prin_code)
         carga = meta.cargas_vigentes[0] if getattr(meta, "cargas_vigentes", None) else None
         revisado = _actor_label(carga.revisado_por) if carga else ""
+        fecha_carga = None
+        fecha_revision = None
+        if carga and carga.creado_en:
+            dt = carga.creado_en
+            if timezone.is_aware(dt):
+                dt = timezone.localtime(dt)
+            fecha_carga = dt.date()
+        if carga and carga.revisado_en:
+            dt = carga.revisado_en
+            if timezone.is_aware(dt):
+                dt = timezone.localtime(dt)
+            fecha_revision = dt.date()
         clasificacion = (
             "referenciales"
             if meta.origen == OrigenEmpresaDocumento.CATALOGO
@@ -243,6 +287,9 @@ def documentos_indicadores(
                 revisado_por=revisado,
                 clasificacion=clasificacion,
                 es_multiprincipio=es_multiprincipio,
+                fecha_limite=meta.fecha_limite_entrega,
+                fecha_carga=fecha_carga,
+                fecha_revision=fecha_revision,
             )
         )
     return resultado
@@ -258,6 +305,61 @@ def filtrar_documentos(
     if subtab == "multiprincipio":
         return [d for d in docs if d.es_multiprincipio]
     return docs
+
+
+def filtrar_documentos_query(
+    docs: list[DocumentoIndicador],
+    *,
+    q: str = "",
+    consultor: str = "",
+    area: str = "",
+    estado: str = "",
+    fecha_desde=None,
+    fecha_hasta=None,
+) -> list[DocumentoIndicador]:
+    """Filtros adicionales sobre la lista ya recortada por subtab."""
+    q = (q or "").strip().lower()
+    consultor = (consultor or "").strip()
+    area = (area or "").strip()
+    estado = (estado or "").strip()
+    out: list[DocumentoIndicador] = []
+    for d in docs:
+        if q and q not in d.codigo.lower() and q not in d.nombre.lower():
+            continue
+        if consultor and (d.revisado_por or "") != consultor:
+            continue
+        if area and area not in (d.areas or []):
+            continue
+        if estado and d.estado_label != estado:
+            continue
+        # Rango de fechas: prioridad fecha límite → revisión → carga
+        ref = d.fecha_limite or d.fecha_revision or d.fecha_carga
+        if fecha_desde or fecha_hasta:
+            if ref is None:
+                continue
+            if fecha_desde and ref < fecha_desde:
+                continue
+            if fecha_hasta and ref > fecha_hasta:
+                continue
+        out.append(d)
+    return out
+
+
+def opciones_filtros_documentos(docs: list[DocumentoIndicador]) -> dict:
+    areas: set[str] = set()
+    estados: set[str] = set()
+    consultores: set[str] = set()
+    for d in docs:
+        areas.update(d.areas or [])
+        if d.estado_label:
+            estados.add(d.estado_label)
+        if d.revisado_por:
+            consultores.add(d.revisado_por)
+    return {
+        "areas": sorted(areas),
+        "estados": sorted(estados),
+        "consultores": sorted(consultores),
+    }
 
 
 def cobertura_estandar(revision: Revision, progreso: ProgresoRevision) -> CoberturaEstandar:
@@ -360,19 +462,36 @@ def glosario_items(q: str = "") -> list[GlosarioItem]:
 
 
 def chart_general(progreso: ProgresoRevision) -> dict:
+    """Donut global + desglose por tema para filtros cruzados en General."""
+    overall = {
+        "aprobados": progreso.docs_cargados,
+        "pendientes": max(progreso.docs_total - progreso.docs_cargados, 0),
+    }
+    por_tema: dict[str, dict[str, int]] = {
+        t.codigo: {"aprobados": 0, "pendientes": 0} for t in progreso.temas
+    }
+    for doc in progreso.documentos:
+        temas_doc = _temas_de_documento_progreso(doc)
+        if not temas_doc:
+            continue
+        for tc in temas_doc:
+            bucket = por_tema.setdefault(tc, {"aprobados": 0, "pendientes": 0})
+            if doc.cargado:
+                bucket["aprobados"] += 1
+            else:
+                bucket["pendientes"] += 1
     return {
         "docs_donut": {
             "labels": ["Aprobados", "Pendientes"],
-            "values": [
-                progreso.docs_cargados,
-                max(progreso.docs_total - progreso.docs_cargados, 0),
-            ],
+            "values": [overall["aprobados"], overall["pendientes"]],
         },
+        "overall": overall,
+        "por_tema": por_tema,
     }
 
 
 def chart_temas(progreso: ProgresoRevision) -> dict:
-    """% de cumplimiento por tema (criterios aprobados / totales), igual que Seguimiento."""
+    """% de cumplimiento por tema (promedio del avance parcial), igual que Seguimiento."""
     temas = sorted(progreso.temas, key=lambda t: t.codigo)
     return {
         "labels": [t.codigo for t in temas],
@@ -411,16 +530,14 @@ def _aplica_a_label(codigo: str, descripcion: str) -> str:
 
 
 def _estado_madurez_doc(doc) -> str:
-    """Nomenclatura del mockup: No Asignado / Iniciado / Rev0 / RevA / RevB."""
+    """
+    Etiqueta de revisión del consultor (campo libre en el documento).
+    Independiente de PENDIENTE / APROBADO / RECHAZADO del sistema.
+    """
     if getattr(doc, "criterios_count", 0) <= 0:
         return "No Asignado"
-    if doc.cargado:
-        return "RevB"
-    if doc.rechazado:
-        return "RevA"
-    if doc.pendiente_revision:
-        return "Rev0"
-    return "Iniciado"
+    texto = (getattr(doc, "revision_texto", None) or "").strip()
+    return texto or "Sin revisión"
 
 
 def tablero_estandar() -> dict:
@@ -550,9 +667,18 @@ def tablero_progreso(
                                 "id": doc.id,
                                 "codigo": doc.codigo,
                                 "nombre": doc.nombre,
-                                "estado": _estado_madurez_doc(doc),
+                                "revision": _estado_madurez_doc(doc),
+                                "revision_porcentaje": getattr(
+                                    doc, "revision_porcentaje", None
+                                ),
+                                "estado_sistema": getattr(
+                                    doc, "estado_label", None
+                                )
+                                or "—",
                                 "elaborador": elaborador_default,
                                 "areas": [],
+                                "principios": [],
+                                "requisitos": [],
                                 "crit_total": 0,
                                 "crit_ok": 0,
                             },
@@ -560,6 +686,10 @@ def tablero_progreso(
                         bucket["crit_total"] += 1
                         if crit.pct >= 100:
                             bucket["crit_ok"] += 1
+                        if prin.codigo not in bucket["principios"]:
+                            bucket["principios"].append(prin.codigo)
+                        if req.codigo not in bucket["requisitos"]:
+                            bucket["requisitos"].append(req.codigo)
                         for vinculo in doc.vinculos or []:
                             area = getattr(vinculo, "area", None)
                             if area and area.nombre not in bucket["areas"]:
@@ -595,10 +725,16 @@ def tablero_progreso(
                     "id": m["id"],
                     "codigo": m["codigo"],
                     "nombre": m["nombre"],
-                    "estado": m["estado"],
+                    # Compat: "estado" = revisión del consultor (como antes en la UI).
+                    "estado": m["revision"],
+                    "revision": m["revision"],
+                    "revision_porcentaje": m.get("revision_porcentaje"),
+                    "estado_sistema": m.get("estado_sistema") or "—",
                     "elaborador": m["elaborador"],
                     "area": m["areas"][0] if m["areas"] else "—",
                     "avance": _pct(m["crit_ok"], m["crit_total"]),
+                    "principios": m.get("principios") or [],
+                    "requisitos": m.get("requisitos") or [],
                 }
             )
 
@@ -637,13 +773,110 @@ def _month_ends(start: date, end: date) -> list[date]:
     return points
 
 
+def _curva_series_para_docs(
+    revision: Revision,
+    docs: list,
+    *,
+    docs_pct_fallback: float,
+    inicio: date,
+    fin: date,
+    hoy_clip: date,
+    months: list[date],
+) -> dict:
+    """Plan / Real / Forecast para un subconjunto de documentos."""
+    from .models import EmpresaDocumento
+
+    total_docs = max(len(docs), 1)
+    doc_ids = {d.id for d in docs}
+    plan_fechas = list(
+        EmpresaDocumento.objects.filter(
+            revision=revision,
+            activo=True,
+            pk__in=doc_ids,
+            fecha_limite_entrega__isnull=False,
+        ).values_list("fecha_limite_entrega", flat=True)
+    )
+    usa_plan_docs = len(plan_fechas) > 0
+    plan_fechas.sort()
+
+    aprob_fechas: list[date] = []
+    for doc in docs:
+        if not getattr(doc, "cargado", False) or not getattr(doc, "carga", None):
+            continue
+        dt = doc.carga.revisado_en or doc.carga.creado_en
+        if not dt:
+            continue
+        if timezone.is_aware(dt):
+            dt = timezone.localtime(dt)
+        aprob_fechas.append(dt.date())
+    aprob_fechas.sort()
+
+    plan: list[float | None] = []
+    real: list[float | None] = []
+    forecast: list[float | None] = []
+    span_days = max((fin - inicio).days, 1)
+
+    for d in months:
+        if usa_plan_docs:
+            planificados = sum(1 for fd in plan_fechas if fd <= d)
+            plan_pct = round(100.0 * planificados / max(len(plan_fechas), 1), 2)
+        else:
+            plan_pct = round(100.0 * (d - inicio).days / span_days, 2)
+        plan.append(min(100.0, max(0.0, plan_pct)))
+
+        if d < inicio:
+            real.append(0.0)
+            forecast.append(None)
+            continue
+
+        if d <= hoy_clip:
+            aprobados = sum(1 for fd in aprob_fechas if fd <= d)
+            meses_hasta_hoy = [x for x in months if x <= hoy_clip]
+            ultimo_mes = meses_hasta_hoy[-1] if meses_hasta_hoy else d
+            if not aprob_fechas and d == ultimo_mes:
+                real.append(float(docs_pct_fallback))
+            else:
+                real.append(round(100.0 * aprobados / total_docs, 2))
+            forecast.append(None)
+        else:
+            real.append(None)
+            forecast.append(None)
+
+    last_real_idx = None
+    last_real_val = 0.0
+    for i, v in enumerate(real):
+        if v is not None:
+            last_real_idx = i
+            last_real_val = v
+    if last_real_idx is None:
+        last_real_idx = 0
+        last_real_val = float(docs_pct_fallback)
+        if real:
+            real[0] = last_real_val
+
+    forecast[last_real_idx] = last_real_val
+    remaining = len(months) - 1 - last_real_idx
+    if remaining <= 0:
+        forecast[-1] = 100.0 if last_real_val >= 100 else last_real_val
+    else:
+        for i in range(last_real_idx + 1, len(months)):
+            step = i - last_real_idx
+            if last_real_val >= 100:
+                forecast[i] = 100.0
+            else:
+                forecast[i] = round(
+                    last_real_val + (100.0 - last_real_val) * step / remaining, 2
+                )
+
+    return {"plan": plan, "real": real, "forecast": forecast}
+
+
 def curva_avance(revision: Revision, progreso: ProgresoRevision) -> dict:
     """
-    Serie Plan / Real / Forecast.
-    - Plan: lineal 0→100% entre fecha_inicio y fecha_fin de la revisión.
+    Serie Plan / Real / Forecast (global + por tema para filtros cruzados).
+    - Plan: fechas límite por documento, o lineal 0→100% si no hay plan.
     - Real: % docs aprobados acumulado según fecha de aprobación/carga.
     - Forecast: desde el último punto real hasta 100% en fecha_fin.
-    Requiere fecha_inicio y fecha_fin en la revisión.
     """
     vacio = {
         "labels": [],
@@ -652,6 +885,7 @@ def curva_avance(revision: Revision, progreso: ProgresoRevision) -> dict:
         "forecast": [],
         "hoy_label": "",
         "sin_fechas": True,
+        "por_tema": {},
     }
     if not revision.fecha_inicio or not revision.fecha_fin:
         return vacio
@@ -673,124 +907,105 @@ def curva_avance(revision: Revision, progreso: ProgresoRevision) -> dict:
         return vacio
 
     labels = [d.strftime("%b %Y") for d in months]
-    total_docs = max(progreso.docs_total, 1)
+    global_series = _curva_series_para_docs(
+        revision,
+        list(progreso.documentos),
+        docs_pct_fallback=float(progreso.docs_pct),
+        inicio=inicio,
+        fin=fin,
+        hoy_clip=hoy_clip,
+        months=months,
+    )
 
-    aprob_fechas: list[date] = []
-    for doc in progreso.documentos:
-        if not doc.cargado or not doc.carga:
+    por_tema: dict[str, dict] = {}
+    for tema in progreso.temas:
+        docs_tema = [
+            d
+            for d in progreso.documentos
+            if tema.codigo in _temas_de_documento_progreso(d)
+        ]
+        if not docs_tema:
             continue
-        dt = doc.carga.revisado_en or doc.carga.creado_en
-        if not dt:
-            continue
-        if timezone.is_aware(dt):
-            dt = timezone.localtime(dt)
-        aprob_fechas.append(dt.date())
-    aprob_fechas.sort()
-
-    plan: list[float | None] = []
-    real: list[float | None] = []
-    forecast: list[float | None] = []
-
-    span_days = max((fin - inicio).days, 1)
-    for d in months:
-        # Plan lineal entre fecha_inicio y fecha_fin
-        plan_pct = round(100.0 * (d - inicio).days / span_days, 2)
-        plan.append(min(100.0, max(0.0, plan_pct)))
-
-        if d < inicio:
-            real.append(0.0)
-            forecast.append(None)
-            continue
-
-        if d <= hoy_clip:
-            aprobados = sum(1 for fd in aprob_fechas if fd <= d)
-            meses_hasta_hoy = [x for x in months if x <= hoy_clip]
-            ultimo_mes = meses_hasta_hoy[-1] if meses_hasta_hoy else d
-            if not aprob_fechas and d == ultimo_mes:
-                real.append(float(progreso.docs_pct))
-            else:
-                real.append(round(100.0 * aprobados / total_docs, 2))
-            forecast.append(None)
-        else:
-            real.append(None)
-            forecast.append(None)
-
-    # Forecast: del último real al 100% en fecha_fin
-    last_real_idx = None
-    last_real_val = 0.0
-    for i, v in enumerate(real):
-        if v is not None:
-            last_real_idx = i
-            last_real_val = v
-    if last_real_idx is None:
-        last_real_idx = 0
-        last_real_val = float(progreso.docs_pct)
-        if real:
-            real[0] = last_real_val
-
-    forecast[last_real_idx] = last_real_val
-    remaining = len(months) - 1 - last_real_idx
-    if remaining <= 0:
-        forecast[-1] = 100.0 if last_real_val >= 100 else last_real_val
-    else:
-        for i in range(last_real_idx + 1, len(months)):
-            step = i - last_real_idx
-            if last_real_val >= 100:
-                forecast[i] = 100.0
-            else:
-                forecast[i] = round(
-                    last_real_val + (100.0 - last_real_val) * step / remaining, 2
-                )
+        aprobados = sum(1 for d in docs_tema if d.cargado)
+        por_tema[tema.codigo] = _curva_series_para_docs(
+            revision,
+            docs_tema,
+            docs_pct_fallback=_pct(aprobados, len(docs_tema)),
+            inicio=inicio,
+            fin=fin,
+            hoy_clip=hoy_clip,
+            months=months,
+        )
 
     return {
         "labels": labels,
-        "plan": plan,
-        "real": real,
-        "forecast": forecast,
+        "plan": global_series["plan"],
+        "real": global_series["real"],
+        "forecast": global_series["forecast"],
         "hoy_label": hoy_clip.strftime("%d/%m/%Y"),
         "sin_fechas": False,
         "fecha_inicio": inicio.isoformat(),
         "fecha_fin": fin.isoformat(),
+        "por_tema": por_tema,
     }
 
 
 def chart_documentos_estados(progreso: ProgresoRevision) -> dict:
     """
-    Pastel de estados (nomenclatura referencial del mockup):
-    Iniciado=por subir, Rev0=por revisar, RevA=rechazado, RevB=aprobado,
-    No Asignado=activos sin criterios.
+    Pastel por etiqueta de revisión del consultor (revision_texto).
+    Independiente del estado de carga/aprobación del sistema.
     """
-    iniciado = progreso.docs_por_subir
-    rev0 = progreso.docs_por_revisar
-    reva = progreso.docs_rechazados
-    revb = len(progreso.documentos_aprobados)
-    no_asignado = len(progreso.documentos_sin_criterios_config)
-    slices = [
-        ("Iniciado", iniciado, "#e891b0"),
-        ("Rev0", rev0, "#1f4e79"),
-        ("RevA", reva, "#5b9bd5"),
-        ("RevB", revb, "#7f7f7f"),
-        ("No Asignado", no_asignado, "#ffc000"),
+    palette = [
+        "#1f4e79",
+        "#5b9bd5",
+        "#e891b0",
+        "#7f7f7f",
+        "#ffc000",
+        "#2f9e6b",
+        "#0b4f7d",
+        "#c55a11",
     ]
-    # Evitar gráfico vacío
+    counts: dict[str, int] = {}
+    for doc in progreso.documentos:
+        label = _estado_madurez_doc(doc)
+        counts[label] = counts.get(label, 0) + 1
+    for doc in progreso.documentos_sin_criterios_config:
+        counts["No Asignado"] = counts.get("No Asignado", 0) + 1
+
+    # Orden preferido si existen esas etiquetas; el resto alfabético.
+    preferidos = ["Iniciado", "Rev0", "RevA", "RevB", "Sin revisión", "No Asignado"]
+    ordenados = [k for k in preferidos if k in counts]
+    ordenados += sorted(k for k in counts if k not in preferidos)
+    slices = [
+        (label, counts[label], palette[i % len(palette)])
+        for i, label in enumerate(ordenados)
+    ]
     if sum(v for _, v, _ in slices) == 0:
         slices = [("Sin datos", 1, "#d0d5da")]
+    total_real = sum(s[1] for s in slices if s[0] != "Sin datos")
     return {
         "labels": [s[0] for s in slices],
         "values": [s[1] for s in slices],
         "colors": [s[2] for s in slices],
-        "total": sum(s[1] for s in slices if s[0] != "Sin datos"),
+        "total": total_real,
         "leyenda": [
             {
                 "label": s[0],
                 "value": s[1],
-                "pct": _pct(s[1], max(sum(x[1] for x in slices if x[0] != "Sin datos"), 1)),
+                "pct": _pct(s[1], max(total_real, 1)),
                 "color": s[2],
             }
             for s in slices
             if s[0] != "Sin datos"
         ],
     }
+
+
+def _area_primer_vinculo(meta: EmpresaDocumento) -> str:
+    for v in meta.vinculos_criterio.all():
+        if v.area_id:
+            return v.area.nombre
+    return "—"
 
 
 def documentos_prioritarios(
@@ -808,7 +1023,9 @@ def documentos_prioritarios(
         .prefetch_related(
             Prefetch(
                 "vinculos_criterio",
-                queryset=EmpresaDocumentoCriterio.objects.select_related("area"),
+                queryset=EmpresaDocumentoCriterio.objects.select_related(
+                    "area", "criterio", "criterio__tema"
+                ),
             )
         )
         .order_by("codigo")[:limite]
@@ -817,20 +1034,91 @@ def documentos_prioritarios(
     result: list[DocumentoPrioritario] = []
     for meta in docs:
         prog = prog_by_id.get(meta.pk)
-        area = "—"
-        for v in meta.vinculos_criterio.all():
-            if v.area_id:
-                area = v.area.nombre
-                break
+        temas = _temas_de_documento_progreso(prog) if prog else []
+        if not temas:
+            for v in meta.vinculos_criterio.all():
+                tema = getattr(getattr(v, "criterio", None), "tema", None)
+                if tema and tema.codigo not in temas:
+                    temas.append(tema.codigo)
         result.append(
             DocumentoPrioritario(
                 id=meta.pk,
                 nombre=meta.nombre,
                 codigo=meta.codigo,
-                area=area,
+                area=_area_primer_vinculo(meta),
                 estado_label=prog.estado_label if prog else "—",
+                temas=temas,
+                aprobado=bool(prog and prog.cargado),
             )
         )
+    return result
+
+
+# Ventana por defecto: hoy y hasta N días adelante (incluye ya vencidos).
+DIAS_POR_VENCER = 15
+
+
+def documentos_por_vencer(
+    revision: Revision,
+    progreso: ProgresoRevision,
+    *,
+    dias: int = DIAS_POR_VENCER,
+    limite: int = 12,
+) -> list[DocumentoPorVencer]:
+    """Activos de la revisión con fecha límite cercana o ya vencida (no aprobados)."""
+    from datetime import timedelta
+
+    from django.db.models import Prefetch
+
+    from .models import EmpresaDocumentoCriterio
+
+    hoy = date.today()
+    hasta = hoy + timedelta(days=max(0, dias))
+    docs = list(
+        EmpresaDocumento.objects.filter(
+            revision=revision,
+            activo=True,
+            fecha_limite_entrega__isnull=False,
+            fecha_limite_entrega__lte=hasta,
+        )
+        .prefetch_related(
+            Prefetch(
+                "vinculos_criterio",
+                queryset=EmpresaDocumentoCriterio.objects.select_related(
+                    "area", "criterio", "criterio__tema"
+                ),
+            )
+        )
+        .order_by("fecha_limite_entrega", "codigo")
+    )
+    prog_by_id = {d.id: d for d in progreso.documentos_all_activos}
+    result: list[DocumentoPorVencer] = []
+    for meta in docs:
+        prog = prog_by_id.get(meta.pk)
+        if prog and prog.estado_label == "Aprobado":
+            continue
+        limite_f = meta.fecha_limite_entrega
+        temas = _temas_de_documento_progreso(prog) if prog else []
+        if not temas:
+            for v in meta.vinculos_criterio.all():
+                tema = getattr(getattr(v, "criterio", None), "tema", None)
+                if tema and tema.codigo not in temas:
+                    temas.append(tema.codigo)
+        result.append(
+            DocumentoPorVencer(
+                id=meta.pk,
+                nombre=meta.nombre,
+                codigo=meta.codigo,
+                area=_area_primer_vinculo(meta),
+                estado_label=prog.estado_label if prog else "—",
+                fecha_limite=limite_f,
+                dias=(limite_f - hoy).days,
+                temas=temas,
+                aprobado=False,
+            )
+        )
+        if len(result) >= limite:
+            break
     return result
 
 

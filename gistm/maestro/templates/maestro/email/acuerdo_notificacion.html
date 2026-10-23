@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ asunto }}</title>
+  <!--[if mso]>
+  <style type="text/css">
+    body, table, td { font-family: Arial, Helvetica, sans-serif !important; }
+  </style>
+  <![endif]-->
+</head>
+<body style="margin:0;padding:0;background-color:#eef1f4;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef1f4;">
+    <tr>
+      <td align="center" style="padding:28px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e3e7eb;">
+          <tr>
+            <td style="background-color:#ffffff;padding:22px 28px;border-bottom:3px solid #0d5f95;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="vertical-align:middle;">
+                    {% if logo_src %}
+                      <img src="{{ logo_src }}" alt="Anddes" width="140" style="display:block;border:0;height:auto;max-width:140px;">
+                    {% else %}
+                      <span style="font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:22px;font-weight:700;color:#0d5f95;letter-spacing:0.02em;">Anddes</span>
+                    {% endif %}
+                  </td>
+                  <td align="right" style="vertical-align:middle;">
+                    <span style="font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:12px;font-weight:600;color:#0d5f95;letter-spacing:0.08em;text-transform:uppercase;">GISTM</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background-color:{% if es_post %}#fdecea{% else %}#e8f3fa{% endif %};color:{% if es_post %}#b42318{% else %}#0b4f7d{% endif %};font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+                    {{ badge_texto }}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 28px 8px;font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;color:#1f2a30;">
+              <h1 style="margin:0 0 8px;font-size:22px;line-height:1.3;font-weight:700;color:#1f2a30;">{{ titulo_correo }}</h1>
+              <p style="margin:0;font-size:15px;line-height:1.55;color:#5a6570;">
+                {{ intro }}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:12px 28px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f7fafc;border:1px solid #e3e7eb;border-radius:12px;">
+                <tr>
+                  <td style="padding:16px 18px;font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;">
+                    <p style="margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#7a858c;">Detalle del acuerdo</p>
+                    <p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#1f2a30;">{{ acuerdo_titulo }}</p>
+                    <p style="margin:0 0 12px;font-size:14px;color:#5a6570;">
+                      <strong style="color:#2f3437;">Empresa:</strong> {{ empresa_nombre }}<br>
+                      <strong style="color:#2f3437;">Fecha de compromiso:</strong> {{ fecha_compromiso }}
+                      {% if dias_relativo %}
+                        <br><strong style="color:#2f3437;">Situación:</strong> {{ dias_relativo }}
+                      {% endif %}
+                    </p>
+                    {% if detalle %}
+                      <p style="margin:0;font-size:14px;line-height:1.55;color:#2f3437;white-space:pre-wrap;">{{ detalle }}</p>
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% if documentos %}
+          <tr>
+            <td style="padding:8px 28px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;padding-bottom:8px;">
+                    <p style="margin:0;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#7a858c;">{{ docs_titulo }}</p>
+                  </td>
+                </tr>
+                {% for doc in documentos %}
+                <tr>
+                  <td style="font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;padding:8px 12px;border:1px solid #e3e7eb;{% if not forloop.last %}border-bottom:0;{% endif %}{% if forloop.first %}border-radius:10px 10px 0 0;{% endif %}{% if forloop.last %}border-radius:0 0 10px 10px;{% endif %}{% if forloop.first and forloop.last %}border-radius:10px;{% endif %}background:#fff;">
+                    <span style="font-size:14px;font-weight:600;color:#0069aa;">{{ doc.codigo }}</span>
+                    <span style="font-size:14px;color:#2f3437;"> · {{ doc.nombre }}</span>
+                    {% if doc.estado %}
+                      <span style="display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:{% if doc.ok %}#1f7a52{% else %}#b42318{% endif %};">{{ doc.estado }}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+          {% if cta_url %}
+          <tr>
+            <td align="center" style="padding:18px 28px 8px;">
+              <a href="{{ cta_url }}" style="display:inline-block;background-color:#0069aa;color:#ffffff;font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:14px;font-weight:700;text-decoration:none;padding:12px 22px;border-radius:10px;">
+                {{ cta_texto|default:"Ingresar a GISTM" }}
+              </a>
+            </td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td style="padding:16px 28px 24px;font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.55;color:#5a6570;">
+              <p style="margin:0 0 12px;">{{ cierre }}</p>
+              <p style="margin:0;color:#2f3437;"><strong>Anddes · GISTM</strong></p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f7fafc;border-top:1px solid #e3e7eb;padding:14px 28px;font-family:'Source Sans 3',Segoe UI,Arial,sans-serif;font-size:11px;line-height:1.45;color:#7a858c;text-align:center;">
+              Este correo fue enviado automáticamente por la plataforma GISTM de Anddes.
+              {% if es_preview %}<br><em>Vista previa de configuración — no es un envío real.</em>{% endif %}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

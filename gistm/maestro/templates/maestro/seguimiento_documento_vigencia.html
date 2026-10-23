@@ -1,0 +1,94 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Vigencia · {{ documento.codigo }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · {{ revision.etiqueta }}</p>
+    <h1>Vigencia de {{ documento.codigo }}</h1>
+    <p class="page-desc">{{ documento.nombre }}</p>
+  </div>
+</header>
+
+{% if pendiente_aprobacion or aprobado_sin_vigencia %}
+  <section class="panel" style="margin-bottom:1rem;border-left:3px solid #b42318;">
+    <p style="margin:0;">
+      Si cancelas, {% if pendiente_aprobacion %}la aprobación no se aplicará{% else %}se revertirá la aprobación{% endif %}.
+    </p>
+  </section>
+{% endif %}
+
+<section class="panel">
+  {% if carga %}
+    <p class="muted" style="margin-top:0;">
+      Evidencia vigente: {{ carga.nombre_original|default:carga.archivo.name }}
+      · versión {{ carga.version }}
+      · {{ carga.get_estado_revision_display }}
+    </p>
+  {% endif %}
+  <form method="post" novalidate id="form-vigencia">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="info-banner" style="margin-bottom:1rem;">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-grid two-col">
+      <div class="form-row span-2">
+        <label for="{{ form.frecuencia_actualizacion.id_for_label }}">{{ form.frecuencia_actualizacion.label }}</label>
+        {{ form.frecuencia_actualizacion }}
+        {{ form.frecuencia_actualizacion.errors }}
+      </div>
+      <div class="form-row span-2" id="row-frecuencia-otro" hidden>
+        <label for="{{ form.frecuencia_otro.id_for_label }}">{{ form.frecuencia_otro.label }}</label>
+        {{ form.frecuencia_otro }}
+        {{ form.frecuencia_otro.errors }}
+      </div>
+      <div class="form-row">
+        <label for="{{ form.fecha_ultima_revision.id_for_label }}">{{ form.fecha_ultima_revision.label }}</label>
+        {{ form.fecha_ultima_revision }}
+        {{ form.fecha_ultima_revision.errors }}
+      </div>
+      <div class="form-row">
+        <label for="{{ form.fecha_caducidad.id_for_label }}">{{ form.fecha_caducidad.label }}</label>
+        {{ form.fecha_caducidad }}
+        {{ form.fecha_caducidad.errors }}
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top:1.1rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+      <button type="submit" class="btn" name="accion" value="guardar">
+        {% if pendiente_aprobacion %}Guardar vigencia y aprobar{% else %}Guardar vigencia{% endif %}
+      </button>
+      {% if pendiente_aprobacion or aprobado_sin_vigencia %}
+        <button
+          type="submit"
+          class="btn btn-ghost"
+          name="accion"
+          value="cancelar"
+          formaction=""
+          onclick="return confirm('¿Cancelar? La aprobación del documento se descartará o se revertirá porque la vigencia es un paso obligatorio.');"
+        >Cancelar</button>
+      {% else %}
+        <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">Volver</a>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+<script>
+(function () {
+  var sel = document.getElementById("id_frecuencia_actualizacion");
+  var row = document.getElementById("row-frecuencia-otro");
+  if (!sel || !row) return;
+  function sync() {
+    var esOtro = sel.value === "OTRO";
+    row.hidden = !esOtro;
+    if (!esOtro) {
+      var inp = document.getElementById("id_frecuencia_otro");
+      if (inp) inp.value = "";
+    }
+  }
+  sel.addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}

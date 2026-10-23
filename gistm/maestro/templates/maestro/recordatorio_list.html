@@ -1,0 +1,116 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Recordatorios · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Operación</p>
+    <h1>Recordatorios</h1>
+    <p class="page-desc">Historial de correos enviados a clientes (To) y copias a consultores (CC).</p>
+  </div>
+</header>
+
+<form method="get" class="panel" style="margin-bottom:1rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;">
+  <label style="display:grid;gap:0.25rem;min-width:11rem;">
+    <span class="muted" style="font-size:0.8rem;">Fecha</span>
+    <input type="date" name="fecha" class="input" value="{{ fecha|date:'Y-m-d' }}" required>
+  </label>
+  <label style="display:grid;gap:0.25rem;min-width:12rem;">
+    <span class="muted" style="font-size:0.8rem;">Tipo</span>
+    <select name="tipo" class="input">
+      <option value="">Todos</option>
+      {% for value, label in tipos %}
+        <option value="{{ value }}" {% if tipo == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label style="display:grid;gap:0.25rem;min-width:14rem;flex:1;">
+    <span class="muted" style="font-size:0.8rem;">Empresa</span>
+    <select name="empresa" class="input">
+      <option value="">Todas</option>
+      {% for e in empresas %}
+        <option value="{{ e.pk }}" {% if empresa_q == e.pk|stringformat:"s" %}selected{% endif %}>{{ e.nombre }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="btn">Filtrar</button>
+  {% if not es_hoy or tipo or empresa_q %}
+    <a class="btn btn-ghost" href="{% url 'maestro:recordatorio_list' %}">Hoy</a>
+  {% endif %}
+</form>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Fecha / hora</th>
+          <th>Tipo</th>
+          <th>Empresa</th>
+          <th>Asunto</th>
+          <th>Para (To)</th>
+          <th>Copia (CC)</th>
+          <th>Origen</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for envio in envios %}
+          <tr>
+            <td>
+              <time datetime="{{ envio.enviado_en|date:'c' }}">{{ envio.enviado_en|date:"d/m/Y H:i" }}</time>
+            </td>
+            <td><span class="badge badge-info">{{ envio.get_tipo_display }}</span></td>
+            <td>{% if envio.empresa %}{{ envio.empresa.nombre }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>
+              <strong>{{ envio.asunto|truncatechars:72 }}</strong>
+              {% if envio.acuerdo %}
+                <div class="muted" style="font-size:0.8rem;">Acuerdo #{{ envio.acuerdo_id }}</div>
+              {% elif envio.actividad %}
+                <div class="muted" style="font-size:0.8rem;">Actividad #{{ envio.actividad_id }}</div>
+              {% endif %}
+            </td>
+            <td style="max-width:12rem;word-break:break-all;">{{ envio.destinatarios_to|default:"—" }}</td>
+            <td style="max-width:14rem;word-break:break-all;">{% if envio.destinatarios_cc %}{{ envio.destinatarios_cc }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>
+              {% if envio.automatico %}
+                <span class="badge badge-warn">Automático</span>
+              {% elif envio.enviado_por %}
+                {{ envio.enviado_por.get_full_name|default:envio.enviado_por.username }}
+              {% else %}
+                <span class="muted">Manual</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if envio.exito %}
+                <span class="badge badge-ok">Enviado</span>
+              {% else %}
+                <span class="badge badge-off" title="{{ envio.error }}">Error</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8">
+              <div class="empty-state">
+                <strong>Sin correos el {{ fecha|date:"d/m/Y" }}</strong>
+                {% if es_hoy %}
+                  Cuando el sistema o un consultor envíe un recordatorio hoy, aparecerá aquí.
+                {% else %}
+                  Prueba otra fecha o vuelve a <a href="{% url 'maestro:recordatorio_list' %}">hoy</a>.
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if envios %}
+    <p class="muted" style="padding:0.75rem 1rem;margin:0;">
+      {{ total }} envío(s) del {{ fecha|date:"d/m/Y" }}{% if es_hoy %} (hoy){% endif %}.
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

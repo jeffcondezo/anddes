@@ -22,7 +22,10 @@
   <div>
     <p class="page-kicker">Catálogo GISTM</p>
     <h1>Requisitos</h1>
-    <p class="page-desc">Los requisitos se asocian a un principio y agrupan los criterios del estándar.</p>
+    <p class="page-desc">
+      Los requisitos se asocian a un principio y agrupan los criterios del estándar.
+      Deshabilitar un requisito excluye sus criterios solo en revisiones nuevas.
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn" href="{% url 'maestro:requisito_create' %}">+ Nuevo requisito</a>
@@ -58,6 +61,7 @@
           <th>Principio</th>
           <th>Tema</th>
           <th>Descripción</th>
+          <th>Estado</th>
           <th></th>
         </tr>
       </thead>
@@ -68,13 +72,26 @@
             <td class="mono">{{ requisito.principio.codigo }}</td>
             <td>{{ requisito.principio.tema.codigo }}</td>
             <td>{{ requisito.descripcion|truncatechars:90 }}</td>
+            <td>
+              {% if requisito.activo %}
+                <span class="badge badge-ok">Habilitado</span>
+              {% else %}
+                <span class="badge badge-off">Deshabilitado</span>
+              {% endif %}
+            </td>
             <td class="actions">
               <a href="{% url 'maestro:requisito_edit' requisito.pk %}">Editar</a>
+              <form method="post" action="{% url 'maestro:requisito_toggle_activo' requisito.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if requisito.activo %}Deshabilitar{% else %}Habilitar{% endif %}
+                </button>
+              </form>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">
+            <td colspan="6">
               <div class="empty-state">
                 <strong>No hay requisitos</strong>
                 Crea requisitos asociados a un principio existente.

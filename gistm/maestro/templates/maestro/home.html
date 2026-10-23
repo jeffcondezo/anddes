@@ -106,15 +106,23 @@
 
   <section class="panel" style="margin-top:1.25rem;">
     <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Tu portal</h2>
-    <p class="muted" style="margin:0 0 0.75rem;">Carga evidencias de la revisión activa y consulta el avance por tema.</p>
+    <p class="muted" style="margin:0 0 0.75rem;">Consulta el avance, carga evidencias y sigue actividades y acuerdos con Anddes.</p>
     <div class="quick-links">
       <a class="quick-link" href="{% url 'maestro:mi_empresa_dashboard' %}">
         <strong>Avance</strong>
-        <span>Resumen por documentos, criterios, requisitos, principios y temas.</span>
+        <span>Indicadores, progreso, documentos, estándar GISTM y glosario.</span>
       </a>
       <a class="quick-link" href="{% url 'maestro:mi_empresa_documentos' %}">
         <strong>Mis documentos</strong>
-        <span>Lista de documentos configurados y carga de archivos.</span>
+        <span>Lista de documentos, carga de archivos y comentarios.</span>
+      </a>
+      <a class="quick-link" href="{% url 'maestro:actividad_calendario' %}">
+        <strong>Actividades</strong>
+        <span>Calendario de reuniones y tareas programadas con tu empresa.</span>
+      </a>
+      <a class="quick-link" href="{% url 'maestro:acuerdo_bandeja' %}">
+        <strong>Acuerdos</strong>
+        <span>Compromisos abiertos, vencidos y cumplidos (solo consulta).</span>
       </a>
     </div>
   </section>

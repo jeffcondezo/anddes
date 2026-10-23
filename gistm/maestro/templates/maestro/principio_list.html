@@ -7,7 +7,10 @@
   <div>
     <p class="page-kicker">Catálogo GISTM</p>
     <h1>Principios</h1>
-    <p class="page-desc">Los 15 principios se asocian a un tema. La suma de ponderación se calcula desde sus criterios (vía requisitos).</p>
+    <p class="page-desc">
+      Los 15 principios se asocian a un tema. La suma de ponderación se calcula desde sus criterios (vía requisitos).
+      Deshabilitar un principio excluye sus criterios solo en revisiones nuevas.
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn" href="{% url 'maestro:principio_create' %}">+ Nuevo principio</a>
@@ -23,6 +26,7 @@
           <th>Tema</th>
           <th>Descripción</th>
           <th>Suma ponderación</th>
+          <th>Estado</th>
           <th></th>
         </tr>
       </thead>
@@ -33,13 +37,26 @@
             <td>{{ principio.tema.codigo }} · {{ principio.tema.nombre }}</td>
             <td>{{ principio.descripcion|truncatechars:90 }}</td>
             <td class="mono">{{ principio.suma_ponderacion }}</td>
+            <td>
+              {% if principio.activo %}
+                <span class="badge badge-ok">Habilitado</span>
+              {% else %}
+                <span class="badge badge-off">Deshabilitado</span>
+              {% endif %}
+            </td>
             <td class="actions">
               <a href="{% url 'maestro:principio_edit' principio.pk %}">Editar</a>
+              <form method="post" action="{% url 'maestro:principio_toggle_activo' principio.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if principio.activo %}Deshabilitar{% else %}Habilitar{% endif %}
+                </button>
+              </form>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">
+            <td colspan="6">
               <div class="empty-state">
                 <strong>No hay principios registrados</strong>
                 Primero crea temas y luego asocia principios.

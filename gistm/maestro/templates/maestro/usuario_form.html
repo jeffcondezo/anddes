@@ -57,6 +57,14 @@
       {{ form.empresas }}
       {{ form.empresas.errors }}
     </div>
+    <div class="form-row span-2" id="row-reporta-a">
+      <label for="id_reporta_a">{{ form.reporta_a.label }}</label>
+      {{ form.reporta_a }}
+      {% if form.reporta_a.help_text %}
+        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">{{ form.reporta_a.help_text }}</p>
+      {% endif %}
+      {{ form.reporta_a.errors }}
+    </div>
 
     <div class="form-actions span-2">
       <button type="submit" class="btn">Guardar</button>
@@ -70,10 +78,12 @@
     const tipo = document.getElementById("id_tipo");
     const rowEmpresa = document.getElementById("row-empresa");
     const rowEmpresas = document.getElementById("row-empresas");
+    const rowReporta = document.getElementById("row-reporta-a");
     function sync() {
       const value = tipo.value;
       rowEmpresa.style.display = value === "CLIENTE" ? "" : "none";
       rowEmpresas.style.display = value === "GESTOR" ? "" : "none";
+      rowReporta.style.display = value === "GESTOR" ? "" : "none";
     }
     tipo.addEventListener("change", sync);
     sync();

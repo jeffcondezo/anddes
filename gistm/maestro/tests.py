@@ -24,6 +24,7 @@ from maestro.indicadores import (
 from maestro.models import (
     Actividad,
     Acuerdo,
+    AcuerdoNotificacionEnvio,
     AlcanceActividad,
     Area,
     AvisoConsultor,
@@ -32,21 +33,27 @@ from maestro.models import (
     Empresa,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EmpresaDocumentoPregunta,
+    EmpresaNotificacionRegla,
     EstadoAcuerdo,
     EstadoActividad,
     EstadoRevisionCarga,
     EstadoRevisionCriterio,
+    EstadoRevisionPregunta,
     DocumentoMensaje,
     OrigenEmpresaDocumento,
     TipoDocumentoMensaje,
     PerfilUsuario,
+    Pregunta,
     Principio,
     Requisito,
     Revision,
     Tema,
     TipoActividad,
     TipoAvisoConsultor,
+    TipoNotificacionAcuerdo,
     TipoUsuario,
+    sincronizar_estado_criterio_desde_preguntas,
 )
 from maestro.permissions import empresas_visibles, puede_ver_empresa
 from maestro.progress import (
@@ -101,6 +108,13 @@ class FixturesMixin:
             descripcion="Criterio 1",
             requisito=self.requisito,
         )
+        self.pregunta = Pregunta.objects.create(
+            codigo="Q1",
+            texto="¿Se evidencia el criterio 1?",
+            criterio=self.criterio,
+            orden=1,
+            activo=True,
+        )
         self.doc = EmpresaDocumento.objects.create(
             revision=self.revision,
             codigo="DOC-01",
@@ -115,6 +129,9 @@ class FixturesMixin:
             criterio=self.criterio,
             area=self.area,
         )
+        self.respuesta = EmpresaDocumentoPregunta.objects.get(
+            vinculo_criterio=self.vinculo, pregunta=self.pregunta
+        )
 
         self.admin = _user("admin@test.local", first_name="Ana", last_name="Admin")
         _perfil(self.admin, TipoUsuario.ADMINISTRADOR)
@@ -124,6 +141,18 @@ class FixturesMixin:
 
         self.cliente = _user("cliente@test.local", first_name="Carlos", last_name="Cliente")
         _perfil(self.cliente, TipoUsuario.CLIENTE, empresa=self.empresa)
+
+    def _aprobar_criterio_via_preguntas(self, vinculo=None):
+        vinculo = vinculo or self.vinculo
+        for resp in EmpresaDocumentoPregunta.objects.filter(vinculo_criterio=vinculo):
+            resp.estado_revision = EstadoRevisionPregunta.CUMPLE
+            resp.observacion = ""
+            resp.save(
+                update_fields=["estado_revision", "observacion", "actualizado_en"]
+            )
+        sincronizar_estado_criterio_desde_preguntas(vinculo)
+        vinculo.refresh_from_db()
+        return vinculo
 
 
 @override_settings(
@@ -178,18 +207,64 @@ class ProgressTests(FixturesMixin, TestCase):
             revisado_por=self.gestor,
             revisado_en=timezone.now(),
         )
-        self.vinculo.estado_revision = EstadoRevisionCriterio.APROBADO
-        self.vinculo.save(update_fields=["estado_revision", "actualizado_en"])
+        self._aprobar_criterio_via_preguntas()
         progreso = calcular_progreso_revision(self.revision)
         self.assertEqual(progreso.docs_cargados, 1)
         self.assertEqual(progreso.docs_pct, 100.0)
         self.assertEqual(progreso.criterios_completos, 1)
+
+    def test_criterio_sin_preguntas_no_completo(self):
+        EmpresaDocumentoPregunta.objects.filter(vinculo_criterio=self.vinculo).delete()
+        Pregunta.objects.filter(criterio=self.criterio).delete()
+        self.vinculo.estado_revision = EstadoRevisionCriterio.APROBADO
+        self.vinculo.save(
+            update_fields=["estado_revision", "actualizado_en"], skip_seed=True
+        )
+        progreso = calcular_progreso_revision(self.revision)
+        self.assertEqual(progreso.criterios_completos, 0)
+
+    def test_preguntas_parciales_no_aprueban_criterio(self):
+        q2 = Pregunta.objects.create(
+            codigo="Q2",
+            texto="Segunda pregunta",
+            criterio=self.criterio,
+            orden=2,
+        )
+        # Re-sembrar
+        self.vinculo.save()
+        r1 = EmpresaDocumentoPregunta.objects.get(
+            vinculo_criterio=self.vinculo, pregunta=self.pregunta
+        )
+        r2 = EmpresaDocumentoPregunta.objects.get(
+            vinculo_criterio=self.vinculo, pregunta=q2
+        )
+        r1.estado_revision = EstadoRevisionPregunta.CUMPLE
+        r1.save(update_fields=["estado_revision", "actualizado_en"])
+        sincronizar_estado_criterio_desde_preguntas(self.vinculo)
+        self.vinculo.refresh_from_db()
+        self.assertNotEqual(self.vinculo.estado_revision, EstadoRevisionCriterio.APROBADO)
+        progreso = calcular_progreso_revision(self.revision)
+        self.assertEqual(progreso.criterios_completos, 0)
+        # Avance parcial: 1 de 2 preguntas ya suma al % global de criterios.
+        self.assertEqual(progreso.criterios_pct, 50.0)
+
+        r2.estado_revision = EstadoRevisionPregunta.CUMPLE
+        r2.save(update_fields=["estado_revision", "actualizado_en"])
+        sincronizar_estado_criterio_desde_preguntas(self.vinculo)
+        self.vinculo.refresh_from_db()
+        self.assertEqual(self.vinculo.estado_revision, EstadoRevisionCriterio.APROBADO)
+        progreso = calcular_progreso_revision(self.revision)
+        self.assertEqual(progreso.criterios_completos, 1)
+        self.assertEqual(progreso.criterios_pct, 100.0)
 
     def test_aprobacion_parcial_suma_criterio_no_documento(self):
         c2 = Criterio.objects.create(
             codigo="C2",
             descripcion="Criterio 2",
             requisito=self.requisito,
+        )
+        Pregunta.objects.create(
+            codigo="Q-C2", texto="Pregunta C2", criterio=c2, orden=1
         )
         EmpresaDocumentoCriterio.objects.create(
             revision=self.revision,
@@ -204,8 +279,7 @@ class ProgressTests(FixturesMixin, TestCase):
             activo=True,
             estado_revision=EstadoRevisionCarga.PENDIENTE,
         )
-        self.vinculo.estado_revision = EstadoRevisionCriterio.APROBADO
-        self.vinculo.save(update_fields=["estado_revision", "actualizado_en"])
+        self._aprobar_criterio_via_preguntas()
         from maestro.models import sincronizar_estado_carga_documento
 
         carga = sincronizar_estado_carga_documento(self.doc)
@@ -304,15 +378,27 @@ class PermissionsTests(FixturesMixin, TestCase):
 )
 class AcuerdoActividadTests(FixturesMixin, TestCase):
     def test_crear_actividad_y_acuerdo(self):
+        from .models import Responsable
+
+        responsable = Responsable.objects.create(
+            area=self.area,
+            nombre="Ana Pérez",
+            dni="12345678",
+            telefono="999888777",
+            correo="ana@example.com",
+        )
         actividad = Actividad.objects.create(
             titulo="Reunión semanal",
             descripcion="Seguimiento de evidencias",
             tipo=TipoActividad.GENERAL,
             alcance=AlcanceActividad.CON_CLIENTE,
             empresa=self.empresa,
+            responsable=responsable,
+            area=self.area,
             inicio=timezone.now() + timedelta(days=1),
             estado=EstadoActividad.PROGRAMADA,
             creado_por=self.gestor,
+            asignado_a=self.gestor,
             enviar_correo=True,
         )
         actividad.documentos.add(self.doc)
@@ -328,6 +414,521 @@ class AcuerdoActividadTests(FixturesMixin, TestCase):
         acuerdo.documentos.add(self.doc)
         self.assertEqual(actividad.acuerdos.count(), 1)
         self.assertTrue(acuerdo.documentos.filter(pk=self.doc.pk).exists())
+        self.assertEqual(actividad.responsable_id, responsable.pk)
+        self.assertEqual(actividad.area_id, self.area.pk)
+
+        self.client.force_login(self.gestor)
+        resp = self.client.get(
+            reverse("maestro:actividad_crear"),
+            {"empresa": self.empresa.pk, "area": self.area.pk},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Área responsable")
+        self.assertContains(resp, self.area.nombre)
+        self.assertContains(resp, "Ana Pérez")
+
+        self.client.force_login(self.admin)
+        resp_areas = self.client.get(reverse("maestro:empresa_areas", args=[self.empresa.pk]))
+        self.assertEqual(resp_areas.status_code, 200)
+        self.assertContains(resp_areas, "Áreas y responsables")
+        self.assertContains(resp_areas, self.area.nombre)
+
+    def test_actividad_pasa_a_pasada_tras_fecha_fin(self):
+        from .models import sincronizar_actividades_pasadas
+
+        actividad = Actividad.objects.create(
+            titulo="Vencida",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.PERSONAL,
+            inicio=timezone.now() - timedelta(days=3),
+            fin=timezone.now() - timedelta(days=2),
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.gestor,
+            asignado_a=self.gestor,
+        )
+        ids = sincronizar_actividades_pasadas(creado_por_id=self.gestor.pk)
+        self.assertIn(actividad.pk, ids)
+        actividad.refresh_from_db()
+        self.assertEqual(actividad.estado, EstadoActividad.PASADA)
+
+    def test_aviso_actividad_proxima_un_dia_antes(self):
+        from .actividad_recordatorios import generar_avisos_actividades_proximas
+        from .models import TipoAvisoConsultor
+
+        manana = timezone.localtime(timezone.now()) + timedelta(days=1)
+        actividad = Actividad.objects.create(
+            titulo="Casi vence",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.CON_CLIENTE,
+            empresa=self.empresa,
+            inicio=manana,
+            fin=manana,
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.gestor,
+            asignado_a=self.gestor,
+        )
+        res = generar_avisos_actividades_proximas(dia=timezone.localdate())
+        self.assertGreaterEqual(res["creados"], 1)
+        self.assertTrue(
+            AvisoConsultor.objects.filter(
+                destinatario=self.gestor,
+                tipo=TipoAvisoConsultor.ACTIVIDAD_PROXIMA,
+                url__contains=f"/actividades/{actividad.pk}/",
+            ).exists()
+        )
+        # No duplicar el mismo umbral
+        res2 = generar_avisos_actividades_proximas(dia=timezone.localdate())
+        self.assertEqual(res2["creados"], 0)
+
+    def test_recordatorio_manual_varios_responsables_to_cc(self):
+        from django.core import mail
+
+        from .models import Responsable
+
+        area2 = Area.objects.create(empresa=self.empresa, nombre="Ambiental")
+        r1 = Responsable.objects.create(
+            area=self.area,
+            nombre="Ana Pérez",
+            dni="12345678",
+            correo="ana@example.com",
+        )
+        r2 = Responsable.objects.create(
+            area=area2,
+            nombre="Luis Gómez",
+            dni="87654321",
+            correo="luis@example.com",
+        )
+        actividad = Actividad.objects.create(
+            titulo="Seguimiento correo",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.CON_CLIENTE,
+            empresa=self.empresa,
+            inicio=timezone.now() + timedelta(days=2),
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.gestor,
+            asignado_a=self.gestor,
+        )
+        acuerdo = Acuerdo.objects.create(
+            actividad=actividad,
+            empresa=self.empresa,
+            titulo="Compromiso texto",
+            descripcion="Avance semanal",
+            fecha_compromiso=timezone.now() + timedelta(days=5),
+            estado=EstadoAcuerdo.ABIERTO,
+            creado_por=self.gestor,
+        )
+
+        self.client.force_login(self.gestor)
+        detalle = self.client.get(reverse("maestro:actividad_detalle", args=[actividad.pk]))
+        self.assertEqual(detalle.status_code, 200)
+        self.assertContains(detalle, "Destinatarios (responsables)")
+        self.assertContains(detalle, "Ana Pérez")
+        self.assertContains(detalle, "Luis Gómez")
+        self.assertContains(detalle, "Operaciones")
+        self.assertContains(detalle, "Ambiental")
+
+        bandeja = self.client.get(reverse("maestro:acuerdo_bandeja"))
+        self.assertEqual(bandeja.status_code, 200)
+        self.assertContains(bandeja, "ana@example.com")
+        self.assertContains(bandeja, "luis@example.com")
+
+        mail.outbox.clear()
+        resp = self.client.post(
+            reverse("maestro:acuerdo_enviar_recordatorio", args=[acuerdo.pk]),
+            {
+                "responsables": [r1.pk, r2.pk],
+                "mensaje": "Favor confirmar avance.",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        enviado = mail.outbox[0]
+        todos = sorted(enviado.to + list(enviado.cc or []))
+        self.assertEqual(todos, ["ana@example.com", "luis@example.com"])
+        self.assertEqual(len(enviado.to), 1)
+        self.assertEqual(len(enviado.cc or []), 1)
+        self.assertIn("Favor confirmar avance.", enviado.body)
+        acuerdo.refresh_from_db()
+        self.assertIsNotNone(acuerdo.ultimo_recordatorio_en)
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class EmpresaNotificacionesTests(FixturesMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.actividad = Actividad.objects.create(
+            titulo="Act notif",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.CON_CLIENTE,
+            empresa=self.empresa,
+            inicio=timezone.now() + timedelta(days=10),
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.gestor,
+            asignado_a=self.gestor,
+        )
+        # Usuario cliente con correo para envíos automáticos
+        self.cliente.email = "cliente@empresa.test"
+        self.cliente.save(update_fields=["email"])
+
+    def _acuerdo(self, *, compromiso):
+        return Acuerdo.objects.create(
+            actividad=self.actividad,
+            empresa=self.empresa,
+            titulo="Acuerdo notif",
+            descripcion="Detalle",
+            fecha_compromiso=compromiso,
+            estado=EstadoAcuerdo.ABIERTO,
+            creado_por=self.gestor,
+        )
+
+    def test_ui_configuracion_reglas(self):
+        self.client.force_login(self.admin)
+        url = reverse("maestro:empresa_notificaciones", args=[self.empresa.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Notificaciones de acuerdos")
+        self.assertNotContains(resp, "Plantilla del correo")
+        self.assertContains(resp, "día 0")
+        self.assertContains(resp, "Administración → Correos")
+
+        resp_post = self.client.post(
+            url,
+            {
+                "accion": "crear_regla",
+                "tipo": TipoNotificacionAcuerdo.ANTES,
+                "dias": "2, 5",
+                "activo": "on",
+            },
+        )
+        self.assertEqual(resp_post.status_code, 302)
+        self.assertEqual(
+            EmpresaNotificacionRegla.objects.filter(
+                empresa=self.empresa,
+                tipo=TipoNotificacionAcuerdo.ANTES,
+            ).count(),
+            2,
+        )
+        self.assertTrue(
+            EmpresaNotificacionRegla.objects.filter(
+                empresa=self.empresa,
+                tipo=TipoNotificacionAcuerdo.ANTES,
+                dias=2,
+            ).exists()
+        )
+
+        # Día 0 reservado por el sistema
+        resp_cero = self.client.post(
+            url,
+            {
+                "accion": "crear_regla",
+                "tipo": TipoNotificacionAcuerdo.ANTES,
+                "dias": "0",
+                "activo": "on",
+            },
+        )
+        self.assertEqual(resp_cero.status_code, 200)
+        self.assertContains(resp_cero, "configuración base del sistema")
+        self.assertFalse(
+            EmpresaNotificacionRegla.objects.filter(
+                empresa=self.empresa, dias=0
+            ).exists()
+        )
+
+    def test_regla_antes_dispara_en_dia_exacto(self):
+        from django.core import mail
+
+        from maestro.acuerdo_recordatorios import enviar_recordatorios_automaticos
+
+        EmpresaNotificacionRegla.objects.create(
+            empresa=self.empresa,
+            tipo=TipoNotificacionAcuerdo.ANTES,
+            dias=5,
+            activo=True,
+        )
+        from datetime import datetime as dt
+
+        hoy = timezone.localdate()
+        compromiso = timezone.make_aware(dt.combine(hoy + timedelta(days=5), dt.min.time()))
+        acuerdo = self._acuerdo(compromiso=compromiso)
+
+        mail.outbox.clear()
+        res = enviar_recordatorios_automaticos(dia=hoy)
+        self.assertEqual(res["enviados"], 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("text/html", mail.outbox[0].alternatives[0][1])
+        self.assertTrue(
+            AcuerdoNotificacionEnvio.objects.filter(
+                acuerdo=acuerdo,
+                tipo=TipoNotificacionAcuerdo.ANTES,
+                dias=5,
+                dia_referencia=hoy,
+            ).exists()
+        )
+        # No reenvía el mismo día
+        mail.outbox.clear()
+        res2 = enviar_recordatorios_automaticos(dia=hoy)
+        self.assertEqual(res2["enviados"], 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_regla_post_dia_exacto(self):
+        from datetime import datetime as dt
+
+        from django.core import mail
+
+        from maestro.acuerdo_recordatorios import enviar_recordatorios_automaticos
+
+        EmpresaNotificacionRegla.objects.create(
+            empresa=self.empresa,
+            tipo=TipoNotificacionAcuerdo.POST,
+            dias=7,
+            activo=True,
+        )
+        hoy = timezone.localdate()
+        compromiso = timezone.make_aware(dt.combine(hoy - timedelta(days=7), dt.min.time()))
+        acuerdo = self._acuerdo(compromiso=compromiso)
+
+        mail.outbox.clear()
+        res = enviar_recordatorios_automaticos(dia=hoy)
+        self.assertEqual(res["enviados"], 1)
+        self.assertTrue(
+            AcuerdoNotificacionEnvio.objects.filter(
+                acuerdo=acuerdo,
+                tipo=TipoNotificacionAcuerdo.POST,
+                dias=7,
+            ).exists()
+        )
+        # Mismo día: no reenvía
+        mail.outbox.clear()
+        self.assertEqual(enviar_recordatorios_automaticos(dia=hoy)["enviados"], 0)
+        # Otro día (no es el N exacto): no
+        self.assertEqual(
+            enviar_recordatorios_automaticos(dia=hoy + timedelta(days=3))["enviados"],
+            0,
+        )
+        # Día 14 post (sin regla): no
+        mail.outbox.clear()
+        self.assertEqual(
+            enviar_recordatorios_automaticos(dia=hoy + timedelta(days=7))["enviados"],
+            0,
+        )
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class JerarquiaActividadTests(FixturesMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.jefe = _user("jefe@test.local", first_name="Juan", last_name="Jefe")
+        _perfil(self.jefe, TipoUsuario.GESTOR, empresas=[self.empresa])
+        self.consultor = _user("consultor@test.local", first_name="Carla", last_name="Cons")
+        perfil_cons = _perfil(self.consultor, TipoUsuario.GESTOR, empresas=[self.empresa])
+        perfil_cons.reporta_a = self.jefe
+        perfil_cons.save(update_fields=["reporta_a", "actualizado_en"])
+
+    def test_jefe_ve_actividad_de_subordinado(self):
+        from .permissions import actividades_visibles, puede_ver_actividad
+
+        act = Actividad.objects.create(
+            titulo="Del consultor",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.PERSONAL,
+            inicio=timezone.now() + timedelta(days=2),
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.consultor,
+            asignado_a=self.consultor,
+        )
+        self.assertTrue(puede_ver_actividad(self.jefe, act))
+        self.assertTrue(puede_ver_actividad(self.consultor, act))
+        self.assertTrue(puede_ver_actividad(self.admin, act))
+        self.assertIn(act, actividades_visibles(self.jefe))
+        # El consultor no ve actividades solo del jefe
+        act_jefe = Actividad.objects.create(
+            titulo="Del jefe",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.PERSONAL,
+            inicio=timezone.now() + timedelta(days=2),
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.jefe,
+            asignado_a=self.jefe,
+        )
+        self.assertFalse(puede_ver_actividad(self.consultor, act_jefe))
+        self.assertTrue(puede_ver_actividad(self.jefe, act_jefe))
+
+    def test_asignar_actividad_a_subordinado(self):
+        self.client.force_login(self.jefe)
+        inicio = (timezone.localtime(timezone.now()) + timedelta(days=1)).strftime(
+            "%Y-%m-%dT%H:%M"
+        )
+        resp = self.client.post(
+            reverse("maestro:actividad_crear"),
+            {
+                "titulo": "Asignada al equipo",
+                "descripcion": "",
+                "alcance": AlcanceActividad.PERSONAL,
+                "empresa": "",
+                "asignado_a": self.consultor.pk,
+                "area": "",
+                "responsable": "",
+                "inicio": inicio,
+                "fin": "",
+                "enlace_reunion": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        act = Actividad.objects.get(titulo="Asignada al equipo")
+        self.assertEqual(act.creado_por_id, self.jefe.pk)
+        self.assertEqual(act.asignado_a_id, self.consultor.pk)
+
+    def test_aviso_proxima_llega_al_asignado(self):
+        from .actividad_recordatorios import generar_avisos_actividades_proximas
+
+        manana = timezone.localtime(timezone.now()) + timedelta(days=1)
+        act = Actividad.objects.create(
+            titulo="Asignada vence",
+            tipo=TipoActividad.GENERAL,
+            alcance=AlcanceActividad.PERSONAL,
+            inicio=manana,
+            fin=manana,
+            estado=EstadoActividad.PROGRAMADA,
+            creado_por=self.jefe,
+            asignado_a=self.consultor,
+        )
+        res = generar_avisos_actividades_proximas(dia=timezone.localdate())
+        self.assertGreaterEqual(res["creados"], 2)  # asignado + creador
+        self.assertTrue(
+            AvisoConsultor.objects.filter(
+                destinatario=self.consultor,
+                tipo=TipoAvisoConsultor.ACTIVIDAD_PROXIMA,
+                url__contains=f"/actividades/{act.pk}/",
+            ).exists()
+        )
+        self.assertTrue(
+            AvisoConsultor.objects.filter(
+                destinatario=self.jefe,
+                tipo=TipoAvisoConsultor.ACTIVIDAD_PROXIMA,
+                url__contains=f"/actividades/{act.pk}/",
+            ).exists()
+        )
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class EmpresaTamanoArchivoTests(FixturesMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+
+    def test_crear_empresa_con_tamano_max(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("maestro:empresa_create"),
+            {
+                "nombre": "Minera Límite",
+                "ruc": "20999999999",
+                "tamano_max_mb": "10",
+                "activo": "on",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        empresa = Empresa.objects.get(ruc="20999999999")
+        self.assertEqual(empresa.tamano_max_mb, 10)
+
+    def test_carga_rechaza_archivo_que_supera_limite(self):
+        from maestro.forms import DocumentoCargaForm
+
+        self.empresa.tamano_max_mb = 1
+        self.empresa.save(update_fields=["tamano_max_mb", "actualizado_en"])
+        # ~1.5 MB
+        grande = SimpleUploadedFile(
+            "evidencia.pdf",
+            b"x" * (1024 * 1024 + 512 * 1024),
+            content_type="application/pdf",
+        )
+        form = DocumentoCargaForm(
+            data={"observaciones": ""},
+            files={"archivo": grande},
+            empresa=self.empresa,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("archivo", form.errors)
+        self.assertIn("supera el máximo", form.errors["archivo"][0])
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class PlanEntregaTests(FixturesMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+
+    def test_guardar_fecha_limite_por_documento(self):
+        from datetime import date
+
+        self.client.force_login(self.admin)
+        url = reverse(
+            "maestro:empresa_revision_plan",
+            args=[self.empresa.pk, self.revision.pk],
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Definir plan de entrega")
+        self.assertContains(resp, self.doc.codigo)
+
+        resp_post = self.client.post(
+            url,
+            {f"fecha_limite_{self.doc.pk}": "2026-06-15"},
+        )
+        self.assertEqual(resp_post.status_code, 302)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.fecha_limite_entrega, date(2026, 6, 15))
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class DocumentoRevisionConsultorTests(FixturesMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+
+    def test_definir_revision_y_porcentaje(self):
+        self.client.force_login(self.gestor)
+        url = reverse(
+            "maestro:seguimiento_documento_revision_consultor",
+            args=[self.empresa.pk, self.doc.pk],
+        )
+        resp = self.client.post(
+            url,
+            {
+                "revision_texto": "Rev0",
+                "revision_porcentaje": "35",
+                "next": reverse("maestro:seguimiento_empresa_revision", args=[self.empresa.pk]),
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.revision_texto, "Rev0")
+        self.assertEqual(self.doc.revision_porcentaje, 35)
+
+        progreso = calcular_progreso_revision(self.revision)
+        item = next(d for d in progreso.documentos if d.id == self.doc.pk)
+        self.assertEqual(item.revision_texto, "Rev0")
+        self.assertEqual(item.revision_porcentaje, 35)
+        from maestro.indicadores import _estado_madurez_doc
+
+        self.assertEqual(_estado_madurez_doc(item), "Rev0")
 
 
 @override_settings(
@@ -365,12 +966,20 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         self.client.force_login(self.cliente)
         for url in [
             reverse("maestro:home"),
-            reverse("maestro:mi_empresa_dashboard"),
             reverse("maestro:mi_empresa_documentos"),
+            reverse("maestro:actividad_calendario"),
+            reverse("maestro:acuerdo_bandeja"),
         ]:
             with self.subTest(url=url):
                 resp = self.client.get(url)
                 self.assertEqual(resp.status_code, 200, msg=url)
+        # Avance redirige al dashboard de indicadores de su empresa
+        resp = self.client.get(reverse("maestro:mi_empresa_dashboard"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(
+            reverse("maestro:indicadores_empresa", args=[self.empresa.pk]),
+            resp.url,
+        )
 
     def test_cliente_no_accede_a_seguimiento(self):
         self.client.force_login(self.cliente)
@@ -399,11 +1008,26 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         self.vinculo.refresh_from_db()
         self.assertEqual(self.vinculo.estado_revision, EstadoRevisionCriterio.APROBADO)
 
-    def test_revision_parcial_con_observacion_por_criterio(self):
+        # Revertir aprobación (error de usuario)
+        url_rev = reverse(
+            "maestro:seguimiento_carga_revertir",
+            args=[self.empresa.pk, carga.pk],
+        )
+        resp = self.client.post(url_rev)
+        self.assertEqual(resp.status_code, 302)
+        carga.refresh_from_db()
+        self.assertEqual(carga.estado_revision, EstadoRevisionCarga.PENDIENTE)
+        self.vinculo.refresh_from_db()
+        self.assertEqual(self.vinculo.estado_revision, EstadoRevisionCriterio.PENDIENTE)
+
+    def test_revision_parcial_con_observacion_por_pregunta(self):
         c2 = Criterio.objects.create(
             codigo="C2",
             descripcion="Criterio 2",
             requisito=self.requisito,
+        )
+        q2 = Pregunta.objects.create(
+            codigo="Q-C2", texto="Pregunta de C2", criterio=c2, orden=1
         )
         v2 = EmpresaDocumentoCriterio.objects.create(
             revision=self.revision,
@@ -411,6 +1035,7 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
             criterio=c2,
             area=self.area,
         )
+        r2 = EmpresaDocumentoPregunta.objects.get(vinculo_criterio=v2, pregunta=q2)
         carga = DocumentoCarga.objects.create(
             empresa_documento=self.doc,
             archivo=SimpleUploadedFile("ev.pdf", b"%PDF-1.4 demo"),
@@ -427,9 +1052,9 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
             url,
             {
                 "accion": "guardar",
-                f"accion_v_{self.vinculo.pk}": "APROBADO",
-                f"accion_v_{v2.pk}": "OBSERVADO",
-                f"obs_v_{v2.pk}": "Falta el anexo de monitoreo trimestral.",
+                f"accion_p_{self.respuesta.pk}": "CUMPLE",
+                f"accion_p_{r2.pk}": "NO_CUMPLE",
+                f"obs_p_{r2.pk}": "Falta el anexo de monitoreo trimestral.",
             },
         )
         self.assertEqual(resp.status_code, 302)
@@ -452,7 +1077,7 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
             url,
             {
                 "accion": "guardar",
-                f"accion_v_{v2.pk}": "APROBADO",
+                f"accion_p_{r2.pk}": "CUMPLE",
             },
         )
         self.assertEqual(resp.status_code, 302)
@@ -492,9 +1117,23 @@ class IndicadoresTests(FixturesMixin, TestCase):
             activo=True,
         )
 
-    def test_cliente_no_accede_a_indicadores(self):
+    def test_cliente_accede_a_indicadores_de_su_empresa(self):
         self.client.force_login(self.cliente)
         resp = self.client.get(reverse("maestro:indicadores_list"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(
+            reverse("maestro:indicadores_empresa", args=[self.empresa.pk]),
+            resp.url,
+        )
+        for tab in ("general", "progreso", "documentos", "estandar", "glosario"):
+            with self.subTest(tab=tab):
+                url = reverse("maestro:indicadores_empresa", args=[self.empresa.pk])
+                resp = self.client.get(url, {"tab": tab})
+                self.assertEqual(resp.status_code, 200, msg=tab)
+        # No puede ver otra empresa
+        resp = self.client.get(
+            reverse("maestro:indicadores_empresa", args=[self.otra_empresa.pk])
+        )
         self.assertEqual(resp.status_code, 302)
 
     def test_gestor_lista_y_dashboard_tabs(self):
@@ -568,8 +1207,7 @@ class IndicadoresTests(FixturesMixin, TestCase):
             revisado_por=self.gestor,
             revisado_en=timezone.now(),
         )
-        self.vinculo.estado_revision = EstadoRevisionCriterio.APROBADO
-        self.vinculo.save(update_fields=["estado_revision", "actualizado_en"])
+        self._aprobar_criterio_via_preguntas()
         progreso = calcular_progreso_revision(self.revision)
         principios = avance_por_principios(progreso)
         self.assertEqual(len(principios), 1)
@@ -605,8 +1243,7 @@ class IndicadoresTests(FixturesMixin, TestCase):
             revisado_por=self.gestor,
             revisado_en=timezone.now(),
         )
-        self.vinculo.estado_revision = EstadoRevisionCriterio.APROBADO
-        self.vinculo.save(update_fields=["estado_revision", "actualizado_en"])
+        self._aprobar_criterio_via_preguntas()
         progreso = calcular_progreso_revision(self.revision)
         curva = curva_avance(self.revision, progreso)
         self.assertFalse(curva.get("sin_fechas"))
@@ -622,6 +1259,10 @@ class IndicadoresTests(FixturesMixin, TestCase):
         )
         self.assertTrue(sin_fechas.get("sin_fechas"))
 
+        self.doc.revision_texto = "RevB"
+        self.doc.revision_porcentaje = 80
+        self.doc.save(update_fields=["revision_texto", "revision_porcentaje", "actualizado_en"])
+        progreso = calcular_progreso_revision(self.revision)
         pastel = chart_documentos_estados(progreso)
         self.assertIn("RevB", pastel["labels"])
         self.assertGreaterEqual(pastel["values"][pastel["labels"].index("RevB")], 1)
@@ -649,5 +1290,5 @@ class IndicadoresTests(FixturesMixin, TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Curva avance")
-        self.assertContains(resp, "Documentos prioritarios")
+        self.assertContains(resp, "Prioritarios")
         self.assertContains(resp, "chart-curva-avance")

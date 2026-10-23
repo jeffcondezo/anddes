@@ -14,15 +14,24 @@
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Calendario</a>
-    {% if actividad.estado == 'PROGRAMADA' %}
-      <form method="post" action="{% url 'maestro:actividad_completar' actividad.pk %}" style="display:inline;">
-        {% csrf_token %}
-        <button type="submit" class="btn">Marcar completada</button>
-      </form>
-      <form method="post" action="{% url 'maestro:actividad_cancelar' actividad.pk %}" style="display:inline;" onsubmit="return confirm('¿Cancelar esta actividad?');">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-ghost">Cancelar</button>
-      </form>
+    {% if not solo_lectura %}
+      {% if actividad.estado == 'PROGRAMADA' or actividad.estado == 'PASADA' %}
+        <form method="post" action="{% url 'maestro:actividad_completar' actividad.pk %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn" title="La actividad sí se realizó">Marcar completada</button>
+        </form>
+        <form
+          method="post"
+          action="{% url 'maestro:actividad_cancelar' actividad.pk %}"
+          style="display:inline;"
+          onsubmit="return confirm('¿Confirmar que esta actividad no se llevó a cabo?');"
+        >
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost" title="Anular o cerrar sin haberse realizado">
+            No se llevó a cabo
+          </button>
+        </form>
+      {% endif %}
     {% endif %}
   </div>
 </header>
@@ -41,6 +50,13 @@
   <article class="stat-card">
     <div class="stat-label">Estado</div>
     <div class="stat-value" style="font-size:1.2rem; padding-top:0.35rem;">{{ actividad.get_estado_display }}</div>
+    {% if actividad.estado == 'COMPLETADA' %}
+      <div class="stat-hint">Se realizó</div>
+    {% elif actividad.estado == 'CANCELADA' %}
+      <div class="stat-hint">Cerrada sin ejecutarse</div>
+    {% elif actividad.estado == 'PASADA' %}
+      <div class="stat-hint">Vencida: completa o marca que no se realizó</div>
+    {% endif %}
   </article>
 </div>
 
@@ -57,6 +73,34 @@
     <p style="white-space:pre-wrap; margin:0 0 1rem;">{{ actividad.descripcion }}</p>
   {% else %}
     <p class="muted">Sin tenor / agenda.</p>
+  {% endif %}
+  <p style="margin:0 0 0.75rem;">
+    <strong>Asignado a:</strong>
+    {% if actividad.asignado_a %}
+      {{ actividad.asignado_a.get_full_name|default:actividad.asignado_a.email }}
+    {% else %}—{% endif %}
+    {% if actividad.creado_por_id != actividad.asignado_a_id %}
+      <span class="muted">· Creado por {{ actividad.creado_por.get_full_name|default:actividad.creado_por.email }}</span>
+    {% endif %}
+  </p>
+  {% if actividad.area %}
+    <p style="margin:0 0 0.75rem;">
+      <strong>Área responsable:</strong> {{ actividad.area.nombre }}
+    </p>
+  {% endif %}
+  {% if actividad.responsable %}
+    <p style="margin:0 0 0.75rem;">
+      <strong>Responsable:</strong> {{ actividad.responsable.nombre }}
+      {% if actividad.responsable.correo %}
+        · <a href="mailto:{{ actividad.responsable.correo }}">{{ actividad.responsable.correo }}</a>
+      {% endif %}
+      {% if actividad.responsable.telefono %}
+        · {{ actividad.responsable.telefono }}
+      {% endif %}
+      {% if actividad.responsable.dni %}
+        · DNI {{ actividad.responsable.dni }}
+      {% endif %}
+    </p>
   {% endif %}
   {% if actividad.enlace_reunion %}
     <p style="margin:0 0 0.75rem;">
@@ -87,7 +131,7 @@
             </div>
             <div class="doc-row-side">
               {% if actividad.empresa %}
-                <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' doc.id %}" target="_blank" rel="noopener">Mensajes</a>
+                <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' doc.id %}" target="_blank" rel="noopener">Detalles</a>
               {% endif %}
             </div>
           </div>
@@ -129,21 +173,23 @@
               </p>
             </div>
             <div class="review-card-badges" style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; justify-content:flex-end;">
-              <span class="badge {% if a.estado == 'CUMPLIDO' %}badge-ok{% else %}badge-info{% endif %}">{{ a.get_estado_display }}</span>
-              {% if a.estado == 'ABIERTO' %}
-                {% if a.empresa_id or actividad.empresa_id %}
-                  <button
-                    type="button"
-                    class="btn btn-ghost"
-                    data-acuerdo-modal="acuerdo-remind-{{ a.id }}"
-                  >
-                    Enviar recordatorio
-                  </button>
+              <span class="badge {% if a.estado == 'CUMPLIDO' %}badge-ok{% elif a.estado == 'VENCIDO' %}badge-warn{% else %}badge-info{% endif %}">{{ a.get_estado_display }}</span>
+              {% if not solo_lectura %}
+                {% if a.estado == 'ABIERTO' or a.estado == 'VENCIDO' %}
+                  {% if a.empresa_id or actividad.empresa_id %}
+                    <button
+                      type="button"
+                      class="btn btn-ghost"
+                      data-acuerdo-modal="acuerdo-remind-{{ a.id }}"
+                    >
+                      Enviar recordatorio
+                    </button>
+                  {% endif %}
+                  <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline; margin:0;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost">Cumplido</button>
+                  </form>
                 {% endif %}
-                <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline; margin:0;">
-                  {% csrf_token %}
-                  <button type="submit" class="btn btn-ghost">Cumplido</button>
-                </form>
               {% endif %}
             </div>
           </div>
@@ -164,7 +210,11 @@
   {% else %}
     <div class="empty-state">
       <strong>Sin acuerdos</strong>
-      Usa «Nuevo acuerdo» para registrar el primero.
+      {% if solo_lectura %}
+        Aún no hay compromisos registrados en esta actividad.
+      {% else %}
+        Usa «Nuevo acuerdo» para registrar el primero.
+      {% endif %}
     </div>
   {% endif %}
 </section>
@@ -217,8 +267,10 @@
   </div>
 {% endif %}
 
+{% if not solo_lectura %}
 {% for a in acuerdos %}
-  {% if a.estado == 'ABIERTO' and a.empresa_id or a.estado == 'ABIERTO' and actividad.empresa_id %}
+  {% if a.estado == 'ABIERTO' or a.estado == 'VENCIDO' %}
+  {% if a.empresa_id or actividad.empresa_id %}
     <div
       class="modal-backdrop"
       id="acuerdo-remind-{{ a.id }}"
@@ -238,6 +290,31 @@
         <form method="post" action="{% url 'maestro:acuerdo_enviar_recordatorio' a.pk %}">
           {% csrf_token %}
           <div class="form-row">
+            <label>Destinatarios (responsables)</label>
+            <p class="muted" style="margin:0 0 0.5rem; font-size:0.8rem;">
+              Elige uno o varios. El primero va en To y el resto en copia (CC).
+            </p>
+            {% if responsables_por_area %}
+              <div class="checkbox-list" style="max-height:14rem; overflow:auto;">
+                {% for area_nombre, lista in responsables_por_area.items %}
+                  <p style="margin:0.5rem 0 0.25rem; font-weight:650; font-size:0.85rem;">{{ area_nombre }}</p>
+                  <ul style="margin:0; padding-left:0; list-style:none;">
+                    {% for r in lista %}
+                      <li>
+                        <label>
+                          <input type="checkbox" name="responsables" value="{{ r.pk }}">
+                          {{ r.nombre }} <span class="muted">({{ r.correo }})</span>
+                        </label>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="muted">No hay responsables con correo en las áreas de esta empresa. Configúralos en Empresas → Áreas.</p>
+            {% endif %}
+          </div>
+          <div class="form-row" style="margin-top:0.75rem;">
             <label for="mensaje-{{ a.id }}">Nota</label>
             <textarea
               class="input"
@@ -248,12 +325,13 @@
             ></textarea>
           </div>
           <div class="form-actions" style="margin-top:1rem;">
-            <button type="submit" class="btn">Enviar correo</button>
+            <button type="submit" class="btn" {% if not responsables_por_area %}disabled{% endif %}>Enviar correo</button>
             <button type="button" class="btn btn-ghost" data-acuerdo-modal-close>Cancelar</button>
           </div>
         </form>
       </div>
     </div>
+  {% endif %}
   {% endif %}
 {% endfor %}
 
@@ -293,4 +371,5 @@
     });
   })();
 </script>
+{% endif %}
 {% endblock %}

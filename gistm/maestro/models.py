@@ -6,7 +6,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import DecimalField, Sum
+from django.db.models import DecimalField, Q, Sum
 from django.utils import timezone
 
 
@@ -14,6 +14,19 @@ class Empresa(models.Model):
     nombre = models.CharField(max_length=255)
     ruc = models.CharField(max_length=20, blank=True)
     activo = models.BooleanField(default=True)
+    notificaciones_activas = models.BooleanField(
+        default=True,
+        verbose_name="Envío de notificaciones por correo",
+        help_text=(
+            "Si está desactivado, el sistema no envía correos automáticos ni manuales "
+            "de recordatorios (acuerdos, caducidad de documentos, etc.) a esta empresa."
+        ),
+    )
+    tamano_max_mb = models.PositiveIntegerField(
+        default=25,
+        verbose_name="Tamaño máximo de archivo (MB)",
+        help_text="Peso máximo permitido al cargar evidencias en esta empresa.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -21,9 +34,19 @@ class Empresa(models.Model):
         ordering = ["nombre"]
         verbose_name = "Empresa"
         verbose_name_plural = "Empresas"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(tamano_max_mb__gte=1),
+                name="maestro_empresa_tamano_max_mb_gte_1",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.nombre
+
+    @property
+    def tamano_max_bytes(self) -> int:
+        return int(self.tamano_max_mb) * 1024 * 1024
 
 
 class Area(models.Model):
@@ -50,6 +73,285 @@ class Area(models.Model):
 
     def __str__(self) -> str:
         return f"{self.nombre} ({self.empresa.nombre})"
+
+
+class Responsable(models.Model):
+    """Persona de contacto vinculada a un área de la empresa."""
+
+    area = models.ForeignKey(
+        Area,
+        on_delete=models.CASCADE,
+        related_name="responsables",
+    )
+    nombre = models.CharField(max_length=255)
+    dni = models.CharField(
+        max_length=8,
+        verbose_name="DNI",
+        help_text="Exactamente 8 dígitos numéricos.",
+    )
+    telefono = models.CharField(max_length=40, blank=True, verbose_name="Número / teléfono")
+    correo = models.EmailField(blank=True)
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["nombre"]
+        verbose_name = "Responsable"
+        verbose_name_plural = "Responsables"
+
+    def __str__(self) -> str:
+        return f"{self.nombre} · {self.area.nombre}"
+
+    def clean(self) -> None:
+        dni = (self.dni or "").strip()
+        if not dni.isdigit() or len(dni) != 8:
+            raise ValidationError({"dni": "El DNI debe tener exactamente 8 dígitos numéricos."})
+        self.dni = dni
+
+
+class TipoNotificacionAcuerdo(models.TextChoices):
+    ANTES = "ANTES", "Antes del vencimiento"
+    POST = "POST", "Post vencimiento"
+
+
+# Día del vencimiento: recordatorio base del sistema (no configurable por empresa).
+NOTIFICACION_ACUERDO_DIA_SISTEMA = 0
+
+
+class EmpresaNotificacionRegla(models.Model):
+    """
+    Regla de correo automático de acuerdos, configurable por empresa.
+    - ANTES: envía una vez cuando faltan `dias` para la fecha de compromiso.
+    - POST: envía una vez cuando han pasado `dias` tras el vencimiento.
+    El día 0 (mismo día del compromiso) lo cubre siempre el sistema.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name="notificacion_reglas",
+    )
+    tipo = models.CharField(
+        max_length=8,
+        choices=TipoNotificacionAcuerdo.choices,
+    )
+    dias = models.PositiveIntegerField(
+        help_text=(
+            "ANTES: días antes del vencimiento. "
+            "POST: días después del vencimiento. "
+            "El día 0 lo reserva el sistema."
+        ),
+    )
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["tipo", "dias"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "tipo", "dias"],
+                name="maestro_emp_notif_regla_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(dias__gte=0),
+                name="maestro_emp_notif_regla_dias_gte_0",
+            ),
+        ]
+        verbose_name = "Regla de notificación"
+        verbose_name_plural = "Reglas de notificación"
+
+    def __str__(self) -> str:
+        return f"{self.empresa.nombre} · {self.get_tipo_display()} · {self.etiqueta}"
+
+    def clean(self) -> None:
+        if self.dias == NOTIFICACION_ACUERDO_DIA_SISTEMA:
+            raise ValidationError(
+                {
+                    "dias": (
+                        "El día 0 (mismo día del vencimiento) ya lo cubre la "
+                        "configuración base del sistema; no se puede agregar como regla."
+                    )
+                }
+            )
+        if self.dias < 1:
+            raise ValidationError({"dias": "Indica un número de días mayor a 0."})
+
+    @property
+    def etiqueta(self) -> str:
+        if self.tipo == TipoNotificacionAcuerdo.ANTES:
+            if self.dias == 1:
+                return "1 día antes"
+            return f"{self.dias} días antes"
+        if self.dias == 1:
+            return "1 día después"
+        return f"{self.dias} días después"
+
+
+class AcuerdoNotificacionEnvio(models.Model):
+    """Registro de envíos automáticos para no duplicar la misma regla el mismo día."""
+
+    acuerdo = models.ForeignKey(
+        "Acuerdo",
+        on_delete=models.CASCADE,
+        related_name="notificacion_envios",
+    )
+    regla = models.ForeignKey(
+        EmpresaNotificacionRegla,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="envios",
+    )
+    tipo = models.CharField(max_length=8, choices=TipoNotificacionAcuerdo.choices)
+    dias = models.PositiveIntegerField()
+    enviado_en = models.DateTimeField(auto_now_add=True)
+    dia_referencia = models.DateField(
+        help_text="Día local en que se disparó la regla.",
+    )
+
+    class Meta:
+        ordering = ["-enviado_en"]
+        indexes = [
+            models.Index(
+                fields=["acuerdo", "tipo", "dias", "dia_referencia"],
+                name="maestro_acuerdonotif_idx",
+            ),
+        ]
+        verbose_name = "Envío de notificación de acuerdo"
+        verbose_name_plural = "Envíos de notificación de acuerdos"
+
+    def __str__(self) -> str:
+        return f"Acuerdo {self.acuerdo_id} · {self.tipo}/{self.dias} · {self.dia_referencia}"
+
+
+class TipoCorreoEnvio(models.TextChoices):
+    ACUERDO_NUEVO = "ACUERDO_NUEVO", "Acuerdo (nuevo)"
+    ACUERDO_RECORDATORIO = "ACUERDO_RECORDATORIO", "Acuerdo (recordatorio)"
+    ACTIVIDAD = "ACTIVIDAD", "Actividad"
+    CADUCIDAD = "CADUCIDAD", "Caducidad de documento"
+    OTRO = "OTRO", "Otro"
+
+
+class CorreoEnvio(models.Model):
+    """Historial de correos enviados a clientes (To) y copias (CC)."""
+
+    tipo = models.CharField(
+        max_length=24,
+        choices=TipoCorreoEnvio.choices,
+        default=TipoCorreoEnvio.OTRO,
+    )
+    asunto = models.CharField(max_length=255)
+    destinatarios_to = models.TextField(
+        help_text="Destinatario principal (To), uno por línea o separados por coma.",
+    )
+    destinatarios_cc = models.TextField(
+        blank=True,
+        help_text="Copias (CC).",
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="correos_enviados",
+    )
+    acuerdo = models.ForeignKey(
+        "Acuerdo",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="correos_enviados",
+    )
+    actividad = models.ForeignKey(
+        "Actividad",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="correos_enviados",
+    )
+    automatico = models.BooleanField(
+        default=False,
+        help_text="True si lo disparó el cron o una regla automática.",
+    )
+    enviado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="correos_enviados",
+    )
+    exito = models.BooleanField(default=True)
+    error = models.TextField(blank=True)
+    enviado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-enviado_en"]
+        verbose_name = "Correo enviado"
+        verbose_name_plural = "Correos enviados"
+
+    def __str__(self) -> str:
+        return f"{self.asunto} · {self.enviado_en:%d/%m/%Y %H:%M}"
+
+    @property
+    def to_lista(self) -> list[str]:
+        return [
+            p.strip()
+            for p in self.destinatarios_to.replace(";", ",").replace("\n", ",").split(",")
+            if p.strip()
+        ]
+
+    @property
+    def cc_lista(self) -> list[str]:
+        if not self.destinatarios_cc.strip():
+            return []
+        return [
+            p.strip()
+            for p in self.destinatarios_cc.replace(";", ",").replace("\n", ",").split(",")
+            if p.strip()
+        ]
+
+
+class PlantillaCorreo(models.Model):
+    """
+    Plantilla HTML editable (Administración → Correos).
+    Usa sintaxis Django Template: {{ titulo_correo }}, {{ intro }}, {{ logo_src }}, etc.
+    """
+
+    CODIGO_ACUERDO = "ACUERDO_NOTIFICACION"
+
+    codigo = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Clave interna (ej. ACUERDO_NOTIFICACION).",
+    )
+    nombre = models.CharField(max_length=120)
+    descripcion = models.TextField(
+        blank=True,
+        help_text="Ayuda para el editor: variables disponibles, uso del logo, etc.",
+    )
+    html = models.TextField(
+        help_text="HTML completo del correo. Placeholders con sintaxis Django Template.",
+    )
+    activo = models.BooleanField(default=True)
+    actualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="plantillas_correo_editadas",
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["nombre"]
+        verbose_name = "Plantilla de correo"
+        verbose_name_plural = "Plantillas de correo"
+
+    def __str__(self) -> str:
+        return f"{self.nombre} ({self.codigo})"
 
 
 class TipoUsuario(models.TextChoices):
@@ -80,6 +382,14 @@ class PerfilUsuario(models.Model):
         related_name="clientes",
         help_text="Empresa minera asociada a un usuario cliente.",
     )
+    reporta_a = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subordinados_perfil",
+        help_text="Jefe / coordinador al que reporta este gestor.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -102,6 +412,41 @@ class PerfilUsuario(models.Model):
     @property
     def es_cliente(self) -> bool:
         return self.tipo == TipoUsuario.CLIENTE and self.activo
+
+    def clean(self) -> None:
+        if self.tipo != TipoUsuario.GESTOR:
+            self.reporta_a = None
+            return
+        if not self.reporta_a_id:
+            return
+        if self.user_id and self.reporta_a_id == self.user_id:
+            raise ValidationError({"reporta_a": "Un usuario no puede reportarse a sí mismo."})
+        jefe_perfil = getattr(self.reporta_a, "perfil", None)
+        if jefe_perfil is None:
+            try:
+                jefe_perfil = self.reporta_a.perfil
+            except PerfilUsuario.DoesNotExist:
+                jefe_perfil = None
+        if not jefe_perfil or jefe_perfil.tipo not in (
+            TipoUsuario.GESTOR,
+            TipoUsuario.ADMINISTRADOR,
+        ):
+            raise ValidationError(
+                {"reporta_a": "Solo puede reportar a un gestor o administrador."}
+            )
+        # Detectar ciclos en la cadena reporta_a.
+        visto = {self.user_id} if self.user_id else set()
+        actual = self.reporta_a
+        while actual is not None:
+            if actual.pk in visto:
+                raise ValidationError(
+                    {"reporta_a": "Esa jerarquía formaría un ciclo (A reporta a B y B a A)."}
+                )
+            visto.add(actual.pk)
+            try:
+                actual = actual.perfil.reporta_a
+            except PerfilUsuario.DoesNotExist:
+                break
 
 
 class MotivoIntentoAcceso(models.TextChoices):
@@ -171,6 +516,10 @@ class RegistroLoginExterno(models.Model):
 class Tema(models.Model):
     codigo = models.CharField(max_length=32, unique=True)
     nombre = models.CharField(max_length=255)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Si está deshabilitado, sus criterios no se incluyen en revisiones nuevas.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -215,6 +564,10 @@ class Principio(models.Model):
         default=Decimal("0"),
         help_text="Suma de las ponderaciones de los criterios asociados.",
     )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Si está deshabilitado, sus criterios no se incluyen en revisiones nuevas.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -252,6 +605,10 @@ class Requisito(models.Model):
         Principio,
         on_delete=models.PROTECT,
         related_name="requisitos",
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Si está deshabilitado, sus criterios no se incluyen en revisiones nuevas.",
     )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -315,6 +672,10 @@ class Criterio(models.Model):
         default=Decimal("1"),
         help_text="Calculada automáticamente como 1 / N criterios del mismo requisito.",
     )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Si está deshabilitado, no se incluye en revisiones nuevas.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
@@ -367,6 +728,36 @@ class Criterio(models.Model):
         return result
 
 
+class Pregunta(models.Model):
+    """Último eslabón del catálogo: sí/no bajo un criterio."""
+
+    codigo = models.CharField(max_length=32, unique=True)
+    texto = models.TextField()
+    criterio = models.ForeignKey(
+        Criterio,
+        on_delete=models.PROTECT,
+        related_name="preguntas",
+    )
+    orden = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de presentación dentro del criterio.",
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Si está deshabilitada, no se siembra en revisiones nuevas.",
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["criterio__codigo", "orden", "codigo"]
+        verbose_name = "Pregunta"
+        verbose_name_plural = "Preguntas"
+
+    def __str__(self) -> str:
+        return f"{self.codigo}"
+
+
 class Documento(models.Model):
     codigo = models.CharField(max_length=32, unique=True)
     nombre = models.CharField(max_length=255)
@@ -383,25 +774,53 @@ class Documento(models.Model):
         return f"{self.codigo} · {self.nombre}"
 
 
+class RolDocumentoCriterio(models.TextChoices):
+    PRINCIPAL = "PRINCIPAL", "Principal"
+    COMPLEMENTARIO = "COMPLEMENTARIO", "Complementario"
+
+
 class DocumentoCriterio(models.Model):
-    """Relación estándar (plantilla) entre documento del catálogo y criterio."""
+    """
+    Relación estándar (plantilla) documento↔criterio.
+    Un criterio tiene un documento principal de búsqueda y, opcionalmente,
+    un documento secundario (típico en rol Complementario).
+    """
 
     documento = models.ForeignKey(
         Documento,
         on_delete=models.CASCADE,
         related_name="criterios_estandar",
+        help_text="Documento principal donde se busca primero la evidencia del criterio.",
+    )
+    documento_secundario = models.ForeignKey(
+        Documento,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="criterios_estandar_secundarios",
+        help_text="Documento complementario opcional (segunda fuente de evidencia).",
     )
     criterio = models.ForeignKey(
         Criterio,
         on_delete=models.CASCADE,
         related_name="documentos_estandar",
     )
+    rol = models.CharField(
+        max_length=16,
+        choices=RolDocumentoCriterio.choices,
+        default=RolDocumentoCriterio.PRINCIPAL,
+        help_text="Principal = contenido en el documento; Complementario = buscar también en secundario.",
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["documento__codigo", "criterio__codigo"]
+        ordering = ["criterio__codigo", "documento__codigo"]
         constraints = [
+            models.UniqueConstraint(
+                fields=["criterio"],
+                name="maestro_documentocriterio_criterio_uniq",
+            ),
             models.UniqueConstraint(
                 fields=["documento", "criterio"],
                 name="maestro_documentocriterio_doc_crit_uniq",
@@ -411,7 +830,22 @@ class DocumentoCriterio(models.Model):
         verbose_name_plural = "Relaciones estándar documento-criterio"
 
     def __str__(self) -> str:
-        return f"{self.documento.codigo} → {self.criterio.codigo}"
+        sec = f" + {self.documento_secundario.codigo}" if self.documento_secundario_id else ""
+        return f"{self.criterio.codigo} · {self.documento.codigo}{sec} ({self.rol})"
+
+    def clean(self) -> None:
+        if (
+            self.documento_id
+            and self.documento_secundario_id
+            and self.documento_id == self.documento_secundario_id
+        ):
+            raise ValidationError(
+                {
+                    "documento_secundario": (
+                        "El documento secundario debe ser distinto del principal."
+                    )
+                }
+            )
 
 
 class OrigenEmpresaDocumento(models.TextChoices):
@@ -422,6 +856,9 @@ class OrigenEmpresaDocumento(models.TextChoices):
 class EstadoInstalacionRevision(models.TextChoices):
     NUEVA = "NUEVA", "Nueva"
     EXISTENTE = "EXISTENTE", "Existente"
+
+
+class FaseInstalacionRevision(models.TextChoices):
     PROYECTO = "PROYECTO", "Proyecto"
     CONSTRUCCION = "CONSTRUCCION", "Construcción"
     OPERACION = "OPERACION", "Operación"
@@ -444,6 +881,12 @@ class Revision(models.Model):
     estado = models.CharField(
         max_length=16,
         choices=EstadoInstalacionRevision.choices,
+        blank=True,
+        default="",
+    )
+    fase = models.CharField(
+        max_length=16,
+        choices=FaseInstalacionRevision.choices,
         blank=True,
         default="",
     )
@@ -510,6 +953,56 @@ class EmpresaDocumento(models.Model):
         default=False,
         help_text="Si está marcado, aparece en Documentos prioritarios del dashboard de Indicadores.",
     )
+    # Gestión interna del consultor (independiente de PENDIENTE/APROBADO/RECHAZADO).
+    revision_texto = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name="Revisión",
+        help_text="Etiqueta definida por el consultor (ej. Iniciado, Rev0, RevA, RevB u otra).",
+    )
+    revision_porcentaje = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Porcentaje de revisión",
+        help_text="Porcentaje interno del documento (0–100). No afecta el avance calculado.",
+    )
+    fecha_limite_entrega = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha límite de entrega",
+        help_text=(
+            "Plan interno del consultor: fecha objetivo de entrega de este documento. "
+            "No genera notificaciones por sí sola."
+        ),
+    )
+    frecuencia_actualizacion = models.CharField(
+        max_length=16,
+        blank=True,
+        choices=[
+            ("MENSUAL", "Mensual"),
+            ("TRIMESTRAL", "Trimestral"),
+            ("SEMESTRAL", "Semestral"),
+            ("ANUAL", "Anual"),
+            ("BIANUAL", "Cada 2 años"),
+            ("OTRO", "Otro / según necesidad"),
+        ],
+        verbose_name="Frecuencia de actualización",
+    )
+    frecuencia_otro = models.CharField(
+        max_length=120,
+        blank=True,
+        verbose_name="Detalle de frecuencia",
+    )
+    fecha_ultima_revision = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Rev. 0",
+    )
+    fecha_caducidad = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de caducidad",
+    )
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -525,6 +1018,13 @@ class EmpresaDocumento(models.Model):
                 fields=["revision", "documento"],
                 condition=models.Q(documento__isnull=False),
                 name="maestro_empresadoc_revision_documento_uniq",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(revision_porcentaje__isnull=True)
+                    | models.Q(revision_porcentaje__gte=0, revision_porcentaje__lte=100)
+                ),
+                name="maestro_empresadoc_revision_pct_0_100",
             ),
         ]
         verbose_name = "Documento de empresa"
@@ -554,22 +1054,47 @@ class EstadoRevisionCriterio(models.TextChoices):
     OBSERVADO = "OBSERVADO", "Observado"
 
 
+class EstadoRevisionPregunta(models.TextChoices):
+    PENDIENTE = "PENDIENTE", "Pendiente"
+    CUMPLE = "CUMPLE", "Cumple"
+    NO_CUMPLE = "NO_CUMPLE", "No cumple"
+
+
 class EmpresaDocumentoCriterio(models.Model):
+    """
+    Un criterio por revisión, con documento principal y opcionalmente secundario.
+    El avance del criterio (preguntas) es único; ambos documentos aportan evidencia.
+    """
+
     empresa_documento = models.ForeignKey(
         EmpresaDocumento,
         on_delete=models.CASCADE,
         related_name="vinculos_criterio",
+        help_text="Documento principal de la evidencia del criterio.",
+    )
+    empresa_documento_secundario = models.ForeignKey(
+        EmpresaDocumento,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="vinculos_criterio_secundarios",
+        help_text="Documento complementario opcional en esta revisión.",
     )
     revision = models.ForeignKey(
         Revision,
         on_delete=models.CASCADE,
         related_name="vinculos_criterio",
-        help_text="Denormalizado desde el documento para garantizar un criterio por revisión.",
+        help_text="Denormalizado: un criterio solo una vez por revisión.",
     )
     criterio = models.ForeignKey(
         Criterio,
         on_delete=models.PROTECT,
         related_name="vinculos_empresa_documento",
+    )
+    rol = models.CharField(
+        max_length=16,
+        choices=RolDocumentoCriterio.choices,
+        default=RolDocumentoCriterio.PRINCIPAL,
     )
     area = models.ForeignKey(
         Area,
@@ -613,7 +1138,10 @@ class EmpresaDocumentoCriterio(models.Model):
         verbose_name_plural = "Vínculos documento-criterio"
 
     def __str__(self) -> str:
-        return f"{self.empresa_documento.codigo} → {self.criterio.codigo}"
+        sec = ""
+        if self.empresa_documento_secundario_id:
+            sec = f" + {self.empresa_documento_secundario.codigo}"
+        return f"{self.empresa_documento.codigo}{sec} → {self.criterio.codigo}"
 
     def clean(self) -> None:
         if self.empresa_documento_id:
@@ -622,6 +1150,27 @@ class EmpresaDocumentoCriterio(models.Model):
             if self.area.empresa_id != self.empresa_documento.revision.empresa_id:
                 raise ValidationError(
                     {"area": "El área debe pertenecer a la misma empresa del documento."}
+                )
+        if (
+            self.empresa_documento_id
+            and self.empresa_documento_secundario_id
+            and self.empresa_documento_id == self.empresa_documento_secundario_id
+        ):
+            raise ValidationError(
+                {
+                    "empresa_documento_secundario": (
+                        "El documento secundario debe ser distinto del principal."
+                    )
+                }
+            )
+        if self.empresa_documento_secundario_id and self.revision_id:
+            if self.empresa_documento_secundario.revision_id != self.revision_id:
+                raise ValidationError(
+                    {
+                        "empresa_documento_secundario": (
+                            "El documento secundario debe pertenecer a la misma revisión."
+                        )
+                    }
                 )
         if self.revision_id and self.criterio_id:
             qs = EmpresaDocumentoCriterio.objects.filter(
@@ -644,6 +1193,70 @@ class EmpresaDocumentoCriterio(models.Model):
     def save(self, *args, **kwargs) -> None:
         if self.empresa_documento_id:
             self.revision_id = self.empresa_documento.revision_id
+        skip_seed = kwargs.pop("skip_seed", False)
+        super().save(*args, **kwargs)
+        if not skip_seed:
+            # Idempotente: siembra preguntas activas del catálogo aún no vinculadas.
+            sembrar_preguntas_vinculo(self)
+
+
+class EmpresaDocumentoPregunta(models.Model):
+    """Respuesta sí/no de una pregunta dentro del vínculo documento–criterio."""
+
+    vinculo_criterio = models.ForeignKey(
+        EmpresaDocumentoCriterio,
+        on_delete=models.CASCADE,
+        related_name="preguntas",
+    )
+    revision = models.ForeignKey(
+        Revision,
+        on_delete=models.CASCADE,
+        related_name="preguntas_documento",
+        help_text="Denormalizado para unicidad pregunta–revisión.",
+    )
+    pregunta = models.ForeignKey(
+        Pregunta,
+        on_delete=models.PROTECT,
+        related_name="respuestas_empresa",
+    )
+    estado_revision = models.CharField(
+        max_length=16,
+        choices=EstadoRevisionPregunta.choices,
+        default=EstadoRevisionPregunta.PENDIENTE,
+        help_text="CUMPLE suma al % del criterio; al 100% el criterio se aprueba.",
+    )
+    observacion = models.TextField(
+        blank=True,
+        help_text="Observación del consultor cuando la pregunta no cumple.",
+    )
+    revisado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="preguntas_documento_revisadas",
+    )
+    revisado_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["pregunta__orden", "pregunta__codigo"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "pregunta"],
+                name="maestro_empresadocpreg_revision_pregunta_uniq",
+            ),
+        ]
+        verbose_name = "Respuesta a pregunta"
+        verbose_name_plural = "Respuestas a preguntas"
+
+    def __str__(self) -> str:
+        return f"{self.pregunta.codigo} · {self.estado_revision}"
+
+    def save(self, *args, **kwargs) -> None:
+        if self.vinculo_criterio_id:
+            self.revision_id = self.vinculo_criterio.revision_id
         super().save(*args, **kwargs)
 
 
@@ -681,9 +1294,151 @@ class RevisionCriterioDesactivado(models.Model):
         return f"{self.revision} · {self.criterio.codigo} (no aplica)"
 
 
+def criterios_deshabilitados_en_catalogo():
+    """
+    Criterios que no deben entrar en revisiones nuevas:
+    el propio criterio o su requisito/principio/tema están deshabilitados.
+    No afecta revisiones ya creadas (histórico / en curso).
+    """
+    return Criterio.objects.filter(
+        Q(activo=False)
+        | Q(requisito__activo=False)
+        | Q(principio__activo=False)
+        | Q(tema__activo=False)
+    )
+
+
+def aplicar_deshabilitados_catalogo_a_revision(revision: "Revision") -> int:
+    """
+    Al crear una revisión: marca como no aplicables los criterios deshabilitados
+    en catálogo. Las revisiones existentes no se tocan.
+    """
+    motivo = "Deshabilitado en el catálogo GISTM al crear la revisión."
+    creados = 0
+    for criterio_id in criterios_deshabilitados_en_catalogo().values_list("pk", flat=True):
+        _, created = RevisionCriterioDesactivado.objects.get_or_create(
+            revision=revision,
+            criterio_id=criterio_id,
+            defaults={"motivo": motivo},
+        )
+        if created:
+            creados += 1
+    return creados
+
+
+def aplicar_estandar_a_revision(
+    revision: "Revision",
+    area: "Area",
+) -> tuple[int, int]:
+    """
+    Activa documentos del catálogo estándar (principal y secundarios) y crea
+    vínculos EmpresaDocumentoCriterio (un criterio por revisión, con rol y
+    documento secundario opcional). Siembra preguntas.
+    Devuelve (documentos_creados, vinculos_creados).
+    """
+    if area.empresa_id != revision.empresa_id:
+        raise ValidationError("El área debe pertenecer a la empresa de esta revisión.")
+
+    relaciones = list(
+        DocumentoCriterio.objects.select_related(
+            "documento", "documento_secundario", "criterio"
+        ).order_by("id")
+    )
+    doc_ids_estandar: set[int] = set()
+    for rel in relaciones:
+        doc_ids_estandar.add(rel.documento_id)
+        if rel.documento_secundario_id:
+            doc_ids_estandar.add(rel.documento_secundario_id)
+
+    docs_creados = 0
+    vinculos_creados = 0
+
+    for documento in Documento.objects.filter(pk__in=doc_ids_estandar):
+        _, created = EmpresaDocumento.objects.get_or_create(
+            revision=revision,
+            documento=documento,
+            defaults={
+                "codigo": documento.codigo,
+                "nombre": documento.nombre,
+                "tipo_documento": documento.tipo_documento,
+                "origen": OrigenEmpresaDocumento.CATALOGO,
+                "activo": True,
+            },
+        )
+        if created:
+            docs_creados += 1
+        else:
+            EmpresaDocumento.objects.filter(
+                revision=revision, documento=documento, activo=False
+            ).update(activo=True)
+
+    emp_docs = {
+        ed.documento_id: ed
+        for ed in EmpresaDocumento.objects.filter(
+            revision=revision, documento_id__in=doc_ids_estandar
+        )
+    }
+    desactivados_ids = set(
+        RevisionCriterioDesactivado.objects.filter(revision=revision).values_list(
+            "criterio_id", flat=True
+        )
+    )
+    vinculos_existentes = {
+        v.criterio_id: v
+        for v in EmpresaDocumentoCriterio.objects.filter(revision=revision)
+    }
+    for rel in relaciones:
+        if rel.criterio_id in desactivados_ids:
+            continue
+        emp_doc = emp_docs.get(rel.documento_id)
+        if emp_doc is None:
+            continue
+        emp_sec = None
+        if rel.documento_secundario_id:
+            emp_sec = emp_docs.get(rel.documento_secundario_id)
+        existente = vinculos_existentes.get(rel.criterio_id)
+        if existente is not None:
+            # Sincroniza rol/secundario desde la plantilla sin mover el principal
+            # ni el área ya asignados en la revisión.
+            updates: dict = {}
+            if existente.rol != rel.rol:
+                updates["rol"] = rel.rol
+            if existente.empresa_documento_secundario_id != (
+                emp_sec.pk if emp_sec else None
+            ):
+                updates["empresa_documento_secundario"] = emp_sec
+            if updates:
+                for field, value in updates.items():
+                    setattr(existente, field, value)
+                existente.save(update_fields=[*updates.keys(), "actualizado_en"])
+            continue
+        _, created = EmpresaDocumentoCriterio.objects.get_or_create(
+            revision=revision,
+            criterio=rel.criterio,
+            defaults={
+                "empresa_documento": emp_doc,
+                "empresa_documento_secundario": emp_sec,
+                "rol": rel.rol,
+                "area": area,
+            },
+        )
+        if created:
+            vinculos_creados += 1
+            vinculos_existentes[rel.criterio_id] = _
+
+    return docs_creados, vinculos_creados
+
+
 def documento_carga_upload_to(instance: "DocumentoCarga", filename: str) -> str:
+    """Ruta única por versión para no sobrescribir archivos previos en Blob Storage."""
+    from uuid import uuid4
+
     revision_id = instance.empresa_documento.revision_id
-    return f"revisiones/{revision_id}/documentos/{instance.empresa_documento_id}/{filename}"
+    safe = Path(filename).name
+    return (
+        f"revisiones/{revision_id}/documentos/{instance.empresa_documento_id}/"
+        f"{uuid4().hex[:10]}_{safe}"
+    )
 
 
 class EstadoRevisionCarga(models.TextChoices):
@@ -703,6 +1458,10 @@ class DocumentoCarga(models.Model):
     )
     archivo = models.FileField(upload_to=documento_carga_upload_to)
     nombre_original = models.CharField(max_length=255, blank=True)
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Número de versión correlativo (1, 2, 3…). No se borran archivos previos.",
+    )
     observaciones = models.TextField(blank=True)
     subido_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -713,7 +1472,7 @@ class DocumentoCarga(models.Model):
     )
     activo = models.BooleanField(
         default=True,
-        help_text="La carga vigente es la más reciente con activo=True.",
+        help_text="La carga vigente es la más reciente con activo=True. Las anteriores quedan como historial.",
     )
     estado_revision = models.CharField(
         max_length=16,
@@ -766,6 +1525,17 @@ class DocumentoCarga(models.Model):
     def save(self, *args, **kwargs) -> None:
         if self.archivo and not self.nombre_original:
             self.nombre_original = Path(self.archivo.name).name
+        # Asignar versión correlativa en altas nuevas (no borra blobs previos).
+        if self._state.adding and self.empresa_documento_id:
+            ultima = (
+                DocumentoCarga.objects.filter(
+                    empresa_documento_id=self.empresa_documento_id
+                )
+                .order_by("-version")
+                .values_list("version", flat=True)
+                .first()
+            )
+            self.version = int(ultima or 0) + 1
         super().save(*args, **kwargs)
         if self.activo and self.pk:
             DocumentoCarga.objects.filter(
@@ -778,8 +1548,40 @@ class TipoDocumentoMensaje(models.TextChoices):
     RECHAZO = "RECHAZO", "Rechazo"
     OBSERVACION = "OBSERVACION", "Observación"
     RESPUESTA = "RESPUESTA", "Respuesta / nueva carga"
+    VERSION = "VERSION", "Nueva versión de archivo"
     ACUERDO = "ACUERDO", "Acuerdo"
     SISTEMA = "SISTEMA", "Sistema"
+
+
+class DocumentoCaducidadEnvio(models.Model):
+    """Evita duplicar el mismo aviso de caducidad el mismo día."""
+
+    empresa_documento = models.ForeignKey(
+        EmpresaDocumento,
+        on_delete=models.CASCADE,
+        related_name="caducidad_envios",
+    )
+    tipo = models.CharField(max_length=8, choices=TipoNotificacionAcuerdo.choices)
+    dias = models.PositiveIntegerField()
+    dia_referencia = models.DateField()
+    enviado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-enviado_en"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa_documento", "tipo", "dias", "dia_referencia"],
+                name="maestro_doc_caducidad_envio_uniq",
+            ),
+        ]
+        verbose_name = "Envío de caducidad de documento"
+        verbose_name_plural = "Envíos de caducidad de documentos"
+
+    def __str__(self) -> str:
+        return (
+            f"{self.empresa_documento_id} · {self.tipo}/{self.dias} · "
+            f"{self.dia_referencia}"
+        )
 
 
 class AlcanceActividad(models.TextChoices):
@@ -795,8 +1597,10 @@ class TipoActividad(models.TextChoices):
 
 class EstadoActividad(models.TextChoices):
     PROGRAMADA = "PROGRAMADA", "Programada"
+    PASADA = "PASADA", "Pasada"
     COMPLETADA = "COMPLETADA", "Completada"
-    CANCELADA = "CANCELADA", "Cancelada"
+    # Cierre sin ejecución (anulación o vencida sin realizarse).
+    CANCELADA = "CANCELADA", "No se llevó a cabo"
 
 
 class Actividad(models.Model):
@@ -825,6 +1629,23 @@ class Actividad(models.Model):
         related_name="actividades",
         help_text="Obligatoria si la actividad es con el cliente.",
     )
+    area = models.ForeignKey(
+        Area,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="actividades",
+        verbose_name="Área responsable",
+        help_text="Área de la empresa configurada en el maestro.",
+    )
+    responsable = models.ForeignKey(
+        Responsable,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="actividades",
+        help_text="Responsable del área seleccionada.",
+    )
     actividad_padre = models.ForeignKey(
         "self",
         on_delete=models.CASCADE,
@@ -849,6 +1670,11 @@ class Actividad(models.Model):
         help_text="Se marca automáticamente cuando el alcance es con cliente.",
     )
     correo_enviado_en = models.DateTimeField(null=True, blank=True)
+    ultimo_dias_antes_aviso = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Último umbral (días antes del vencimiento) por el que ya se generó aviso.",
+    )
     estado = models.CharField(
         max_length=16,
         choices=EstadoActividad.choices,
@@ -858,6 +1684,12 @@ class Actividad(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="actividades_creadas",
+    )
+    asignado_a = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="actividades_asignadas",
+        help_text="Consultor responsable de ejecutar la actividad.",
     )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -887,10 +1719,90 @@ class Actividad(models.Model):
             raise ValidationError({"empresa": "Selecciona la empresa del cliente."})
         if self.fin and self.inicio and self.fin < self.inicio:
             raise ValidationError({"fin": "La hora de fin no puede ser anterior al inicio."})
+        if self.area_id and not self.empresa_id:
+            raise ValidationError(
+                {"area": "Selecciona una empresa para asignar el área responsable."}
+            )
+        if self.area_id and self.empresa_id and self.area.empresa_id != self.empresa_id:
+            raise ValidationError(
+                {"area": "El área debe pertenecer a la empresa de la actividad."}
+            )
+        if self.responsable_id and not self.area_id:
+            raise ValidationError(
+                {"responsable": "Selecciona el área para asignar un responsable."}
+            )
+        if (
+            self.responsable_id
+            and self.area_id
+            and self.responsable.area_id != self.area_id
+        ):
+            raise ValidationError(
+                {"responsable": "El responsable debe pertenecer al área seleccionada."}
+            )
+
+
+def fecha_vencimiento_actividad(actividad: Actividad):
+    """Fecha local de vencimiento: fin, o inicio si no hay fin."""
+    ref = actividad.fin or actividad.inicio
+    if ref is None:
+        return None
+    return timezone.localtime(ref).date()
+
+
+def sincronizar_acuerdos_vencidos() -> list[int]:
+    """
+    Pasa a estado VENCIDO los acuerdos ABIERTO cuya fecha de compromiso
+    ya quedó en un día anterior al actual. Devuelve los IDs actualizados.
+    """
+    hoy = timezone.localdate()
+    ids: list[int] = []
+    qs = Acuerdo.objects.filter(
+        estado=EstadoAcuerdo.ABIERTO,
+        fecha_compromiso__isnull=False,
+    ).only("id", "fecha_compromiso")
+    for acuerdo in qs.iterator():
+        ref = acuerdo.fecha_compromiso
+        if timezone.is_aware(ref):
+            dia = timezone.localtime(ref).date()
+        else:
+            dia = ref.date() if hasattr(ref, "date") else ref
+        if dia is not None and dia < hoy:
+            ids.append(acuerdo.pk)
+    if ids:
+        Acuerdo.objects.filter(pk__in=ids).update(
+            estado=EstadoAcuerdo.VENCIDO,
+            actualizado_en=timezone.now(),
+        )
+    return ids
+
+
+def sincronizar_actividades_pasadas(*, creado_por_id: int | None = None) -> list[int]:
+    """
+    Pasa a estado PASADA las actividades PROGRAMADA cuya fecha fin
+    (o inicio si no hay fin) ya quedó en un día anterior al actual.
+    Devuelve los IDs actualizados.
+    """
+    hoy = timezone.localdate()
+    qs = Actividad.objects.filter(estado=EstadoActividad.PROGRAMADA)
+    if creado_por_id is not None:
+        qs = qs.filter(creado_por_id=creado_por_id)
+    ids: list[int] = []
+    for act in qs.only("id", "inicio", "fin"):
+        venc = fecha_vencimiento_actividad(act)
+        if venc is not None and venc < hoy:
+            ids.append(act.pk)
+    if not ids:
+        return []
+    Actividad.objects.filter(pk__in=ids).update(
+        estado=EstadoActividad.PASADA,
+        actualizado_en=timezone.now(),
+    )
+    return ids
 
 
 class EstadoAcuerdo(models.TextChoices):
     ABIERTO = "ABIERTO", "Abierto"
+    VENCIDO = "VENCIDO", "Vencido"
     CUMPLIDO = "CUMPLIDO", "Cumplido"
     CANCELADO = "CANCELADO", "Cancelado"
 
@@ -956,6 +1868,8 @@ class TipoAvisoConsultor(models.TextChoices):
     CARGA = "CARGA", "Nueva evidencia"
     MENSAJE = "MENSAJE", "Mensaje del cliente"
     DOCUMENTO_PROPIO = "DOCUMENTO_PROPIO", "Documento del cliente"
+    ACTIVIDAD_PROXIMA = "ACTIVIDAD_PROXIMA", "Actividad por vencer"
+    ACTIVIDAD_PASADA = "ACTIVIDAD_PASADA", "Actividad pasada"
 
 
 class AvisoConsultor(models.Model):
@@ -969,6 +1883,8 @@ class AvisoConsultor(models.Model):
     empresa = models.ForeignKey(
         Empresa,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="avisos_consultor",
     )
     tipo = models.CharField(max_length=24, choices=TipoAvisoConsultor.choices)
@@ -1117,7 +2033,7 @@ def sincronizar_estado_carga_documento(
 
 def resetear_criterios_no_aprobados(empresa_documento: EmpresaDocumento) -> int:
     """Al subir nueva evidencia: OBSERVADO/PENDIENTE → PENDIENTE; APROBADO se mantiene."""
-    return (
+    n = (
         EmpresaDocumentoCriterio.objects.filter(empresa_documento=empresa_documento)
         .exclude(estado_revision=EstadoRevisionCriterio.APROBADO)
         .update(
@@ -1127,6 +2043,111 @@ def resetear_criterios_no_aprobados(empresa_documento: EmpresaDocumento) -> int:
             revisado_en=None,
         )
     )
+    resetear_preguntas_no_cumplidas(empresa_documento)
+    return n
+
+
+def sembrar_preguntas_vinculo(vinculo: "EmpresaDocumentoCriterio") -> int:
+    """Crea respuestas PENDIENTE para preguntas activas del criterio aún no sembradas."""
+    creados = 0
+    for pregunta in Pregunta.objects.filter(
+        criterio_id=vinculo.criterio_id, activo=True
+    ).order_by("orden", "codigo"):
+        _, created = EmpresaDocumentoPregunta.objects.get_or_create(
+            revision_id=vinculo.revision_id,
+            pregunta=pregunta,
+            defaults={"vinculo_criterio": vinculo},
+        )
+        if created:
+            creados += 1
+    return creados
+
+
+def sincronizar_estado_criterio_desde_preguntas(
+    vinculo: "EmpresaDocumentoCriterio",
+    *,
+    revisado_por=None,
+) -> "EmpresaDocumentoCriterio":
+    """
+    Deriva el estado del criterio desde sus preguntas:
+    - sin preguntas → no APROBADO (PENDIENTE)
+    - todas CUMPLE → APROBADO
+    - alguna NO_CUMPLE → OBSERVADO
+    - resto → PENDIENTE
+    """
+    estados = list(
+        EmpresaDocumentoPregunta.objects.filter(vinculo_criterio=vinculo).values_list(
+            "estado_revision", flat=True
+        )
+    )
+    if not estados:
+        nuevo = EstadoRevisionCriterio.PENDIENTE
+        obs = ""
+    elif all(e == EstadoRevisionPregunta.CUMPLE for e in estados):
+        nuevo = EstadoRevisionCriterio.APROBADO
+        obs = ""
+    elif any(e == EstadoRevisionPregunta.NO_CUMPLE for e in estados):
+        nuevo = EstadoRevisionCriterio.OBSERVADO
+        obs = vinculo.observacion or ""
+    else:
+        nuevo = EstadoRevisionCriterio.PENDIENTE
+        obs = ""
+
+    update_fields = ["actualizado_en"]
+    if vinculo.estado_revision != nuevo:
+        vinculo.estado_revision = nuevo
+        update_fields.append("estado_revision")
+    if nuevo == EstadoRevisionCriterio.APROBADO and vinculo.observacion:
+        vinculo.observacion = ""
+        update_fields.append("observacion")
+    elif nuevo == EstadoRevisionCriterio.OBSERVADO and obs != vinculo.observacion:
+        vinculo.observacion = obs
+        update_fields.append("observacion")
+    if revisado_por is not None:
+        vinculo.revisado_por = revisado_por
+        vinculo.revisado_en = timezone.now()
+        update_fields.extend(["revisado_por", "revisado_en"])
+    elif nuevo == EstadoRevisionCriterio.APROBADO and "estado_revision" in update_fields:
+        vinculo.revisado_en = timezone.now()
+        update_fields.append("revisado_en")
+    if len(update_fields) > 1:
+        vinculo.save(update_fields=update_fields, skip_seed=True)
+    return vinculo
+
+
+def resetear_preguntas_no_cumplidas(empresa_documento: EmpresaDocumento) -> int:
+    """Al subir nueva evidencia: NO_CUMPLE/PENDIENTE → PENDIENTE; CUMPLE se mantiene."""
+    n = (
+        EmpresaDocumentoPregunta.objects.filter(
+            vinculo_criterio__empresa_documento=empresa_documento
+        )
+        .exclude(estado_revision=EstadoRevisionPregunta.CUMPLE)
+        .update(
+            estado_revision=EstadoRevisionPregunta.PENDIENTE,
+            observacion="",
+            revisado_por=None,
+            revisado_en=None,
+        )
+    )
+    for vinculo in EmpresaDocumentoCriterio.objects.filter(
+        empresa_documento=empresa_documento
+    ):
+        sincronizar_estado_criterio_desde_preguntas(vinculo)
+    return n
+
+
+def pct_preguntas_vinculo(vinculo: "EmpresaDocumentoCriterio") -> tuple[int, int, float]:
+    """Devuelve (cumplen, total, pct) de preguntas del vínculo."""
+    estados = list(
+        EmpresaDocumentoPregunta.objects.filter(vinculo_criterio=vinculo).values_list(
+            "estado_revision", flat=True
+        )
+    )
+    total = len(estados)
+    if total == 0:
+        return 0, 0, 0.0
+    ok = sum(1 for e in estados if e == EstadoRevisionPregunta.CUMPLE)
+    return ok, total, round(100.0 * ok / total, 1)
 
 
 def ponderaciones_revision(revision: Revision) -> dict[int, Decimal]:

@@ -31,7 +31,7 @@
               <button type="submit" class="notif-panel-item {% if not aviso.leido %}is-unread{% endif %}" role="menuitem">
                 <div class="notif-item-meta">
                   <span>{{ aviso.creado_en|date:"d/m H:i" }}</span>
-                  <span>{{ aviso.empresa.nombre }}</span>
+                  <span>{% if aviso.empresa %}{{ aviso.empresa.nombre }}{% else %}Personal{% endif %}</span>
                   {% if not aviso.leido %}<span class="badge badge-off">Nuevo</span>{% endif %}
                 </div>
                 <p class="notif-item-title">{{ aviso.titulo|cut:"[Demo] "|cut:"[Demo]" }}</p>

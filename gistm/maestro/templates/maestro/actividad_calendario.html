@@ -5,15 +5,21 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <p class="page-kicker">Operación</p>
+    <p class="page-kicker">{% if solo_lectura %}Mi empresa{% else %}Operación{% endif %}</p>
     <h1>Actividades</h1>
     <p class="page-desc">
-      Calendario de tareas y reuniones del consultor: personales o con empresas asociadas.
+      {% if solo_lectura %}
+        Calendario de actividades programadas con tu empresa (solo consulta).
+      {% else %}
+        Calendario de tareas y reuniones del consultor. Clic en un día para crear una actividad.
+      {% endif %}
     </p>
   </div>
+  {% if not solo_lectura %}
   <div class="page-actions">
     <a class="btn" href="{% url 'maestro:actividad_crear' %}">Nueva actividad</a>
   </div>
+  {% endif %}
 </header>
 
 <div class="split-layout">
@@ -34,11 +40,24 @@
       <div class="cal-dow">Dom</div>
       {% for week in semanas %}
         {% for day in week %}
-          <div class="cal-day {% if not day.in_month %}is-out{% endif %} {% if day.is_today %}is-today{% endif %}">
-            <div class="cal-day-num">{{ day.date.day }}</div>
+          <div
+            class="cal-day {% if not solo_lectura %}is-clickable{% endif %} {% if not day.in_month %}is-out{% endif %} {% if day.is_today %}is-today{% endif %}"
+            {% if not solo_lectura %}
+            data-crear-url="{% url 'maestro:actividad_crear' %}?fecha={{ day.date|date:'Y-m-d' }}"
+            title="Crear actividad el {{ day.date|date:'d/m/Y' }}"
+            role="button"
+            tabindex="0"
+            {% endif %}
+          >
+            <div class="cal-day-head">
+              <span class="cal-day-num">{{ day.date.day }}</span>
+              {% if not solo_lectura %}
+              <span class="cal-day-add" aria-hidden="true">+</span>
+              {% endif %}
+            </div>
             {% for act in day.activities %}
               <a
-                class="cal-event {% if act.tipo == 'ACUERDO' %}is-acuerdo{% elif act.tipo == 'RECORDATORIO' %}is-recordatorio{% elif act.es_con_cliente %}is-cliente{% endif %} {% if act.estado == 'COMPLETADA' %}is-done{% endif %}"
+                class="cal-event {% if act.tipo == 'ACUERDO' %}is-acuerdo{% elif act.tipo == 'RECORDATORIO' %}is-recordatorio{% elif act.es_con_cliente %}is-cliente{% endif %} {% if act.estado == 'COMPLETADA' %}is-done{% elif act.estado == 'PASADA' %}is-past{% endif %}"
                 href="{% url 'maestro:actividad_detalle' act.pk %}"
                 title="{{ act.get_tipo_display }} · {{ act.titulo }}"
               >
@@ -51,46 +70,136 @@
     </div>
   </section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <div>
-        <h2>Próximas</h2>
-        <p class="muted">Actividades programadas a partir de ahora.</p>
+  <div class="stack-gap">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Atrasadas</h2>
+          <p class="muted">Vencidas y aún no marcadas como completadas.</p>
+        </div>
+        {% if atrasadas %}
+          <span class="badge badge-warn">{{ atrasadas|length }}</span>
+        {% endif %}
       </div>
-    </div>
-    {% if proximas %}
-      <div class="doc-list">
-        {% for act in proximas %}
-          <div class="doc-row">
-            <div class="doc-row-main">
-              <strong>
-                <a href="{% url 'maestro:actividad_detalle' act.pk %}">{{ act.titulo }}</a>
-              </strong>
-              <div class="doc-row-meta">
-                <span>{{ act.inicio|date:"d/m/Y H:i" }}</span>
-                {% if act.empresa %}
-                  <span>· {{ act.empresa.nombre }}</span>
+      {% if atrasadas %}
+        <div class="doc-list">
+          {% for act in atrasadas %}
+            <div class="doc-row">
+              <div class="doc-row-main">
+                <strong>
+                  <a href="{% url 'maestro:actividad_detalle' act.pk %}">{{ act.titulo }}</a>
+                </strong>
+                <div class="doc-row-meta">
+                  <span>
+                    {% if act.fin %}{{ act.fin|date:"d/m/Y H:i" }}{% else %}{{ act.inicio|date:"d/m/Y H:i" }}{% endif %}
+                  </span>
+                  {% if act.asignado_a %}
+                    <span>· {{ act.asignado_a.get_full_name|default:act.asignado_a.email }}</span>
+                  {% endif %}
+                  {% if act.empresa %}
+                    <span>· {{ act.empresa.nombre }}</span>
+                  {% else %}
+                    <span>· Solo consultor</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="doc-row-side" style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;">
+                <span class="badge badge-warn">Pasada</span>
+                <form method="post" action="{% url 'maestro:actividad_completar' act.pk %}" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-ghost" style="font-size:0.8rem;padding:0.25rem 0.55rem;">Completada</button>
+                </form>
+                <form
+                  method="post"
+                  action="{% url 'maestro:actividad_cancelar' act.pk %}"
+                  style="display:inline;"
+                  onsubmit="return confirm('¿Confirmar que «{{ act.titulo|escapejs }}» no se llevó a cabo?');"
+                >
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-ghost" style="font-size:0.8rem;padding:0.25rem 0.55rem;">No se realizó</button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <strong>Sin atrasadas</strong>
+          No hay actividades vencidas pendientes de completar o marcar como no realizadas.
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Próximas</h2>
+          <p class="muted">Actividades programadas a partir de ahora.</p>
+        </div>
+      </div>
+      {% if proximas %}
+        <div class="doc-list">
+          {% for act in proximas %}
+            <div class="doc-row">
+              <div class="doc-row-main">
+                <strong>
+                  <a href="{% url 'maestro:actividad_detalle' act.pk %}">{{ act.titulo }}</a>
+                </strong>
+                <div class="doc-row-meta">
+                  <span>{{ act.inicio|date:"d/m/Y H:i" }}</span>
+                  {% if act.asignado_a %}
+                    <span>· {{ act.asignado_a.get_full_name|default:act.asignado_a.email }}</span>
+                  {% endif %}
+                  {% if act.empresa %}
+                    <span>· {{ act.empresa.nombre }}</span>
+                  {% else %}
+                    <span>· Solo consultor</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="doc-row-side">
+                {% if act.es_con_cliente %}
+                  <span class="badge badge-ok">Con cliente</span>
                 {% else %}
-                  <span>· Solo consultor</span>
+                  <span class="badge badge-info">Personal</span>
                 {% endif %}
               </div>
             </div>
-            <div class="doc-row-side">
-              {% if act.es_con_cliente %}
-                <span class="badge badge-ok">Con cliente</span>
-              {% else %}
-                <span class="badge badge-info">Personal</span>
-              {% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="empty-state">
-        <strong>Sin próximas actividades</strong>
-        Crea una para planificar revisiones o reuniones con la minera.
-      </div>
-    {% endif %}
-  </section>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <strong>Sin próximas actividades</strong>
+          {% if solo_lectura %}
+            Cuando el consultor programe actividades con tu empresa, aparecerán aquí.
+          {% else %}
+            Crea una para planificar revisiones o reuniones con la minera.
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
 </div>
+{% if not solo_lectura %}
+<script>
+(function () {
+  document.querySelectorAll(".cal-day.is-clickable").forEach(function (day) {
+    function go() {
+      const url = day.getAttribute("data-crear-url");
+      if (url) window.location.href = url;
+    }
+    day.addEventListener("click", function (evt) {
+      if (evt.target.closest("a.cal-event")) return;
+      go();
+    });
+    day.addEventListener("keydown", function (evt) {
+      if (evt.key === "Enter" || evt.key === " ") {
+        evt.preventDefault();
+        go();
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

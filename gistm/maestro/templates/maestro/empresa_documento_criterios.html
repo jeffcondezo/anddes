@@ -7,7 +7,10 @@
   <div>
     <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }} · Documentos</p>
     <h1>{{ documento.codigo }} · {{ documento.nombre }}</h1>
-    <p class="page-desc">Asocia criterios cubiertos por este documento y define el área responsable. Cada criterio solo puede asociarse a un documento en esta revisión.</p>
+    <p class="page-desc">
+      Asocia criterios a este documento como principal. Si el rol es Complementario,
+      puedes indicar un documento secundario de la misma revisión.
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver a documentos</a>
@@ -56,6 +59,16 @@
       <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
     </div>
     <div class="form-row">
+      <label for="id_rol">Rol</label>
+      {{ form.rol }}
+      {{ form.rol.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_documento_secundario">Documento secundario</label>
+      {{ form.documento_secundario }}
+      {{ form.documento_secundario.errors }}
+    </div>
+    <div class="form-row">
       <label for="id_area">Área responsable</label>
       {{ form.area }}
       {{ form.area.errors }}
@@ -74,13 +87,15 @@
 
 <section class="panel panel-flush">
   <div style="padding:1rem 1.1rem 0.5rem;">
-    <h2 style="font-size:1.05rem; margin:0;">Criterios asociados</h2>
+    <h2 style="font-size:1.05rem; margin:0;">Criterios donde este documento es principal</h2>
   </div>
   <div class="table-wrap">
     <table class="data">
       <thead>
         <tr>
           <th>Criterio</th>
+          <th>Rol</th>
+          <th>Secundario</th>
           <th>Tema</th>
           <th>Principio</th>
           <th>Área responsable</th>
@@ -91,6 +106,14 @@
         {% for vinculo in vinculos %}
           <tr>
             <td class="mono">{{ vinculo.criterio.codigo }}</td>
+            <td>{{ vinculo.get_rol_display }}</td>
+            <td class="mono">
+              {% if vinculo.empresa_documento_secundario %}
+                {{ vinculo.empresa_documento_secundario.codigo }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
             <td>{{ vinculo.criterio.tema.codigo }}</td>
             <td class="mono">{{ vinculo.criterio.principio.codigo }}</td>
             <td>{{ vinculo.area.nombre }}</td>
@@ -103,7 +126,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">
+            <td colspan="7">
               <div class="empty-state">
                 <strong>Sin criterios asociados</strong>
                 Selecciona criterios y un área responsable para empezar.
@@ -115,4 +138,39 @@
     </table>
   </div>
 </section>
+
+{% if vinculos_como_secundario %}
+<section class="panel panel-flush" style="margin-top:1rem;">
+  <div style="padding:1rem 1.1rem 0.5rem;">
+    <h2 style="font-size:1.05rem; margin:0;">También figura como documento secundario</h2>
+    <p class="muted" style="margin:0.35rem 0 0;">El vínculo se gestiona desde el documento principal.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Criterio</th>
+          <th>Documento principal</th>
+          <th>Rol</th>
+          <th>Área</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vinculo in vinculos_como_secundario %}
+          <tr>
+            <td class="mono">{{ vinculo.criterio.codigo }}</td>
+            <td>
+              <a href="{% url 'maestro:empresa_documento_criterios' empresa.pk revision.pk vinculo.empresa_documento_id %}">
+                <span class="mono">{{ vinculo.empresa_documento.codigo }}</span>
+              </a>
+            </td>
+            <td>{{ vinculo.get_rol_display }}</td>
+            <td>{{ vinculo.area.nombre }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

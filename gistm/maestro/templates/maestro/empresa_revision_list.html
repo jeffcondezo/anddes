@@ -25,6 +25,7 @@
           <th>Nombre</th>
           <th>Instalación / depósito</th>
           <th>Estado</th>
+          <th>Fase</th>
           <th>Capacidad</th>
           <th>Vida útil</th>
           <th>Periodo</th>
@@ -43,6 +44,7 @@
             <td>{{ revision.nombre|default:"—" }}</td>
             <td>{{ revision.instalacion_deposito|default:"—" }}</td>
             <td>{% if revision.estado %}{{ revision.get_estado_display }}{% else %}—{% endif %}</td>
+            <td>{% if revision.fase %}{{ revision.get_fase_display }}{% else %}—{% endif %}</td>
             <td>{{ revision.capacidad|default:"—" }}</td>
             <td>{{ revision.vida_util|default:"—" }}</td>
             <td class="mono" style="white-space:nowrap;font-size:0.82rem;">
@@ -64,6 +66,7 @@
             </td>
             <td class="actions">
               <a href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Documentos</a>
+              <a href="{% url 'maestro:empresa_revision_plan' empresa.pk revision.pk %}">Definir plan</a>
               <a href="{% url 'maestro:empresa_revision_edit' empresa.pk revision.pk %}">Editar</a>
             </td>
           </tr>

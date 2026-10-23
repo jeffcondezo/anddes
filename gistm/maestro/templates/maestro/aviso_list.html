@@ -35,7 +35,7 @@
                 {% else %}badge-warn{% endif %}">
                 {{ aviso.get_tipo_display }}
               </span>
-              <span class="muted">{{ aviso.empresa.nombre }}</span>
+              <span class="muted">{% if aviso.empresa %}{{ aviso.empresa.nombre }}{% else %}Personal{% endif %}</span>
               {% if not aviso.leido %}<span class="badge badge-off">Nuevo</span>{% endif %}
             </div>
             <h3 class="timeline-title">{{ aviso.titulo }}</h3>

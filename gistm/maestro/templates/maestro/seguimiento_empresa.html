@@ -123,6 +123,16 @@
             <div class="doc-row">
               <div class="doc-row-main">
                 <strong>{{ doc.codigo }} · {{ doc.nombre }}</strong>
+                <div style="margin:0.3rem 0 0; display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
+                  {% if doc.revision_texto %}
+                    <span class="badge badge-info">Revisión: {{ doc.revision_texto }}</span>
+                  {% else %}
+                    <span class="badge badge-off">Sin revisión definida</span>
+                  {% endif %}
+                  {% if doc.revision_porcentaje != None %}
+                    <span class="badge badge-ok">{{ doc.revision_porcentaje }}%</span>
+                  {% endif %}
+                </div>
                 <div class="doc-row-meta">
                   {% if doc.carga %}
                     <span>{{ doc.carga.creado_en|date:"d/m/Y H:i" }}</span>
@@ -194,9 +204,22 @@
                     target="_blank"
                     rel="noopener"
                   >
-                    Mensajes
+                    Detalles
                   </a>
                 {% endif %}
+                {% if doc.cargado and doc.carga %}
+                  <form
+                    method="post"
+                    action="{% url 'maestro:seguimiento_carga_revertir' empresa.pk doc.carga.id %}"
+                    style="display:inline;"
+                    onsubmit="return confirm('¿Revertir la aprobación de {{ doc.codigo }}? Volverá a Por revisar.');"
+                  >
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <button type="submit" class="btn btn-ghost">Revertir aprobación</button>
+                  </form>
+                {% endif %}
+                {% include "maestro/partials/documento_revision_consultor.html" with empresa=empresa doc=doc next_url=request.get_full_path %}
               </div>
             </div>
           {% endfor %}
@@ -278,7 +301,7 @@
                 <summary>
                   <div>
                     <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
-                    <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} criterios con evidencia aprobada</div>
+                    <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} criterios al 100% · avance parcial {{ tema.pct }}%</div>
                   </div>
                   <div class="meter" style="min-width:7.5rem;">
                     <div class="meter-top">
@@ -356,4 +379,5 @@
     });
   })();
 </script>
+{% include "maestro/partials/documento_revision_consultor_js.html" %}
 {% endblock %}

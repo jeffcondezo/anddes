@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 
 from .models import (
     Criterio,
     DocumentoCarga,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EmpresaDocumentoPregunta,
     EstadoRevisionCarga,
-    EstadoRevisionCriterio,
+    EstadoRevisionPregunta,
     OrigenEmpresaDocumento,
     Principio,
     Revision,
@@ -30,7 +31,7 @@ class NivelProgreso:
 
     @property
     def completo(self) -> bool:
-        return self.total > 0 and self.completos == self.total
+        return self.pct >= 100.0
 
 
 @dataclass
@@ -47,6 +48,8 @@ class DocumentoProgreso:
     pendiente_revision: bool = False
     parcial: bool = False
     rechazado: bool = False
+    revision_texto: str = ""
+    revision_porcentaje: int | None = None
     vinculos: list = field(default_factory=list)
 
     @property
@@ -198,6 +201,13 @@ def _pct(parte: int, total: int) -> float:
     return round(100.0 * parte / total, 1)
 
 
+def _avg_pct(valores: list[float]) -> float:
+    """Promedio de porcentajes parciales (0–100)."""
+    if not valores:
+        return 0.0
+    return round(sum(valores) / len(valores), 1)
+
+
 def revisiones_activas_empresa(empresa_id: int):
     """Todas las revisiones activas de la empresa (pueden coexistir en paralelo)."""
     return Revision.objects.filter(empresa_id=empresa_id, activo=True).order_by(
@@ -232,10 +242,25 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         )
     )
 
+    _vinculo_qs = (
+        EmpresaDocumentoCriterio.objects.select_related(
+            "criterio", "criterio__tema", "area", "empresa_documento_secundario"
+        )
+        .prefetch_related(
+            Prefetch(
+                "preguntas",
+                queryset=EmpresaDocumentoPregunta.objects.select_related(
+                    "pregunta"
+                ).order_by("pregunta__orden", "pregunta__codigo"),
+            )
+        )
+        .order_by("criterio__codigo")
+    )
     documentos_qs = (
         EmpresaDocumento.objects.filter(revision=revision, activo=True)
         .annotate(
-            criterios_count=Count("vinculos_criterio", distinct=True),
+            criterios_principales=Count("vinculos_criterio", distinct=True),
+            criterios_secundarios=Count("vinculos_criterio_secundarios", distinct=True),
         )
         .prefetch_related(
             Prefetch(
@@ -245,10 +270,13 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             ),
             Prefetch(
                 "vinculos_criterio",
-                queryset=EmpresaDocumentoCriterio.objects.select_related(
-                    "criterio", "criterio__tema", "area"
-                ).order_by("criterio__codigo"),
+                queryset=_vinculo_qs,
                 to_attr="vinculos_list",
+            ),
+            Prefetch(
+                "vinculos_criterio_secundarios",
+                queryset=_vinculo_qs,
+                to_attr="vinculos_secundarios_list",
             ),
         )
         .order_by("codigo")
@@ -258,14 +286,25 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     for doc in documentos_qs:
         carga = doc.cargas_vigentes[0] if getattr(doc, "cargas_vigentes", None) else None
         estado = carga.estado_revision if carga else ""
-        vinculos_list = list(getattr(doc, "vinculos_list", []))
-        crit_count = int(doc.criterios_count or 0)
-        crit_aprobados = sum(
-            1
-            for v in vinculos_list
-            if v.estado_revision == EstadoRevisionCriterio.APROBADO
+        vinculos_list = list(getattr(doc, "vinculos_list", [])) + list(
+            getattr(doc, "vinculos_secundarios_list", [])
         )
-        # Documento completo = todos sus criterios aprobados (o carga APROBADO sin vínculos).
+        crit_count = int(doc.criterios_principales or 0) + int(
+            doc.criterios_secundarios or 0
+        )
+
+        def _criterio_completo_por_preguntas(vinculo: EmpresaDocumentoCriterio) -> bool:
+            pregs = list(getattr(vinculo, "preguntas").all())
+            if not pregs:
+                return False
+            return all(
+                p.estado_revision == EstadoRevisionPregunta.CUMPLE for p in pregs
+            )
+
+        crit_aprobados = sum(
+            1 for v in vinculos_list if _criterio_completo_por_preguntas(v)
+        )
+        # Documento completo = todos sus criterios al 100% de preguntas.
         if crit_count > 0:
             aprobado = crit_aprobados == crit_count
         else:
@@ -296,6 +335,8 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             pendiente_revision=pendiente,
             parcial=parcial,
             rechazado=rechazado,
+            revision_texto=(doc.revision_texto or "").strip(),
+            revision_porcentaje=doc.revision_porcentaje,
             vinculos=vinculos_list,
         )
         documentos_all.append(item)
@@ -309,14 +350,28 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     docs_total = len(documentos)
     docs_cargados = len(docs_completos_ids)
 
-    # Criterio → vínculo (estado de aprobación parcial)
+    # Criterio → vínculo (estado derivado de preguntas).
+    # Cuenta si el documento principal o el secundario está activo.
     vinculos_por_criterio = {
         edc.criterio_id: edc
         for edc in EmpresaDocumentoCriterio.objects.filter(
             revision=revision,
-            empresa_documento__activo=True,
-        ).select_related("empresa_documento")
+        )
+        .filter(
+            Q(empresa_documento__activo=True)
+            | Q(empresa_documento_secundario__activo=True)
+        )
+        .select_related("empresa_documento", "empresa_documento_secundario")
     }
+
+    preguntas_por_criterio: dict[int, list[EmpresaDocumentoPregunta]] = {}
+    for resp in EmpresaDocumentoPregunta.objects.filter(
+        revision=revision,
+        vinculo_criterio__empresa_documento__activo=True,
+    ).select_related("pregunta", "vinculo_criterio"):
+        preguntas_por_criterio.setdefault(
+            resp.vinculo_criterio.criterio_id, []
+        ).append(resp)
 
     criterios_aplicables = list(
         Criterio.objects.exclude(pk__in=desactivados_ids)
@@ -325,34 +380,41 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     )
 
     criterio_completo: dict[int, bool] = {}
+    criterio_preguntas_pct: dict[int, tuple[int, int, float]] = {}
     criterios_huerfanos: list[Criterio] = []
     for criterio in criterios_aplicables:
         vinculo = vinculos_por_criterio.get(criterio.pk)
         if not vinculo:
             criterios_huerfanos.append(criterio)
             criterio_completo[criterio.pk] = False
+            criterio_preguntas_pct[criterio.pk] = (0, 0, 0.0)
             continue
-        criterio_completo[criterio.pk] = (
-            vinculo.estado_revision == EstadoRevisionCriterio.APROBADO
+        pregs = preguntas_por_criterio.get(criterio.pk, [])
+        total_p = len(pregs)
+        if total_p == 0:
+            # Sin preguntas → no completo (regla 2A)
+            criterio_completo[criterio.pk] = False
+            criterio_preguntas_pct[criterio.pk] = (0, 0, 0.0)
+            continue
+        ok_p = sum(
+            1 for p in pregs if p.estado_revision == EstadoRevisionPregunta.CUMPLE
         )
+        pct_p = round(100.0 * ok_p / total_p, 1)
+        criterio_preguntas_pct[criterio.pk] = (ok_p, total_p, pct_p)
+        criterio_completo[criterio.pk] = ok_p == total_p
     huerfanos = len(criterios_huerfanos)
 
     criterios_total = len(criterios_aplicables)
     criterios_completos = sum(1 for ok in criterio_completo.values() if ok)
+    # Avance parcial: promedio del % de preguntas de cada criterio.
+    criterios_pct = _avg_pct(
+        [criterio_preguntas_pct[c.pk][2] for c in criterios_aplicables]
+    )
 
     # Agrupar: requisito → principio → tema
     por_requisito: dict[int, list[Criterio]] = {}
     for c in criterios_aplicables:
         por_requisito.setdefault(c.requisito_id, []).append(c)
-
-    requisito_ok: dict[int, bool] = {}
-    for req_id, crits in por_requisito.items():
-        requisito_ok[req_id] = bool(crits) and all(
-            criterio_completo.get(c.pk, False) for c in crits
-        )
-
-    requisitos_total = len(por_requisito)
-    requisitos_completos = sum(1 for ok in requisito_ok.values() if ok)
 
     por_principio: dict[int, set[int]] = {}
     principio_meta: dict[int, Principio] = {}
@@ -360,31 +422,14 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         por_principio.setdefault(c.principio_id, set()).add(c.requisito_id)
         principio_meta[c.principio_id] = c.principio
 
-    principio_ok: dict[int, bool] = {}
-    for prin_id, req_ids in por_principio.items():
-        principio_ok[prin_id] = bool(req_ids) and all(
-            requisito_ok.get(rid, False) for rid in req_ids
-        )
-
-    principios_total = len(por_principio)
-    principios_completos = sum(1 for ok in principio_ok.values() if ok)
-
     por_tema: dict[int, set[int]] = {}
     tema_meta: dict[int, Tema] = {}
     for c in criterios_aplicables:
         por_tema.setdefault(c.tema_id, set()).add(c.principio_id)
         tema_meta[c.tema_id] = c.tema
 
-    tema_ok: dict[int, bool] = {}
-    for tema_id, prin_ids in por_tema.items():
-        tema_ok[tema_id] = bool(prin_ids) and all(
-            principio_ok.get(pid, False) for pid in prin_ids
-        )
-
-    temas_total = len(por_tema)
-    temas_completos = sum(1 for ok in tema_ok.values() if ok)
-
-    # Árbol para UI
+    # Árbol: el % de cada nivel es el promedio de los % de sus hijos
+    # (el avance parcial de preguntas sube a criterio → requisito → principio → tema).
     temas_nivel: list[NivelProgreso] = []
     for tema_id in sorted(por_tema.keys(), key=lambda i: tema_meta[i].codigo):
         tema = tema_meta[tema_id]
@@ -395,24 +440,25 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             for req_id in sorted(por_principio[prin_id]):
                 crits = por_requisito[req_id]
                 requisito = crits[0].requisito
-                crits_ok = sum(1 for c in crits if criterio_completo.get(c.pk, False))
+                hijos_crit = [
+                    NivelProgreso(
+                        codigo=c.codigo,
+                        nombre=(c.descripcion or "")[:120],
+                        total=criterio_preguntas_pct.get(c.pk, (0, 0, 0.0))[1] or 1,
+                        completos=criterio_preguntas_pct.get(c.pk, (0, 0, 0.0))[0],
+                        pct=criterio_preguntas_pct.get(c.pk, (0, 0, 0.0))[2],
+                    )
+                    for c in crits
+                ]
+                crits_ok = sum(1 for n in hijos_crit if n.completo)
                 requisitos_nivel.append(
                     NivelProgreso(
                         codigo=requisito.codigo,
                         nombre=(requisito.descripcion or "")[:120],
-                        total=len(crits),
+                        total=len(hijos_crit),
                         completos=crits_ok,
-                        pct=_pct(crits_ok, len(crits)),
-                        children=[
-                            NivelProgreso(
-                                codigo=c.codigo,
-                                nombre=(c.descripcion or "")[:120],
-                                total=1,
-                                completos=1 if criterio_completo.get(c.pk) else 0,
-                                pct=100.0 if criterio_completo.get(c.pk) else 0.0,
-                            )
-                            for c in crits
-                        ],
+                        pct=_avg_pct([n.pct for n in hijos_crit]),
+                        children=hijos_crit,
                     )
                 )
             reqs_ok = sum(1 for n in requisitos_nivel if n.completo)
@@ -422,28 +468,43 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
                     nombre=(principio.descripcion or "")[:120],
                     total=len(requisitos_nivel),
                     completos=reqs_ok,
-                    pct=_pct(reqs_ok, len(requisitos_nivel)),
+                    pct=_avg_pct([n.pct for n in requisitos_nivel]),
                     children=requisitos_nivel,
                 )
             )
-        # Cumplimiento del tema = criterios con evidencia aprobada / criterios del tema.
-        # (Misma unidad que el dashboard "Cumplimiento por tema".)
-        crits_total = 0
-        crits_ok = 0
-        for prin in principios_nivel:
-            for req in prin.children:
-                crits_total += req.total
-                crits_ok += req.completos
+        crits_tema = [
+            c
+            for prin in principios_nivel
+            for req in prin.children
+            for c in req.children
+        ]
         temas_nivel.append(
             NivelProgreso(
                 codigo=tema.codigo,
                 nombre=tema.nombre,
-                total=crits_total,
-                completos=crits_ok,
-                pct=_pct(crits_ok, crits_total),
+                total=len(crits_tema),
+                completos=sum(1 for c in crits_tema if c.completo),
+                pct=_avg_pct([n.pct for n in principios_nivel]),
                 children=principios_nivel,
             )
         )
+
+    requisitos_todos = [
+        req for tema in temas_nivel for prin in tema.children for req in prin.children
+    ]
+    principios_todos = [prin for tema in temas_nivel for prin in tema.children]
+
+    requisitos_total = len(requisitos_todos)
+    requisitos_completos = sum(1 for n in requisitos_todos if n.completo)
+    requisitos_pct = _avg_pct([n.pct for n in requisitos_todos])
+
+    principios_total = len(principios_todos)
+    principios_completos = sum(1 for n in principios_todos if n.completo)
+    principios_pct = _avg_pct([n.pct for n in principios_todos])
+
+    temas_total = len(temas_nivel)
+    temas_completos = sum(1 for n in temas_nivel if n.completo)
+    temas_pct = _avg_pct([n.pct for n in temas_nivel])
 
     return ProgresoRevision(
         revision=revision,
@@ -452,16 +513,16 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         docs_pct=_pct(docs_cargados, docs_total),
         criterios_total=criterios_total,
         criterios_completos=criterios_completos,
-        criterios_pct=_pct(criterios_completos, criterios_total),
+        criterios_pct=criterios_pct,
         requisitos_total=requisitos_total,
         requisitos_completos=requisitos_completos,
-        requisitos_pct=_pct(requisitos_completos, requisitos_total),
+        requisitos_pct=requisitos_pct,
         principios_total=principios_total,
         principios_completos=principios_completos,
-        principios_pct=_pct(principios_completos, principios_total),
+        principios_pct=principios_pct,
         temas_total=temas_total,
         temas_completos=temas_completos,
-        temas_pct=_pct(temas_completos, temas_total),
+        temas_pct=temas_pct,
         criterios_huerfanos_count=huerfanos,
         criterios_huerfanos=criterios_huerfanos,
         documentos=documentos,

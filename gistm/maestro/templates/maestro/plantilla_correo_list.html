@@ -1,0 +1,67 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Correos · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Administración</p>
+    <h1>Correos</h1>
+    <p class="page-desc">Plantillas HTML que usa el sistema para recordatorios y notificaciones a clientes.</p>
+  </div>
+</header>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Código</th>
+          <th>Estado</th>
+          <th>Actualizado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in plantillas %}
+          <tr>
+            <td>
+              <strong>{{ p.nombre }}</strong>
+              {% if p.descripcion %}
+                <div class="muted" style="font-size:0.85rem;max-width:28rem;">{{ p.descripcion|truncatechars:120 }}</div>
+              {% endif %}
+            </td>
+            <td><code>{{ p.codigo }}</code></td>
+            <td>
+              {% if p.activo %}
+                <span class="badge badge-ok">Activa</span>
+              {% else %}
+                <span class="badge badge-off">Inactiva</span>
+              {% endif %}
+            </td>
+            <td>
+              {{ p.actualizado_en|date:"d/m/Y H:i" }}
+              {% if p.actualizado_por %}
+                <div class="muted" style="font-size:0.8rem;">{{ p.actualizado_por.get_full_name|default:p.actualizado_por.username }}</div>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:plantilla_correo_edit' p.pk %}">Editar HTML</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <strong>Sin plantillas</strong>
+                Se crearán automáticamente al abrir esta pantalla.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Preguntas · GISTM{% endblock %}
+
+{% block extra_head %}
+<style>
+  .filters-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 900px) {
+    .filters-bar { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Catálogo GISTM</p>
+    <h1>Preguntas</h1>
+    <p class="page-desc">
+      Cada criterio puede tener una o más preguntas de sí/no. El cumplimiento del criterio
+      se calcula con estas respuestas; un criterio sin preguntas no cuenta como completo.
+      Deshabilitar una pregunta solo afecta revisiones nuevas.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{% url 'maestro:pregunta_create' %}">+ Nueva pregunta</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1rem;">
+  <form method="get" class="filters-bar">
+    <div class="form-row">
+      <label for="id_filtro_criterio">Criterio</label>
+      <select class="input" name="criterio" id="id_filtro_criterio">
+        <option value="">Todos los criterios</option>
+        {% for criterio in criterios %}
+          <option value="{{ criterio.pk }}" {% if filtro_criterio == criterio.pk|stringformat:"s" %}selected{% endif %}>
+            {{ criterio.codigo }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row" style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:pregunta_list' %}">Limpiar</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Criterio</th>
+          <th>Tema</th>
+          <th>Texto</th>
+          <th>Orden</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pregunta in preguntas %}
+          <tr>
+            <td class="mono">{{ pregunta.codigo }}</td>
+            <td class="mono">{{ pregunta.criterio.codigo }}</td>
+            <td>{{ pregunta.criterio.tema.codigo }}</td>
+            <td>{{ pregunta.texto|truncatechars:90 }}</td>
+            <td class="mono">{{ pregunta.orden }}</td>
+            <td>
+              {% if pregunta.activo %}
+                <span class="badge badge-ok">Habilitada</span>
+              {% else %}
+                <span class="badge badge-off">Deshabilitada</span>
+              {% endif %}
+            </td>
+            <td class="actions">
+              <a href="{% url 'maestro:pregunta_edit' pregunta.pk %}">Editar</a>
+              <form method="post" action="{% url 'maestro:pregunta_toggle_activo' pregunta.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if pregunta.activo %}Deshabilitar{% else %}Habilitar{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <strong>No hay preguntas</strong>
+                Crea preguntas asociadas a un criterio existente.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

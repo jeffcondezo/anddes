@@ -167,6 +167,7 @@
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Volver a revisiones</a>
+    <a class="btn" href="{% url 'maestro:empresa_revision_plan' empresa.pk revision.pk %}">Definir plan</a>
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_aplicar_estandar' empresa.pk revision.pk %}">Aplicar relación estándar</a>
     <a class="btn" href="{% url 'maestro:empresa_documento_activar_catalogo' empresa.pk revision.pk %}">Activar del catálogo</a>
     <a class="btn" href="{% url 'maestro:empresa_documento_crear_propio' empresa.pk revision.pk %}">+ Documento propio</a>

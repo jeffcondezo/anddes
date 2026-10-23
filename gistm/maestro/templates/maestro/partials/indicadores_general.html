@@ -51,7 +51,7 @@
       <div class="panel-head">
         <div>
           <h2>Avance de documentos</h2>
-          <p class="muted">Aprobados vs pendientes de completar.</p>
+          <p class="muted" id="ind-donut-sub">Aprobados vs pendientes. Clic en una porción para filtrar.</p>
         </div>
       </div>
       <div class="ind-chart-box ind-chart-box--sm">
@@ -62,7 +62,7 @@
       <div class="panel-head">
         <div>
           <h2>Cumplimiento por tema</h2>
-          <p class="muted">Porcentaje de cumplimiento por tema (misma medida que Seguimiento).</p>
+          <p class="muted" id="ind-temas-sub">Clic en un tema para filtrar el donut y las listas. Clic de nuevo para quitar.</p>
         </div>
       </div>
       <div class="ind-chart-box ind-chart-box--sm">
@@ -76,9 +76,9 @@
       <div class="panel-head">
         <div>
           <h2>Curva avance</h2>
-          <p class="muted">
+          <p class="muted" id="ind-curva-sub">
             {% if revision.fecha_inicio and revision.fecha_fin %}
-              % Plan, % Real y % Forecast · {{ revision.fecha_inicio|date:"d/m/Y" }} → {{ revision.fecha_fin|date:"d/m/Y" }}
+              % Plan, % Real y % Forecast · vista global. Selecciona un tema para adaptar la curva.
             {% else %}
               Define fecha inicio y fin en la revisión para calcular Plan y Forecast.
             {% endif %}
@@ -99,15 +99,24 @@
       {% endif %}
     </section>
 
-    <section class="panel ind-panel-prio">
+    <section class="panel ind-panel-prio" id="docs-side-panel" data-side="prioritarios">
       <div class="panel-head">
         <div>
-          <h2>Documentos prioritarios</h2>
-          <p class="muted">Marcados como prioritarios en la revisión.</p>
+          <h2>Documentos</h2>
+          <p class="muted" data-side-desc="prioritarios">Marcados como prioritarios en la revisión.</p>
+          <p class="muted" data-side-desc="vencer" hidden>Con fecha límite en los próximos {{ dias_por_vencer }} días o ya vencida (no aprobados).</p>
         </div>
       </div>
+      <div class="coverage-tabs" style="margin:0 1rem 0.5rem;" role="tablist" aria-label="Listas de documentos">
+        <button type="button" role="tab" class="active" data-side-tab="prioritarios" aria-selected="true">
+          Prioritarios <span class="count" data-count-prioritarios>{{ docs_prioritarios|length }}</span>
+        </button>
+        <button type="button" role="tab" data-side-tab="vencer" aria-selected="false">
+          A punto de vencer <span class="count" data-count-vencer>{{ docs_por_vencer|length }}</span>
+        </button>
+      </div>
       <div class="ind-panel-body--sm">
-        <div class="table-wrap">
+        <div class="table-wrap" data-side-pane="prioritarios" role="tabpanel">
           <table class="data">
             <thead>
               <tr>
@@ -115,9 +124,13 @@
                 <th>Área</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="ind-prio-body">
               {% for d in docs_prioritarios %}
-                <tr>
+                <tr
+                  class="ind-doc-row"
+                  data-temas="{{ d.temas|join:',' }}"
+                  data-aprobado="{% if d.aprobado %}1{% else %}0{% endif %}"
+                >
                   <td>
                     <a href="{% url 'maestro:documento_conversacion' d.id %}">{{ d.nombre }}</a>
                     <div class="muted" style="font-size:0.75rem;">{{ d.codigo }} · {{ d.estado_label }}</div>
@@ -125,7 +138,7 @@
                   <td>{{ d.area }}</td>
                 </tr>
               {% empty %}
-                <tr>
+                <tr class="ind-empty-static">
                   <td colspan="2">
                     <div class="empty-state">
                       <strong>Sin pendientes prioritarios</strong>
@@ -133,10 +146,97 @@
                   </td>
                 </tr>
               {% endfor %}
+              <tr class="ind-empty-filter" hidden>
+                <td colspan="2">
+                  <div class="empty-state">
+                    <strong>Sin documentos con este filtro</strong>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap" data-side-pane="vencer" role="tabpanel" hidden>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Área</th>
+                <th>Vence</th>
+              </tr>
+            </thead>
+            <tbody id="ind-vencer-body">
+              {% for d in docs_por_vencer %}
+                <tr
+                  class="ind-doc-row"
+                  data-temas="{{ d.temas|join:',' }}"
+                  data-aprobado="{% if d.aprobado %}1{% else %}0{% endif %}"
+                >
+                  <td>
+                    <a href="{% url 'maestro:documento_conversacion' d.id %}">{{ d.nombre }}</a>
+                    <div class="muted" style="font-size:0.75rem;">{{ d.codigo }} · {{ d.estado_label }}</div>
+                  </td>
+                  <td>{{ d.area }}</td>
+                  <td style="white-space:nowrap; font-size:0.8rem;">
+                    <div>{{ d.fecha_limite|date:"d/m/Y" }}</div>
+                    {% if d.dias < 0 %}
+                      <span class="badge badge-off">Vencido hace {{ d.dias_abs }} d</span>
+                    {% elif d.dias == 0 %}
+                      <span class="badge badge-warn">Vence hoy</span>
+                    {% else %}
+                      <span class="badge badge-info">En {{ d.dias }} d</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr class="ind-empty-static">
+                  <td colspan="3">
+                    <div class="empty-state">
+                      <strong>Sin documentos a punto de vencer</strong>
+                      No hay fechas límite en los próximos {{ dias_por_vencer }} días.
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+              <tr class="ind-empty-filter" hidden>
+                <td colspan="3">
+                  <div class="empty-state">
+                    <strong>Sin documentos con este filtro</strong>
+                  </div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       </div>
+      <script>
+        (function () {
+          var panel = document.getElementById("docs-side-panel");
+          if (!panel) return;
+          var tabs = panel.querySelectorAll("[data-side-tab]");
+          var panes = panel.querySelectorAll("[data-side-pane]");
+          var descs = panel.querySelectorAll("[data-side-desc]");
+          function show(side) {
+            panel.setAttribute("data-side", side);
+            tabs.forEach(function (tab) {
+              var on = tab.getAttribute("data-side-tab") === side;
+              tab.classList.toggle("active", on);
+              tab.setAttribute("aria-selected", on ? "true" : "false");
+            });
+            panes.forEach(function (pane) {
+              pane.hidden = pane.getAttribute("data-side-pane") !== side;
+            });
+            descs.forEach(function (desc) {
+              desc.hidden = desc.getAttribute("data-side-desc") !== side;
+            });
+          }
+          tabs.forEach(function (tab) {
+            tab.addEventListener("click", function () {
+              show(tab.getAttribute("data-side-tab"));
+            });
+          });
+        })();
+      </script>
     </section>
   </div>
 

@@ -22,7 +22,10 @@
   <div>
     <p class="page-kicker">Catálogo GISTM</p>
     <h1>Criterios</h1>
-    <p class="page-desc">Los criterios se asocian a un requisito. Principio y tema se toman del requisito. La ponderación es informativa: 1 ÷ N criterios del mismo requisito.</p>
+    <p class="page-desc">
+      Los criterios se asocian a un requisito. Principio y tema se toman del requisito.
+      Deshabilitar un criterio lo excluye solo en revisiones nuevas (no afecta histórico ni revisiones en curso).
+    </p>
   </div>
   <div class="page-actions">
     <a class="btn" href="{% url 'maestro:criterio_create' %}">+ Nuevo criterio</a>
@@ -82,6 +85,7 @@
           <th>Requisito</th>
           <th>Descripción</th>
           <th>Ponderación (calc.)</th>
+          <th>Estado</th>
           <th></th>
         </tr>
       </thead>
@@ -94,13 +98,26 @@
             <td class="mono">{{ criterio.requisito.codigo }}</td>
             <td>{{ criterio.descripcion|truncatechars:80 }}</td>
             <td class="mono" title="Calculada automáticamente (1 ÷ N del requisito)">{{ criterio.ponderacion }}</td>
+            <td>
+              {% if criterio.activo %}
+                <span class="badge badge-ok">Habilitado</span>
+              {% else %}
+                <span class="badge badge-off">Deshabilitado</span>
+              {% endif %}
+            </td>
             <td class="actions">
               <a href="{% url 'maestro:criterio_edit' criterio.pk %}">Editar</a>
+              <form method="post" action="{% url 'maestro:criterio_toggle_activo' criterio.pk %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="link-btn">
+                  {% if criterio.activo %}Deshabilitar{% else %}Habilitar{% endif %}
+                </button>
+              </form>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="7">
+            <td colspan="8">
               <div class="empty-state">
                 <strong>No hay criterios</strong>
                 Crea criterios asociados a un requisito existente.

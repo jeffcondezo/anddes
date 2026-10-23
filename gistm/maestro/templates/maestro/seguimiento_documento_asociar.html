@@ -69,6 +69,8 @@
           <thead>
             <tr>
               <th>Criterio</th>
+              <th>Rol</th>
+              <th>Secundario</th>
               <th>Área</th>
             </tr>
           </thead>
@@ -78,6 +80,14 @@
                 <td>
                   <strong class="mono">{{ v.criterio.codigo }}</strong>
                   <div class="muted" style="font-size:0.82rem;">{{ v.criterio.descripcion|truncatechars:100 }}</div>
+                </td>
+                <td>{{ v.get_rol_display }}</td>
+                <td class="mono">
+                  {% if v.empresa_documento_secundario %}
+                    {{ v.empresa_documento_secundario.codigo }}
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
                 </td>
                 <td>{{ v.area.nombre }}</td>
               </tr>
@@ -144,6 +154,16 @@
             <p class="muted" style="margin:0.35rem 0 0;">{{ form.criterios.help_text }}</p>
           {% endif %}
           <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
+        </div>
+        <div class="form-row">
+          <label for="id_rol">Rol</label>
+          {{ form.rol }}
+          {{ form.rol.errors }}
+        </div>
+        <div class="form-row">
+          <label for="id_documento_secundario">Documento secundario</label>
+          {{ form.documento_secundario }}
+          {{ form.documento_secundario.errors }}
         </div>
         <div class="form-row">
           <label for="id_area">Área responsable</label>

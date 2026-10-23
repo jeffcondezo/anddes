@@ -1034,10 +1034,41 @@
     .review-card {
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 1rem 1.05rem;
+      padding: 0;
       background: #fbfcfd;
       display: grid;
+      gap: 0;
+    }
+    .review-card > summary.review-card-summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 1rem 1.05rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .review-card > summary.review-card-summary::-webkit-details-marker {
+      display: none;
+    }
+    .review-card > summary.review-card-summary::before {
+      content: "▸";
+      display: inline-block;
+      margin-right: 0.45rem;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+    .review-card[open] > summary.review-card-summary::before {
+      transform: rotate(90deg);
+    }
+    .review-card-body {
+      display: grid;
       gap: 0.85rem;
+      padding: 0 1.05rem 1rem;
+      border-top: 1px solid var(--border);
+      padding-top: 0.85rem;
     }
     .review-card-top {
       display: flex;
@@ -1045,15 +1076,19 @@
       gap: 0.75rem;
       flex-wrap: wrap;
       align-items: flex-start;
+      flex: 1;
+      min-width: 0;
     }
     .review-card-top h3 {
       font-size: 1.02rem;
       margin: 0;
+      display: inline;
     }
     .review-card-badges {
       display: flex;
       flex-wrap: wrap;
       gap: 0.35rem;
+      align-items: center;
     }
     .review-file {
       display: flex;
@@ -1405,7 +1440,8 @@
       margin-bottom: 1rem;
       flex-wrap: wrap;
     }
-    .coverage-tabs a {
+    .coverage-tabs a,
+    .coverage-tabs button {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
@@ -1416,8 +1452,11 @@
       color: #314047;
       text-decoration: none;
       font-size: 0.92rem;
+      font-family: inherit;
+      cursor: pointer;
     }
-    .coverage-tabs a.active {
+    .coverage-tabs a.active,
+    .coverage-tabs button.active {
       border-color: #1f6f8b;
       background: #eef7fb;
       color: #145066;
@@ -1547,6 +1586,18 @@
       flex-direction: column;
       gap: 0.25rem;
     }
+    .cal-day.is-clickable {
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .cal-day.is-clickable:hover {
+      border-color: #9ec9e4;
+      background: #f5fbfe;
+      box-shadow: inset 0 0 0 1px rgba(0, 105, 170, 0.12);
+    }
+    .cal-day.is-clickable:hover .cal-day-add {
+      opacity: 1;
+    }
     .cal-day.is-out {
       background: #f7f9fb;
       opacity: 0.65;
@@ -1555,10 +1606,24 @@
       border-color: #9ec9e4;
       box-shadow: inset 0 0 0 1px rgba(0, 105, 170, 0.15);
     }
+    .cal-day-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+    }
     .cal-day-num {
       font-size: 0.78rem;
       font-weight: 700;
       color: #425059;
+    }
+    .cal-day-add {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--primary);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      line-height: 1;
     }
     .cal-event {
       display: block;
@@ -1588,6 +1653,10 @@
     .cal-event.is-done {
       opacity: 0.55;
       text-decoration: line-through;
+    }
+    .cal-event.is-past {
+      opacity: 0.7;
+      border-style: dashed;
     }
     .doc-pick-group {
       margin-bottom: 0.85rem;
@@ -1699,13 +1768,21 @@
         </a>
         {% if es_cliente %}
           <div class="nav-section-label">Mi empresa</div>
-          <a href="{% url 'maestro:mi_empresa_dashboard' %}" class="{% if request.resolver_match.url_name == 'mi_empresa_dashboard' %}active{% endif %}">
-            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 14l3 3 7-8"/></svg>
+          <a href="{% url 'maestro:mi_empresa_dashboard' %}" class="{% if request.resolver_match.url_name == 'mi_empresa_dashboard' or request.resolver_match.url_name == 'indicadores_empresa' or request.resolver_match.url_name == 'indicadores_list' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4"/><path d="M12 15V8"/><path d="M16 15v-6"/></svg>
             Avance
           </a>
           <a href="{% url 'maestro:mi_empresa_documentos' %}" class="{% if request.resolver_match.url_name == 'mi_empresa_documentos' or request.resolver_match.url_name == 'mi_empresa_documento_cargar' or request.resolver_match.url_name == 'mi_empresa_documento_nuevo' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
             Mis documentos
+          </a>
+          <a href="{% url 'maestro:actividad_calendario' %}" class="{% if request.resolver_match.url_name == 'actividad_calendario' or request.resolver_match.url_name == 'actividad_detalle' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Actividades
+          </a>
+          <a href="{% url 'maestro:acuerdo_bandeja' %}" class="{% if request.resolver_match.url_name == 'acuerdo_bandeja' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Acuerdos
           </a>
         {% endif %}
         {% if es_administrador or es_gestor %}
@@ -1725,6 +1802,10 @@
           <a href="{% url 'maestro:acuerdo_bandeja' %}" class="{% if request.resolver_match.url_name == 'acuerdo_bandeja' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
             Acuerdos
+          </a>
+          <a href="{% url 'maestro:recordatorio_list' %}" class="{% if request.resolver_match.url_name == 'recordatorio_list' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/></svg>
+            Recordatorios
           </a>
         {% endif %}
         {% if es_administrador %}
@@ -1748,17 +1829,17 @@
             </div>
           </div>
           {% endwith %}
-          <a href="{% url 'maestro:empresa_list' %}" class="{% if request.resolver_match.url_name == 'empresa_list' or request.resolver_match.url_name == 'empresa_create' or request.resolver_match.url_name == 'empresa_edit' or request.resolver_match.url_name == 'empresa_revision_list' or request.resolver_match.url_name == 'empresa_revision_create' or request.resolver_match.url_name == 'empresa_revision_edit' or request.resolver_match.url_name == 'empresa_documento_list' or request.resolver_match.url_name == 'empresa_documento_activar_catalogo' or request.resolver_match.url_name == 'empresa_documento_aplicar_estandar' or request.resolver_match.url_name == 'empresa_documento_crear_propio' or request.resolver_match.url_name == 'empresa_documento_criterios' %}active{% endif %}">
+          <a href="{% url 'maestro:empresa_list' %}" class="{% if request.resolver_match.url_name == 'empresa_list' or request.resolver_match.url_name == 'empresa_create' or request.resolver_match.url_name == 'empresa_edit' or request.resolver_match.url_name == 'empresa_areas' or request.resolver_match.url_name == 'empresa_notificaciones' or request.resolver_match.url_name == 'empresa_revision_list' or request.resolver_match.url_name == 'empresa_revision_create' or request.resolver_match.url_name == 'empresa_revision_edit' or request.resolver_match.url_name == 'empresa_documento_list' or request.resolver_match.url_name == 'empresa_documento_activar_catalogo' or request.resolver_match.url_name == 'empresa_documento_aplicar_estandar' or request.resolver_match.url_name == 'empresa_documento_crear_propio' or request.resolver_match.url_name == 'empresa_documento_criterios' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01"/></svg>
             Empresas
           </a>
           {% with catalogo_active=request.resolver_match.url_name %}
-          <div class="nav-group{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open{% endif %}" data-nav-group>
+          <div class="nav-group{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'pregunta_list' or catalogo_active == 'pregunta_create' or catalogo_active == 'pregunta_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open{% endif %}" data-nav-group>
             <button
               type="button"
-              class="nav-group-toggle{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open active-parent{% endif %}"
+              class="nav-group-toggle{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'pregunta_list' or catalogo_active == 'pregunta_create' or catalogo_active == 'pregunta_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %} open active-parent{% endif %}"
               data-nav-toggle
-              aria-expanded="{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %}true{% else %}false{% endif %}"
+              aria-expanded="{% if catalogo_active == 'tema_list' or catalogo_active == 'tema_create' or catalogo_active == 'tema_edit' or catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' or catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' or catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' or catalogo_active == 'pregunta_list' or catalogo_active == 'pregunta_create' or catalogo_active == 'pregunta_edit' or catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' or catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %}true{% else %}false{% endif %}"
             >
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></svg>
               <span>Catálogo GISTM</span>
@@ -1769,6 +1850,7 @@
               <a href="{% url 'maestro:principio_list' %}" class="{% if catalogo_active == 'principio_list' or catalogo_active == 'principio_create' or catalogo_active == 'principio_edit' %}active{% endif %}">Principios</a>
               <a href="{% url 'maestro:requisito_list' %}" class="{% if catalogo_active == 'requisito_list' or catalogo_active == 'requisito_create' or catalogo_active == 'requisito_edit' %}active{% endif %}">Requisitos</a>
               <a href="{% url 'maestro:criterio_list' %}" class="{% if catalogo_active == 'criterio_list' or catalogo_active == 'criterio_create' or catalogo_active == 'criterio_edit' %}active{% endif %}">Criterios</a>
+              <a href="{% url 'maestro:pregunta_list' %}" class="{% if catalogo_active == 'pregunta_list' or catalogo_active == 'pregunta_create' or catalogo_active == 'pregunta_edit' %}active{% endif %}">Preguntas</a>
               <a href="{% url 'maestro:documento_list' %}" class="{% if catalogo_active == 'documento_list' or catalogo_active == 'documento_create' or catalogo_active == 'documento_edit' %}active{% endif %}">Documentos</a>
               <a href="{% url 'maestro:documento_criterio_list' %}" class="{% if catalogo_active == 'documento_criterio_list' or catalogo_active == 'documento_criterio_create' or catalogo_active == 'documento_criterio_edit' %}active{% endif %}">Relación estándar</a>
             </div>
@@ -1777,6 +1859,10 @@
           <a href="{% url 'maestro:glosario_termino_list' %}" class="{% if request.resolver_match.url_name == 'glosario_termino_list' or request.resolver_match.url_name == 'glosario_termino_create' or request.resolver_match.url_name == 'glosario_termino_edit' %}active{% endif %}">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
             Glosario
+          </a>
+          <a href="{% url 'maestro:plantilla_correo_list' %}" class="{% if request.resolver_match.url_name == 'plantilla_correo_list' or request.resolver_match.url_name == 'plantilla_correo_edit' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/><path d="M8 13h.01M12 13h.01M16 13h.01"/></svg>
+            Correos
           </a>
         {% endif %}
       </nav>

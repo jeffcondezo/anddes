@@ -1,0 +1,125 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Definir plan · {{ revision.etiqueta }} · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">{{ empresa.nombre }} · Revisión {{ revision.anio }}{% if revision.nombre %} · {{ revision.nombre }}{% endif %}</p>
+    <h1>Definir plan de entrega</h1>
+    <p class="page-desc">
+      Configura la fecha límite de cada documento (por tema y principio).
+      Es un paso de configuración previo al seguimiento:
+      <strong>no genera notificaciones</strong> por sí solo.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver a documentos</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_list' empresa.pk %}">Revisiones</a>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_edit' empresa.pk revision.pk %}">Editar revisión</a>
+  </div>
+</header>
+
+<section class="panel" style="margin-bottom:1.1rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Periodo global de la revisión</h2>
+      <p class="muted">Marco general (curva Plan / Forecast). Abajo defines fechas por documento.</p>
+    </div>
+    <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_edit' empresa.pk revision.pk %}">Editar periodo</a>
+  </div>
+  <p style="margin:0;">
+    {% if revision.fecha_inicio and revision.fecha_fin %}
+      <span class="mono">{{ revision.fecha_inicio|date:"d/m/Y" }}</span>
+      →
+      <span class="mono">{{ revision.fecha_fin|date:"d/m/Y" }}</span>
+    {% else %}
+      <span class="muted">Sin fechas globales. Puedes definirlas en la revisión o solo usar fechas por documento.</span>
+    {% endif %}
+    <span class="muted" style="margin-left:0.75rem;">
+      · {{ con_fecha }} / {{ total_docs }} documento(s) con fecha límite
+    </span>
+  </p>
+</section>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  {% if arbol %}
+    {% for tema in arbol %}
+      <section class="panel" style="margin-bottom:1.1rem;">
+        <div class="panel-head">
+          <div>
+            <h2>{{ tema.codigo }}{% if tema.nombre and tema.nombre != tema.codigo %} · {{ tema.nombre }}{% endif %}</h2>
+            <p class="muted">Documentos agrupados por principio (según el primer criterio vinculado).</p>
+          </div>
+        </div>
+
+        {% for prin in tema.principios %}
+          <div style="margin:0 0 1rem;">
+            <h3 style="font-size:0.95rem; margin:0 0 0.55rem;">
+              <span class="mono">{{ prin.codigo }}</span>
+              {% if prin.nombre and prin.nombre != prin.codigo %}
+                <span class="muted" style="font-weight:500;"> · {{ prin.nombre|truncatechars:80 }}</span>
+              {% endif %}
+            </h3>
+            <div class="table-wrap">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>Documento</th>
+                    <th style="width:11rem;">Fecha límite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for doc in prin.documentos %}
+                    <tr>
+                      <td>
+                        <strong class="mono">{{ doc.codigo }}</strong>
+                        · {{ doc.nombre }}
+                        {% if doc.principios|length > 1 %}
+                          <div class="muted" style="font-size:0.78rem; margin-top:0.2rem;">
+                            También en:
+                            {% for p in doc.principios %}
+                              {% if not forloop.first %}, {% endif %}{{ p }}
+                            {% endfor %}
+                          </div>
+                        {% endif %}
+                      </td>
+                      <td>
+                        <input
+                          class="input"
+                          type="date"
+                          name="fecha_limite_{{ doc.id }}"
+                          value="{% if doc.fecha_limite_entrega %}{{ doc.fecha_limite_entrega|date:'Y-m-d' }}{% endif %}"
+                          style="max-width:12rem;"
+                        >
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="2" class="muted">Sin documentos en este principio.</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endfor %}
+
+    <div class="page-actions" style="justify-content:flex-end; margin-bottom:1.5rem;">
+      <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
+      <button type="submit" class="btn">Guardar plan</button>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <strong>No hay documentos activos</strong>
+      Activa o crea documentos en esta revisión y luego define el plan de entrega.
+      <div style="margin-top:0.75rem;">
+        <a class="btn" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Ir a documentos</a>
+      </div>
+    </div>
+  {% endif %}
+</form>
+{% endblock %}

@@ -1,0 +1,87 @@
+{# Requiere: empresa, doc (con id, revision_texto, revision_porcentaje), next_url opcional #}
+{% with texto=doc.revision_texto pct=doc.revision_porcentaje %}
+<div class="doc-revision-consultor" style="margin:0;">
+  <button
+    type="button"
+    class="btn btn-ghost"
+    data-rev-open="rev-modal-{{ doc.id }}"
+  >
+    {% if texto or pct != None %}Cambiar revisión{% else %}Definir revisión{% endif %}
+  </button>
+
+  <div
+    class="modal-backdrop"
+    id="rev-modal-{{ doc.id }}"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="rev-modal-title-{{ doc.id }}"
+  >
+    <div class="modal-panel" style="max-width:26rem;">
+      <header>
+        <div>
+          <h3 id="rev-modal-title-{{ doc.id }}">
+            {% if texto or pct != None %}Cambiar revisión{% else %}Definir revisión{% endif %}
+          </h3>
+          <p class="muted">{{ doc.codigo }} · {{ doc.nombre }}</p>
+        </div>
+        <button type="button" class="modal-close" data-rev-close>Cerrar</button>
+      </header>
+      <form
+        method="post"
+        action="{% url 'maestro:seguimiento_documento_revision_consultor' empresa.pk doc.id %}"
+        style="display:grid; gap:0.85rem;"
+      >
+        {% csrf_token %}
+        {% if next_url %}
+          <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        <div class="form-row" style="margin:0;">
+          <label for="revision_texto_{{ doc.id }}">Revisión</label>
+          <input
+            class="input"
+            type="text"
+            name="revision_texto"
+            id="revision_texto_{{ doc.id }}"
+            maxlength="64"
+            value="{{ texto }}"
+            placeholder="Ej. Iniciado, Rev0, RevA, RevB…"
+            list="revision-consultor-sugerencias-{{ doc.id }}"
+            autocomplete="off"
+          >
+          <datalist id="revision-consultor-sugerencias-{{ doc.id }}">
+            <option value="Iniciado"></option>
+            <option value="Rev0"></option>
+            <option value="RevA"></option>
+            <option value="RevB"></option>
+          </datalist>
+          <p class="muted" style="margin:0.3rem 0 0; font-size:0.78rem;">
+            Texto libre (puedes usar Iniciado/Rev0/RevA/RevB u otra). Independiente del estado del sistema.
+          </p>
+        </div>
+        <div class="form-row" style="margin:0;">
+          <label for="revision_pct_{{ doc.id }}">Porcentaje</label>
+          <input
+            class="input"
+            type="number"
+            name="revision_porcentaje"
+            id="revision_pct_{{ doc.id }}"
+            min="0"
+            max="100"
+            step="1"
+            value="{% if pct != None %}{{ pct }}{% endif %}"
+            placeholder="0–100"
+          >
+          <p class="muted" style="margin:0.3rem 0 0; font-size:0.78rem;">
+            No modifica el avance calculado.
+          </p>
+        </div>
+        <div class="form-actions" style="margin:0; justify-content:flex-end;">
+          <button type="button" class="btn btn-ghost" data-rev-close>Cancelar</button>
+          <button type="submit" class="btn">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endwith %}

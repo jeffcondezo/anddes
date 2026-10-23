@@ -25,7 +25,7 @@
 {% if carga_actual %}
   <div class="info-banner" style="margin-bottom:1rem;">
     <div>
-      <h2>Evidencia vigente</h2>
+      <h2>Evidencia vigente · v{{ carga_actual.version }}</h2>
       <p>
         {{ carga_actual.nombre_original|default:carga_actual.archivo.name }}
         · {{ carga_actual.get_estado_revision_display }}
@@ -34,15 +34,87 @@
           · <a href="{{ carga_actual.archivo.url }}" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline;">Ver archivo</a>
         {% endif %}
       </p>
+      {% if documento.fecha_caducidad %}
+        <p style="margin:0.5rem 0 0;opacity:0.95;font-size:0.9rem;">
+          Vigencia:
+          {% if documento.frecuencia_actualizacion %}
+            {{ documento.get_frecuencia_actualizacion_display }}{% if documento.frecuencia_otro %}: {{ documento.frecuencia_otro }}{% endif %} ·
+          {% endif %}
+          {% if documento.fecha_ultima_revision %}Rev. 0 {{ documento.fecha_ultima_revision|date:"d/m/Y" }} · {% endif %}
+          caduca {{ documento.fecha_caducidad|date:"d/m/Y" }}
+          {% if es_consultor %}
+            · <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" style="color:#fff;text-decoration:underline;">Editar</a>
+          {% endif %}
+        </p>
+      {% elif es_consultor and carga_actual.estado_revision == 'APROBADO' %}
+        <p style="margin:0.5rem 0 0;">
+          <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" style="color:#fff;text-decoration:underline;">
+            Completar vigencia (obligatorio)
+          </a>
+        </p>
+      {% endif %}
+      {% if es_consultor and carga_actual.estado_revision == 'APROBADO' or es_consultor and carga_actual.estado_revision == 'PARCIAL' %}
+        <form
+          method="post"
+          action="{% url 'maestro:seguimiento_carga_revertir' empresa.pk carga_actual.id %}"
+          style="margin-top:0.75rem;"
+          onsubmit="return confirm('¿Revertir la aprobación de este documento?');"
+        >
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button type="submit" class="btn btn-ghost" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.35);">
+            Revertir aprobación
+          </button>
+        </form>
+      {% endif %}
     </div>
   </div>
+{% endif %}
+
+{% if versiones|length > 1 %}
+<section class="panel" style="margin-bottom:1rem;">
+  <div class="panel-head">
+    <div>
+      <h2>Versiones del archivo</h2>
+      <p class="muted">Historial en Blob Storage; no se borran cargas anteriores.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Versión</th>
+          <th>Archivo</th>
+          <th>Estado</th>
+          <th>Fecha</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in versiones %}
+          <tr {% if v.activo %}style="background:#f0f7fb;"{% endif %}>
+            <td><strong>v{{ v.version }}</strong>{% if v.activo %} <span class="badge badge-ok">Vigente</span>{% endif %}</td>
+            <td>{{ v.nombre_original|default:v.archivo.name }}</td>
+            <td>{{ v.get_estado_revision_display }}</td>
+            <td>{{ v.creado_en|date:"d/m/Y H:i" }}</td>
+            <td class="actions">
+              {% if v.archivo %}
+                <a href="{{ v.archivo.url }}" target="_blank" rel="noopener">Descargar</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
 <section class="panel chat-panel">
   <div class="panel-head">
     <div>
-      <h2>Mensajes</h2>
-      <p class="muted">Observaciones, rechazos, respuestas y acuerdos de fechas.</p>
+      <h2>Línea de tiempo</h2>
+      <p class="muted">Observaciones, rechazos, versiones cargadas y acuerdos.</p>
     </div>
     <span class="badge badge-info">{{ mensajes|length }}</span>
   </div>
@@ -59,9 +131,10 @@
           </strong>
           <span class="badge
             {% if msg.tipo == 'RECHAZO' %}badge-off
-            {% elif msg.tipo == 'ACUERDO' %}badge-ok
+            {% elif msg.tipo == 'ACUERDO' or msg.tipo == 'VERSION' %}badge-ok
             {% else %}badge-info{% endif %}">
             {{ msg.get_tipo_display }}
+            {% if msg.carga %}· v{{ msg.carga.version }}{% endif %}
           </span>
           {% if msg.criterio %}
             <span class="badge badge-info mono" title="{{ msg.criterio.descripcion|default:'' }}">
@@ -74,7 +147,7 @@
         {% if msg.carga and msg.carga.archivo %}
           <div class="chat-attach">
             <a href="{{ msg.carga.archivo.url }}" target="_blank" rel="noopener">
-              Archivo: {{ msg.carga.nombre_original|default:msg.carga.archivo.name }}
+              Descargar v{{ msg.carga.version }}: {{ msg.carga.nombre_original|default:msg.carga.archivo.name }}
             </a>
           </div>
         {% endif %}
