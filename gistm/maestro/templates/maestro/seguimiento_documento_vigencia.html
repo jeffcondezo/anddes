@@ -12,8 +12,8 @@
 </header>
 
 {% if pendiente_aprobacion or aprobado_sin_vigencia %}
-  <section class="panel" style="margin-bottom:1rem;border-left:3px solid #b42318;">
-    <p style="margin:0;">
+  <section class="panel csi-9e6224817b">
+    <p class="csi-1da9facb4d">
       Si cancelas, {% if pendiente_aprobacion %}la aprobación no se aplicará{% else %}se revertirá la aprobación{% endif %}.
     </p>
   </section>
@@ -21,8 +21,8 @@
 
 <section class="panel">
   {% if carga %}
-    <p class="muted" style="margin-top:0;">
-      Evidencia vigente: {{ carga.nombre_original|default:carga.archivo.name }}
+    <p class="muted csi-291b7bbb01">
+      Evidencia vigente: {{ carga.etiqueta_evidencia }}{% if carga.es_url %} (URL){% endif %}
       · versión {{ carga.version }}
       · {{ carga.get_estado_revision_display }}
     </p>
@@ -30,7 +30,7 @@
   <form method="post" novalidate id="form-vigencia">
     {% csrf_token %}
     {% if form.non_field_errors %}
-      <div class="info-banner" style="margin-bottom:1rem;">{{ form.non_field_errors }}</div>
+      <div class="info-banner csi-16884469a8">{{ form.non_field_errors }}</div>
     {% endif %}
     <div class="form-grid two-col">
       <div class="form-row span-2">
@@ -54,7 +54,7 @@
         {{ form.fecha_caducidad.errors }}
       </div>
     </div>
-    <div class="form-actions" style="margin-top:1.1rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+    <div class="form-actions csi-c945f52262">
       <button type="submit" class="btn" name="accion" value="guardar">
         {% if pendiente_aprobacion %}Guardar vigencia y aprobar{% else %}Guardar vigencia{% endif %}
       </button>
@@ -64,8 +64,7 @@
           class="btn btn-ghost"
           name="accion"
           value="cancelar"
-          formaction=""
-          onclick="return confirm('¿Cancelar? La aprobación del documento se descartará o se revertirá porque la vigencia es un paso obligatorio.');"
+          formaction="" data-confirm="¿Cancelar? La aprobación del documento se descartará o se revertirá porque la vigencia es un paso obligatorio."
         >Cancelar</button>
       {% else %}
         <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">Volver</a>
@@ -74,7 +73,7 @@
   </form>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   var sel = document.getElementById("id_frecuencia_actualizacion");
   var row = document.getElementById("row-frecuencia-otro");

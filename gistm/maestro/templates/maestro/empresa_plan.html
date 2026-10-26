@@ -20,7 +20,7 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1.1rem;">
+<section class="panel csi-e45ccaafcc">
   <div class="panel-head">
     <div>
       <h2>Periodo global de la revisión</h2>
@@ -28,7 +28,7 @@
     </div>
     <a class="btn btn-ghost" href="{% url 'maestro:empresa_revision_edit' empresa.pk revision.pk %}">Editar periodo</a>
   </div>
-  <p style="margin:0;">
+  <p class="csi-1da9facb4d">
     {% if revision.fecha_inicio and revision.fecha_fin %}
       <span class="mono">{{ revision.fecha_inicio|date:"d/m/Y" }}</span>
       →
@@ -36,7 +36,7 @@
     {% else %}
       <span class="muted">Sin fechas globales. Puedes definirlas en la revisión o solo usar fechas por documento.</span>
     {% endif %}
-    <span class="muted" style="margin-left:0.75rem;">
+    <span class="muted csi-1c9f469d31">
       · {{ con_fecha }} / {{ total_docs }} documento(s) con fecha límite
     </span>
   </p>
@@ -46,7 +46,7 @@
   {% csrf_token %}
   {% if arbol %}
     {% for tema in arbol %}
-      <section class="panel" style="margin-bottom:1.1rem;">
+      <section class="panel csi-e45ccaafcc">
         <div class="panel-head">
           <div>
             <h2>{{ tema.codigo }}{% if tema.nombre and tema.nombre != tema.codigo %} · {{ tema.nombre }}{% endif %}</h2>
@@ -55,11 +55,11 @@
         </div>
 
         {% for prin in tema.principios %}
-          <div style="margin:0 0 1rem;">
-            <h3 style="font-size:0.95rem; margin:0 0 0.55rem;">
+          <div class="csi-1f9fc2f6f0">
+            <h3 class="csi-317e36bb6d">
               <span class="mono">{{ prin.codigo }}</span>
               {% if prin.nombre and prin.nombre != prin.codigo %}
-                <span class="muted" style="font-weight:500;"> · {{ prin.nombre|truncatechars:80 }}</span>
+                <span class="muted csi-be39d6e21a"> · {{ prin.nombre|truncatechars:80 }}</span>
               {% endif %}
             </h3>
             <div class="table-wrap">
@@ -67,7 +67,7 @@
                 <thead>
                   <tr>
                     <th>Documento</th>
-                    <th style="width:11rem;">Fecha límite</th>
+                    <th class="csi-d8bcee08b7">Fecha límite</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -77,7 +77,7 @@
                         <strong class="mono">{{ doc.codigo }}</strong>
                         · {{ doc.nombre }}
                         {% if doc.principios|length > 1 %}
-                          <div class="muted" style="font-size:0.78rem; margin-top:0.2rem;">
+                          <div class="muted csi-659d92ce85">
                             También en:
                             {% for p in doc.principios %}
                               {% if not forloop.first %}, {% endif %}{{ p }}
@@ -87,11 +87,11 @@
                       </td>
                       <td>
                         <input
-                          class="input"
+                          class="input csi-2561168ad9"
                           type="date"
                           name="fecha_limite_{{ doc.id }}"
                           value="{% if doc.fecha_limite_entrega %}{{ doc.fecha_limite_entrega|date:'Y-m-d' }}{% endif %}"
-                          style="max-width:12rem;"
+                         
                         >
                       </td>
                     </tr>
@@ -108,7 +108,7 @@
       </section>
     {% endfor %}
 
-    <div class="page-actions" style="justify-content:flex-end; margin-bottom:1.5rem;">
+    <div class="page-actions csi-f228aed83c">
       <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
       <button type="submit" class="btn">Guardar plan</button>
     </div>
@@ -116,7 +116,7 @@
     <div class="empty-state">
       <strong>No hay documentos activos</strong>
       Activa o crea documentos en esta revisión y luego define el plan de entrega.
-      <div style="margin-top:0.75rem;">
+      <div class="csi-21d8fb5d75">
         <a class="btn" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Ir a documentos</a>
       </div>
     </div>

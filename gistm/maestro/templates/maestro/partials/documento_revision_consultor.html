@@ -1,6 +1,6 @@
 {# Requiere: empresa, doc (con id, revision_texto, revision_porcentaje), next_url opcional #}
 {% with texto=doc.revision_texto pct=doc.revision_porcentaje %}
-<div class="doc-revision-consultor" style="margin:0;">
+<div class="doc-revision-consultor csi-1da9facb4d">
   <button
     type="button"
     class="btn btn-ghost"
@@ -17,7 +17,7 @@
     aria-modal="true"
     aria-labelledby="rev-modal-title-{{ doc.id }}"
   >
-    <div class="modal-panel" style="max-width:26rem;">
+    <div class="modal-panel csi-9780302e86">
       <header>
         <div>
           <h3 id="rev-modal-title-{{ doc.id }}">
@@ -30,13 +30,13 @@
       <form
         method="post"
         action="{% url 'maestro:seguimiento_documento_revision_consultor' empresa.pk doc.id %}"
-        style="display:grid; gap:0.85rem;"
-      >
+       
+       class="csi-950a92850f">
         {% csrf_token %}
         {% if next_url %}
           <input type="hidden" name="next" value="{{ next_url }}">
         {% endif %}
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="revision_texto_{{ doc.id }}">Revisión</label>
           <input
             class="input"
@@ -55,11 +55,11 @@
             <option value="RevA"></option>
             <option value="RevB"></option>
           </datalist>
-          <p class="muted" style="margin:0.3rem 0 0; font-size:0.78rem;">
+          <p class="muted csi-e01707a944">
             Texto libre (puedes usar Iniciado/Rev0/RevA/RevB u otra). Independiente del estado del sistema.
           </p>
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="revision_pct_{{ doc.id }}">Porcentaje</label>
           <input
             class="input"
@@ -72,11 +72,11 @@
             value="{% if pct != None %}{{ pct }}{% endif %}"
             placeholder="0–100"
           >
-          <p class="muted" style="margin:0.3rem 0 0; font-size:0.78rem;">
+          <p class="muted csi-e01707a944">
             No modifica el avance calculado.
           </p>
         </div>
-        <div class="form-actions" style="margin:0; justify-content:flex-end;">
+        <div class="form-actions csi-29ef399d80">
           <button type="button" class="btn btn-ghost" data-rev-close>Cancelar</button>
           <button type="submit" class="btn">Guardar</button>
         </div>

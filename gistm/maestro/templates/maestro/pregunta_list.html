@@ -3,7 +3,7 @@
 {% block title %}Preguntas · GISTM{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
   .filters-bar {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -33,7 +33,7 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1rem;">
+<section class="panel csi-16884469a8">
   <form method="get" class="filters-bar">
     <div class="form-row">
       <label for="id_filtro_criterio">Criterio</label>
@@ -46,7 +46,7 @@
         {% endfor %}
       </select>
     </div>
-    <div class="form-row" style="display:flex; gap:0.5rem;">
+    <div class="form-row csi-d1b4842bfc">
       <button type="submit" class="btn">Filtrar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:pregunta_list' %}">Limpiar</a>
     </div>
@@ -84,7 +84,7 @@
             </td>
             <td class="actions">
               <a href="{% url 'maestro:pregunta_edit' pregunta.pk %}">Editar</a>
-              <form method="post" action="{% url 'maestro:pregunta_toggle_activo' pregunta.pk %}" style="display:inline;">
+              <form method="post" action="{% url 'maestro:pregunta_toggle_activo' pregunta.pk %}" class="csi-0cd28ce9ba">
                 {% csrf_token %}
                 <button type="submit" class="link-btn">
                   {% if pregunta.activo %}Deshabilitar{% else %}Habilitar{% endif %}

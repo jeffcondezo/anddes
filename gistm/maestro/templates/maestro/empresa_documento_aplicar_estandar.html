@@ -17,7 +17,7 @@
   </div>
 </header>
 
-<div class="stat-grid" style="margin-bottom:1.25rem;">
+<div class="stat-grid csi-d44ae31e3b">
   <article class="stat-card">
     <div class="stat-label">Documentos a activar</div>
     <div class="stat-value">{{ docs_a_activar }}</div>
@@ -43,7 +43,7 @@
       <strong>Nada pendiente</strong>
       Esta revisión ya tiene aplicados todos los documentos y vínculos del estándar.
     </div>
-    <div class="form-actions" style="margin-top:1rem;">
+    <div class="form-actions csi-0cf8f93b0e">
       <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Volver</a>
     </div>
   {% else %}
@@ -52,15 +52,15 @@
       {% if form.non_field_errors %}
         <div>{{ form.non_field_errors }}</div>
       {% endif %}
-      <div class="form-row" style="max-width:28rem;">
+      <div class="form-row csi-2d3b0249e9">
         <label for="id_area">{{ form.area.label }}</label>
         {{ form.area }}
         {{ form.area.errors }}
         {% if form.area.help_text %}
-          <p class="muted" style="margin:0.35rem 0 0; font-size:0.82rem;">{{ form.area.help_text }}</p>
+          <p class="muted csi-256d4cca3e">{{ form.area.help_text }}</p>
         {% endif %}
       </div>
-      <div class="form-actions" style="margin-top:1.1rem;">
+      <div class="form-actions csi-e84534fbf5">
         <button type="submit" class="btn">Aplicar estándar</button>
         <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}">Cancelar</a>
       </div>

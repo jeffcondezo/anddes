@@ -11,13 +11,13 @@
   </div>
 </header>
 
-<form method="get" class="panel" style="margin-bottom:1rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;">
-  <label style="display:grid;gap:0.25rem;min-width:11rem;">
-    <span class="muted" style="font-size:0.8rem;">Fecha</span>
+<form method="get" class="panel csi-1a6dff46bc">
+  <label class="csi-e8ececdf5d">
+    <span class="muted csi-94db95e1b0">Fecha</span>
     <input type="date" name="fecha" class="input" value="{{ fecha|date:'Y-m-d' }}" required>
   </label>
-  <label style="display:grid;gap:0.25rem;min-width:12rem;">
-    <span class="muted" style="font-size:0.8rem;">Tipo</span>
+  <label class="csi-f3193e9faf">
+    <span class="muted csi-94db95e1b0">Tipo</span>
     <select name="tipo" class="input">
       <option value="">Todos</option>
       {% for value, label in tipos %}
@@ -25,8 +25,8 @@
       {% endfor %}
     </select>
   </label>
-  <label style="display:grid;gap:0.25rem;min-width:14rem;flex:1;">
-    <span class="muted" style="font-size:0.8rem;">Empresa</span>
+  <label class="csi-4e136c085b">
+    <span class="muted csi-94db95e1b0">Empresa</span>
     <select name="empresa" class="input">
       <option value="">Todas</option>
       {% for e in empresas %}
@@ -66,13 +66,13 @@
             <td>
               <strong>{{ envio.asunto|truncatechars:72 }}</strong>
               {% if envio.acuerdo %}
-                <div class="muted" style="font-size:0.8rem;">Acuerdo #{{ envio.acuerdo_id }}</div>
+                <div class="muted csi-94db95e1b0">Acuerdo #{{ envio.acuerdo_id }}</div>
               {% elif envio.actividad %}
-                <div class="muted" style="font-size:0.8rem;">Actividad #{{ envio.actividad_id }}</div>
+                <div class="muted csi-94db95e1b0">Actividad #{{ envio.actividad_id }}</div>
               {% endif %}
             </td>
-            <td style="max-width:12rem;word-break:break-all;">{{ envio.destinatarios_to|default:"—" }}</td>
-            <td style="max-width:14rem;word-break:break-all;">{% if envio.destinatarios_cc %}{{ envio.destinatarios_cc }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="csi-a586d00756">{{ envio.destinatarios_to|default:"—" }}</td>
+            <td class="csi-b0dd0e171a">{% if envio.destinatarios_cc %}{{ envio.destinatarios_cc }}{% else %}<span class="muted">—</span>{% endif %}</td>
             <td>
               {% if envio.automatico %}
                 <span class="badge badge-warn">Automático</span>
@@ -108,7 +108,7 @@
     </table>
   </div>
   {% if envios %}
-    <p class="muted" style="padding:0.75rem 1rem;margin:0;">
+    <p class="muted csi-cf4611f8f0">
       {{ total }} envío(s) del {{ fecha|date:"d/m/Y" }}{% if es_hoy %} (hoy){% endif %}.
     </p>
   {% endif %}

@@ -46,7 +46,7 @@
             </td>
             <td class="actions">
               <a href="{% url 'maestro:principio_edit' principio.pk %}">Editar</a>
-              <form method="post" action="{% url 'maestro:principio_toggle_activo' principio.pk %}" style="display:inline;">
+              <form method="post" action="{% url 'maestro:principio_toggle_activo' principio.pk %}" class="csi-0cd28ce9ba">
                 {% csrf_token %}
                 <button type="submit" class="link-btn">
                   {% if principio.activo %}Deshabilitar{% else %}Habilitar{% endif %}

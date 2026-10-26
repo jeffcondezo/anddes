@@ -4,7 +4,7 @@
 {% block title %}Iniciar sesión · GISTM{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
   body {
     background: #24343d !important;
   }
@@ -35,6 +35,11 @@
     transform: scale(1.04);
     transition: opacity 1.1s ease, transform 7s ease;
   }
+  .login-bg-1 { background-image: url("{% static 'maestro/img/login-bg-1.jpg' %}"); }
+  .login-bg-2 { background-image: url("{% static 'maestro/img/login-bg-2.jpg' %}"); }
+  .login-bg-3 { background-image: url("{% static 'maestro/img/login-bg-3.jpg' %}"); }
+  .login-bg-4 { background-image: url("{% static 'maestro/img/login-bg-4.jpg' %}"); }
+  .login-bg-5 { background-image: url("{% static 'maestro/img/login-bg-5.jpg' %}"); }
   .login-slide.is-active {
     opacity: 1;
     transform: scale(1);
@@ -259,11 +264,11 @@
 {% block content %}
 <div class="login-page" id="login-page">
   <div class="login-carousel" id="login-carousel" aria-hidden="true">
-    <div class="login-slide is-active" style="background-image:url('{% static 'maestro/img/login-bg-1.jpg' %}')"></div>
-    <div class="login-slide" style="background-image:url('{% static 'maestro/img/login-bg-2.jpg' %}')"></div>
-    <div class="login-slide" style="background-image:url('{% static 'maestro/img/login-bg-3.jpg' %}')"></div>
-    <div class="login-slide" style="background-image:url('{% static 'maestro/img/login-bg-4.jpg' %}')"></div>
-    <div class="login-slide" style="background-image:url('{% static 'maestro/img/login-bg-5.jpg' %}')"></div>
+    <div class="login-slide login-bg-1 is-active"></div>
+    <div class="login-slide login-bg-2"></div>
+    <div class="login-slide login-bg-3"></div>
+    <div class="login-slide login-bg-4"></div>
+    <div class="login-slide login-bg-5"></div>
   </div>
   <div class="login-dots" id="login-dots" role="tablist" aria-label="Imágenes de fondo">
     <button type="button" class="login-dot is-active" aria-label="Imagen 1" data-slide="0"></button>
@@ -308,7 +313,7 @@
                 <li>Leer tu perfil básico (<strong>User.Read</strong>): nombre y correo electrónico.</li>
                 <li>Identificarte de forma segura para abrir tu sesión en la plataforma.</li>
               </ul>
-              <p style="margin-top:0.6rem; margin-bottom:0;">
+              <p class="csi-51019c33bc">
                 No solicita acceso a tus archivos, correos, calendario ni a datos de otras aplicaciones.
                 Si eres usuario invitado (empresa externa), el consentimiento puede requerirse la primera vez que ingreses al tenant.
               </p>
@@ -333,7 +338,7 @@
     </section>
   </div>
 </div>
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     var page = document.getElementById("login-page");
     var trigger = document.getElementById("login-trigger");

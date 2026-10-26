@@ -42,7 +42,7 @@
             </td>
             <td class="actions">
               <a href="{% url 'maestro:tema_edit' tema.pk %}">Editar</a>
-              <form method="post" action="{% url 'maestro:tema_toggle_activo' tema.pk %}" style="display:inline;">
+              <form method="post" action="{% url 'maestro:tema_toggle_activo' tema.pk %}" class="csi-0cd28ce9ba">
                 {% csrf_token %}
                 <button type="submit" class="link-btn">
                   {% if tema.activo %}Deshabilitar{% else %}Habilitar{% endif %}

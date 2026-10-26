@@ -20,7 +20,7 @@
   <form method="post" novalidate id="actividad-form">
     {% csrf_token %}
     {% if form.non_field_errors %}
-      <div class="info-banner" style="margin-bottom:1rem;">{{ form.non_field_errors }}</div>
+      <div class="info-banner csi-16884469a8">{{ form.non_field_errors }}</div>
     {% endif %}
 
     <div class="form-grid two-col">
@@ -33,7 +33,7 @@
       <div class="form-row">
         <label for="id_alcance">Alcance</label>
         {{ form.alcance }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           «Solo consultor» para tareas propias. «Con empresa / cliente» para reuniones o acuerdos con la minera.
         </p>
         {{ form.alcance.errors }}
@@ -42,7 +42,7 @@
       <div class="form-row">
         <label for="id_empresa">Empresa</label>
         {{ form.empresa }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           Opcional en «Solo consultor» (para asociar documentos). Obligatoria si el alcance es «Con empresa / cliente» — en ese caso se notificará por correo a los usuarios cliente.
         </p>
         {{ form.empresa.errors }}
@@ -51,7 +51,7 @@
       <div class="form-row">
         <label for="id_asignado_a">Asignar a</label>
         {{ form.asignado_a }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           Consultor del equipo que ejecutará la actividad. Los jefes pueden asignar a sus subordinados.
         </p>
         {{ form.asignado_a.errors }}
@@ -60,7 +60,7 @@
       <div class="form-row">
         <label for="id_area">Área responsable</label>
         {{ form.area }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           Áreas de la empresa. Elige empresa primero; luego se filtran los responsables.
         </p>
         {{ form.area.errors }}
@@ -69,7 +69,7 @@
       <div class="form-row">
         <label for="id_responsable">Responsable</label>
         {{ form.responsable }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           Responsables del área seleccionada (nombre, correo, etc. del maestro).
         </p>
         {{ form.responsable.errors }}
@@ -96,7 +96,7 @@
       <div class="form-row span-2">
         <label for="id_enlace_reunion">Enlace de reunión (opcional)</label>
         {{ form.enlace_reunion }}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">
+        <p class="muted csi-38e6665aad">
           Teams, Meet, Zoom u otro. La reunión no se hace dentro de GISTM.
         </p>
         {{ form.enlace_reunion.errors }}
@@ -104,9 +104,9 @@
 
     </div>
 
-    <div style="margin-top:1.25rem;">
-      <h2 style="font-size:1.05rem; margin:0 0 0.35rem;">Documentos relacionados</h2>
-      <p class="muted" style="margin:0 0 0.75rem;">
+    <div class="csi-a847778823">
+      <h2 class="csi-5f0bf7a252">Documentos relacionados</h2>
+      <p class="muted csi-077e9a2ab8">
         Elige empresa para cargar pendientes y por revisar. Opcional: puedes crear la actividad sin documentos.
       </p>
 
@@ -146,7 +146,7 @@
           </div>
         {% endif %}
       {% else %}
-        <div class="empty-state" style="padding:1.2rem;">
+        <div class="empty-state csi-93b3cfec33">
           <strong>Sin documentos para seleccionar</strong>
           Elige una empresa con revisión activa, o deja la actividad sin documentos.
         </div>
@@ -154,14 +154,14 @@
       {{ form.documentos.errors }}
     </div>
 
-    <div class="form-actions" style="margin-top:1.25rem;">
+    <div class="form-actions csi-a847778823">
       <button type="submit" class="btn">Guardar actividad</button>
       <a class="btn btn-ghost" href="{% url 'maestro:actividad_calendario' %}">Cancelar</a>
     </div>
   </form>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     var empresa = document.getElementById("id_empresa");
     var area = document.getElementById("id_area");

@@ -122,11 +122,14 @@ from .models import (
     Tema,
     GlosarioTermino,
     TipoDocumentoMensaje,
+    TIPOS_CLIENTE,
     TipoUsuario,
 )
 from .models import (
     aplicar_deshabilitados_catalogo_a_revision,
     aplicar_estandar_a_revision,
+    asegurar_snapshot_catalogo_revision,
+    crear_snapshot_catalogo_revision,
     ponderaciones_revision,
     sincronizar_actividades_pasadas,
     sincronizar_acuerdos_vencidos,
@@ -137,6 +140,7 @@ from .messaging import autor_es_consultor, registrar_mensaje, sembrar_mensaje_re
 from .permissions import (
     administrador_required,
     actividades_visibles,
+    cliente_carga_required,
     cliente_required,
     empresas_visibles,
     get_perfil,
@@ -144,6 +148,10 @@ from .permissions import (
     gestor_o_admin_required,
     puede_ver_actividad,
     puede_ver_empresa,
+    puede_ver_revision,
+    revision_cliente_actual,
+    revisiones_visibles_cliente,
+    usuario_cliente_puede_cargar,
     usuario_es_administrador,
     usuario_es_cliente,
     usuario_es_gestor,
@@ -348,7 +356,7 @@ def entra_callback(request: HttpRequest) -> HttpResponse:
     request.session["entra_name"] = name or user.get_full_name() or user.username
     request.session["perfil_tipo"] = perfil.tipo
 
-    if perfil.tipo == TipoUsuario.CLIENTE:
+    if perfil.tipo in TIPOS_CLIENTE:
         RegistroLoginExterno.objects.create(
             user=user,
             email=email or user.email or user.username,
@@ -359,6 +367,14 @@ def entra_callback(request: HttpRequest) -> HttpResponse:
             ip=_client_ip(request),
             user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:1000],
         )
+
+    from .auditoria import auditar_login
+
+    auditar_login(
+        request,
+        usuario=user,
+        empresa=perfil.empresa if perfil.tipo in TIPOS_CLIENTE else None,
+    )
 
     next_url = request.session.pop("entra_oauth_next", None) or reverse("maestro:home")
     return redirect(next_url)
@@ -393,9 +409,10 @@ def home(request: HttpRequest) -> HttpResponse:
             }
         )
     elif context["es_cliente"] and perfil and perfil.empresa_id:
-        revision = revision_activa_empresa(perfil.empresa_id)
+        revision = revision_cliente_actual(request)
         context["empresa"] = perfil.empresa
         context["revision"] = revision
+        context["cliente_puede_cargar"] = usuario_cliente_puede_cargar(request.user)
         if revision:
             context["progreso"] = calcular_progreso_revision(revision)
     elif context["es_gestor"]:
@@ -438,7 +455,37 @@ def usuario_edit(request: HttpRequest, pk: int) -> HttpResponse:
     )
     form = UsuarioForm(request.POST or None, instance=perfil)
     if request.method == "POST" and form.is_valid():
+        estaba_activo = perfil.activo and perfil.user.is_active
         form.save()
+        perfil.refresh_from_db()
+        from .auditoria import auditar_archivo, auditar_edicion
+
+        email = perfil.user.email or perfil.user.username
+        ahora_activo = perfil.activo and perfil.user.is_active
+        if estaba_activo and not ahora_activo:
+            auditar_archivo(
+                request,
+                detalle=f"Usuario «{email}» desactivado",
+                empresa=perfil.empresa,
+                objeto_tipo="perfilusuario",
+                objeto_id=perfil.pk,
+            )
+        elif (not estaba_activo) and ahora_activo:
+            auditar_archivo(
+                request,
+                detalle=f"Usuario «{email}» reactivado",
+                empresa=perfil.empresa,
+                objeto_tipo="perfilusuario",
+                objeto_id=perfil.pk,
+            )
+        else:
+            auditar_edicion(
+                request,
+                detalle=f"Edición de usuario «{email}» ({perfil.get_tipo_display()})",
+                empresa=perfil.empresa,
+                objeto_tipo="perfilusuario",
+                objeto_id=perfil.pk,
+            )
         messages.success(request, "Usuario actualizado correctamente.")
         return redirect("maestro:usuario_list")
     return render(
@@ -479,7 +526,35 @@ def empresa_edit(request: HttpRequest, pk: int) -> HttpResponse:
     empresa = get_object_or_404(Empresa, pk=pk)
     form = EmpresaForm(request.POST or None, instance=empresa)
     if request.method == "POST" and form.is_valid():
+        era_activa = empresa.activo
         form.save()
+        empresa.refresh_from_db()
+        from .auditoria import auditar_archivo, auditar_edicion
+
+        if era_activa and not empresa.activo:
+            auditar_archivo(
+                request,
+                detalle=f"Empresa «{empresa.nombre}» desactivada",
+                empresa=empresa,
+                objeto_tipo="empresa",
+                objeto_id=empresa.pk,
+            )
+        elif (not era_activa) and empresa.activo:
+            auditar_archivo(
+                request,
+                detalle=f"Empresa «{empresa.nombre}» reactivada",
+                empresa=empresa,
+                objeto_tipo="empresa",
+                objeto_id=empresa.pk,
+            )
+        else:
+            auditar_edicion(
+                request,
+                detalle=f"Edición de empresa «{empresa.nombre}»",
+                empresa=empresa,
+                objeto_tipo="empresa",
+                objeto_id=empresa.pk,
+            )
         messages.success(request, "Empresa actualizada correctamente.")
         return redirect("maestro:empresa_list")
     return render(
@@ -545,22 +620,22 @@ def empresa_areas(request: HttpRequest, pk: int) -> HttpResponse:
             if resp:
                 resp.activo = not resp.activo
                 resp.save(update_fields=["activo", "actualizado_en"])
+                from .auditoria import auditar_archivo
+
+                auditar_archivo(
+                    request,
+                    detalle=(
+                        f"Responsable «{resp.nombre}» "
+                        f"{'activado' if resp.activo else 'desactivado'}"
+                    ),
+                    empresa=empresa,
+                    objeto_tipo="responsable",
+                    objeto_id=resp.pk,
+                )
                 messages.success(
                     request,
                     f"Responsable «{resp.nombre}» marcado como {'activo' if resp.activo else 'inactivo'}.",
                 )
-            return redirect("maestro:empresa_areas", pk=empresa.pk)
-        elif accion == "eliminar_responsable":
-            resp_id = (request.POST.get("responsable_id") or "").strip()
-            resp = (
-                Responsable.objects.filter(pk=resp_id, area__empresa=empresa).first()
-                if resp_id.isdigit()
-                else None
-            )
-            if resp:
-                nombre = resp.nombre
-                resp.delete()
-                messages.success(request, f"Responsable «{nombre}» eliminado.")
             return redirect("maestro:empresa_areas", pk=empresa.pk)
 
     areas = list(
@@ -620,23 +695,23 @@ def empresa_notificaciones(request: HttpRequest, pk: int) -> HttpResponse:
             if regla:
                 regla.activo = not regla.activo
                 regla.save(update_fields=["activo", "actualizado_en"])
+                from .auditoria import auditar_archivo
+
+                auditar_archivo(
+                    request,
+                    detalle=(
+                        f"Regla de notificación «{regla.etiqueta}» "
+                        f"{'activada' if regla.activo else 'desactivada'}"
+                    ),
+                    empresa=empresa,
+                    objeto_tipo="empresanotificacionregla",
+                    objeto_id=regla.pk,
+                )
                 messages.success(
                     request,
                     f"Regla «{regla.etiqueta}» marcada como "
                     f"{'activa' if regla.activo else 'inactiva'}.",
                 )
-            return redirect("maestro:empresa_notificaciones", pk=empresa.pk)
-        elif accion == "eliminar_regla":
-            regla_id = (request.POST.get("regla_id") or "").strip()
-            regla = (
-                empresa.notificacion_reglas.filter(pk=regla_id).first()
-                if regla_id.isdigit()
-                else None
-            )
-            if regla:
-                etiqueta = regla.etiqueta
-                regla.delete()
-                messages.success(request, f"Regla «{etiqueta}» eliminada.")
             return redirect("maestro:empresa_notificaciones", pk=empresa.pk)
 
     reglas = list(empresa.notificacion_reglas.order_by("tipo", "dias"))
@@ -659,21 +734,31 @@ def empresa_notificaciones(request: HttpRequest, pk: int) -> HttpResponse:
 @administrador_required
 @require_GET
 def empresa_revision_list(request: HttpRequest, pk: int) -> HttpResponse:
+    from .models import RevisionCatalogoCriterio
+
     empresa = get_object_or_404(Empresa, pk=pk)
-    total_catalogo = Criterio.objects.count()
     revisiones = []
     for revision in Revision.objects.filter(empresa=empresa).annotate(
         total_documentos=Count("documentos"),
         docs_activos=Count("documentos", filter=Q(documentos__activo=True)),
     ):
-        desactivados_ids = RevisionCriterioDesactivado.objects.filter(
-            revision=revision
-        ).values_list("criterio_id", flat=True)
-        total_aplicables = total_catalogo - len(set(desactivados_ids))
+        asegurar_snapshot_catalogo_revision(revision)
+        desactivados_ids = set(
+            RevisionCriterioDesactivado.objects.filter(
+                revision=revision
+            ).values_list("criterio_id", flat=True)
+        )
+        snap_ids = set(
+            RevisionCatalogoCriterio.objects.filter(revision=revision).values_list(
+                "criterio_id", flat=True
+            )
+        )
+        total_aplicables = len(snap_ids - desactivados_ids)
         criterios_cubiertos = (
             EmpresaDocumentoCriterio.objects.filter(
                 empresa_documento__revision=revision,
                 empresa_documento__activo=True,
+                criterio_id__in=snap_ids,
             )
             .exclude(criterio_id__in=desactivados_ids)
             .values("criterio_id")
@@ -705,8 +790,12 @@ def empresa_revision_create(request: HttpRequest, pk: int) -> HttpResponse:
     form = RevisionForm(request.POST or None, empresa=empresa)
     if request.method == "POST" and form.is_valid():
         revision = form.save()
+        crear_snapshot_catalogo_revision(revision)
         aplicar_deshabilitados_catalogo_a_revision(revision)
-        messages.success(request, "Revisión creada correctamente.")
+        messages.success(
+            request,
+            "Revisión creada. Se congeló el catálogo GISTM aplicable a esta revisión.",
+        )
         return redirect("maestro:empresa_revision_list", pk=empresa.pk)
     return render(
         request,
@@ -770,18 +859,29 @@ def empresa_documento_list(request: HttpRequest, pk: int, rev_id: int) -> HttpRe
     ]
     docs_sin_criterios_count = len(docs_sin_criterios)
 
+    from .models import RevisionCatalogoCriterio
+
+    asegurar_snapshot_catalogo_revision(revision)
     desactivados_qs = RevisionCriterioDesactivado.objects.filter(
         revision=revision
     ).select_related("criterio", "criterio__requisito", "criterio__principio", "criterio__tema")
     desactivados_ids = set(desactivados_qs.values_list("criterio_id", flat=True))
     desactivados_map = {d.criterio_id: d for d in desactivados_qs}
-
-    total_catalogo = Criterio.objects.count()
-    total_aplicables = total_catalogo - len(desactivados_ids)
+    snap_ids = set(
+        RevisionCatalogoCriterio.objects.filter(revision=revision).values_list(
+            "criterio_id", flat=True
+        )
+    )
+    snap_by_criterio = {
+        s.criterio_id: s
+        for s in RevisionCatalogoCriterio.objects.filter(revision=revision)
+    }
+    total_aplicables = len(snap_ids - desactivados_ids)
 
     vinculos_revision = EmpresaDocumentoCriterio.objects.filter(
         empresa_documento__revision=revision,
         empresa_documento__activo=True,
+        criterio_id__in=snap_ids,
     ).exclude(criterio_id__in=desactivados_ids)
     criterios_cubiertos_ids = set(
         vinculos_revision.values_list("criterio_id", flat=True).distinct()
@@ -798,12 +898,30 @@ def empresa_documento_list(request: HttpRequest, pk: int, rev_id: int) -> HttpRe
     if tab not in ("huerfanos", "cubiertos", "no_aplican"):
         tab = "huerfanos"
 
-    criterios_base = Criterio.objects.select_related(
-        "requisito", "principio", "tema"
-    ).order_by("codigo")
+    criterios_base = (
+        Criterio.objects.filter(pk__in=snap_ids)
+        .select_related("requisito", "principio", "tema")
+        .order_by("codigo")
+    )
     if q:
+        # Busca también en textos congelados del snapshot.
+        snap_match_ids = {
+            sid
+            for sid, snap in snap_by_criterio.items()
+            if q.lower()
+            in " ".join(
+                [
+                    snap.codigo,
+                    snap.descripcion,
+                    snap.principio_codigo,
+                    snap.requisito_codigo,
+                    snap.tema_codigo,
+                ]
+            ).lower()
+        }
         criterios_base = criterios_base.filter(
-            Q(codigo__icontains=q)
+            Q(pk__in=snap_match_ids)
+            | Q(codigo__icontains=q)
             | Q(descripcion__icontains=q)
             | Q(principio__codigo__icontains=q)
             | Q(requisito__codigo__icontains=q)
@@ -825,7 +943,7 @@ def empresa_documento_list(request: HttpRequest, pk: int, rev_id: int) -> HttpRe
             )
         )
     elif tab == "no_aplican":
-        criterios = list(criterios_base.filter(pk__in=desactivados_ids))
+        criterios = list(criterios_base.filter(pk__in=desactivados_ids & snap_ids))
     else:
         criterios = list(
             criterios_base.exclude(pk__in=criterios_cubiertos_ids).exclude(
@@ -834,6 +952,10 @@ def empresa_documento_list(request: HttpRequest, pk: int, rev_id: int) -> HttpRe
         )
 
     for criterio in criterios:
+        snap = snap_by_criterio.get(criterio.pk)
+        if snap:
+            criterio.codigo = snap.codigo
+            criterio.descripcion = snap.descripcion
         if tab == "no_aplican":
             criterio.desactivacion = desactivados_map.get(criterio.pk)
             criterio.ponderacion_revision = None
@@ -1821,7 +1943,7 @@ def _cliente_contexto_revision(request: HttpRequest) -> tuple[Empresa, Revision 
     perfil = get_perfil(request.user)
     assert perfil and perfil.empresa_id
     empresa = perfil.empresa
-    revision = revision_activa_empresa(empresa.pk)
+    revision = revision_cliente_actual(request)
     return empresa, revision
 
 
@@ -1829,8 +1951,11 @@ def _cliente_contexto_revision(request: HttpRequest) -> tuple[Empresa, Revision 
 @require_GET
 def mi_empresa_dashboard(request: HttpRequest) -> HttpResponse:
     """Redirige al dashboard de indicadores de la empresa del cliente."""
-    empresa, _revision = _cliente_contexto_revision(request)
-    return redirect("maestro:indicadores_empresa", pk=empresa.pk)
+    empresa, revision = _cliente_contexto_revision(request)
+    url = reverse("maestro:indicadores_empresa", args=[empresa.pk])
+    if revision:
+        url = f"{url}?rev={revision.pk}"
+    return redirect(url)
 
 
 @cliente_required
@@ -1859,14 +1984,16 @@ def mi_empresa_documentos(request: HttpRequest) -> HttpResponse:
         {
             "empresa": empresa,
             "revision": revision,
+            "revisiones_cliente": list(revisiones_visibles_cliente(request.user)),
             "progreso": progreso,
             "estado_tab": estado_tab,
             "documentos": documentos,
+            "cliente_puede_cargar": usuario_cliente_puede_cargar(request.user),
         },
     )
 
 
-@cliente_required
+@cliente_carga_required
 @require_http_methods(["GET", "POST"])
 def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpResponse:
     empresa, revision = _cliente_contexto_revision(request)
@@ -1896,10 +2023,24 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
         carga.subido_por = request.user
         carga.activo = True
         carga.save()
+        from .auditoria import auditar_carga
+
+        auditar_carga(request, carga=carga)
         obs = (carga.observaciones or "").strip()
+        if carga.es_url:
+            detalle = f"se registró la URL {carga.etiqueta_evidencia}"
+            ok_msg = (
+                f"URL registrada para {documento.codigo}. "
+                "Quedó en revisión del consultor."
+            )
+        else:
+            detalle = f"se cargó {carga.etiqueta_evidencia}"
+            ok_msg = (
+                f"Archivo cargado para {documento.codigo}. "
+                "Quedó en revisión del consultor."
+            )
         texto = (
-            f"Versión {carga.version}: se cargó "
-            f"{carga.nombre_original or carga.archivo.name}."
+            f"Versión {carga.version}: {detalle}."
             + (f"\n\nObservaciones: {obs}" if obs else "")
         )
         registrar_mensaje(
@@ -1914,10 +2055,7 @@ def mi_empresa_documento_cargar(request: HttpRequest, doc_id: int) -> HttpRespon
             avisar_nueva_carga(carga=carga, actor=request.user)
         except Exception:  # noqa: BLE001
             pass
-        messages.success(
-            request,
-            f"Archivo cargado para {documento.codigo}. Quedó en revisión del consultor.",
-        )
+        messages.success(request, ok_msg)
         return redirect("maestro:mi_empresa_documentos")
     carga_actual = (
         DocumentoCarga.objects.filter(empresa_documento=documento, activo=True)
@@ -1959,7 +2097,11 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
     if not (es_cliente or es_consultor):
         messages.error(request, "No tienes permisos para esta conversación.")
         return redirect("maestro:home")
+    if es_cliente and not puede_ver_revision(request.user, documento.revision):
+        messages.error(request, "No tienes acceso a la revisión de este documento.")
+        return redirect("maestro:mi_empresa_documentos")
 
+    puede_cargar = (not es_cliente) or usuario_cliente_puede_cargar(request.user)
     # Sembrar rechazos previos sin hilo
     for carga in DocumentoCarga.objects.filter(
         empresa_documento=documento, estado_revision=EstadoRevisionCarga.RECHAZADO
@@ -1967,33 +2109,40 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
         sembrar_mensaje_rechazo_si_falta(carga)
 
     form = DocumentoMensajeForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        tipo = form.cleaned_data.get("tipo") or TipoDocumentoMensaje.OBSERVACION
-        if tipo not in {
-            TipoDocumentoMensaje.OBSERVACION,
-            TipoDocumentoMensaje.ACUERDO,
-            TipoDocumentoMensaje.RESPUESTA,
-        }:
-            tipo = TipoDocumentoMensaje.OBSERVACION
-        texto_msg = form.cleaned_data["texto"]
-        registrar_mensaje(
-            empresa_documento=documento,
-            texto=texto_msg,
-            autor=request.user,
-            es_consultor=es_consultor,
-            tipo=tipo,
-        )
-        if es_cliente and not es_consultor:
-            try:
-                avisar_mensaje_cliente(
-                    documento=documento,
-                    texto=texto_msg,
-                    actor=request.user,
-                )
-            except Exception:  # noqa: BLE001
-                pass
-        messages.success(request, "Mensaje enviado.")
-        return redirect("maestro:documento_conversacion", doc_id=documento.pk)
+    if request.method == "POST":
+        if es_cliente and not puede_cargar:
+            messages.error(
+                request,
+                "Tu perfil es de solo lectura; no puedes enviar mensajes.",
+            )
+            return redirect("maestro:documento_conversacion", doc_id=documento.pk)
+        if form.is_valid():
+            tipo = form.cleaned_data.get("tipo") or TipoDocumentoMensaje.OBSERVACION
+            if tipo not in {
+                TipoDocumentoMensaje.OBSERVACION,
+                TipoDocumentoMensaje.ACUERDO,
+                TipoDocumentoMensaje.RESPUESTA,
+            }:
+                tipo = TipoDocumentoMensaje.OBSERVACION
+            texto_msg = form.cleaned_data["texto"]
+            registrar_mensaje(
+                empresa_documento=documento,
+                texto=texto_msg,
+                autor=request.user,
+                es_consultor=es_consultor,
+                tipo=tipo,
+            )
+            if es_cliente and not es_consultor:
+                try:
+                    avisar_mensaje_cliente(
+                        documento=documento,
+                        texto=texto_msg,
+                        actor=request.user,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            messages.success(request, "Mensaje enviado.")
+            return redirect("maestro:documento_conversacion", doc_id=documento.pk)
 
     mensajes_qs = (
         DocumentoMensaje.objects.filter(empresa_documento=documento)
@@ -2022,6 +2171,8 @@ def documento_conversacion(request: HttpRequest, doc_id: int) -> HttpResponse:
             "versiones": versiones,
             "es_cliente": es_cliente,
             "es_consultor": es_consultor,
+            "cliente_puede_cargar": puede_cargar if es_cliente else False,
+            "solo_lectura_cliente": es_cliente and not puede_cargar,
         },
     )
 
@@ -2141,7 +2292,7 @@ def _revertir_aprobacion_sin_vigencia(doc: EmpresaDocumento, *, user) -> None:
     )
 
 
-@cliente_required
+@cliente_carga_required
 @require_http_methods(["GET", "POST"])
 def mi_empresa_documento_nuevo(request: HttpRequest) -> HttpResponse:
     empresa, revision = _cliente_contexto_revision(request)
@@ -2163,6 +2314,16 @@ def mi_empresa_documento_nuevo(request: HttpRequest) -> HttpResponse:
     if request.method == "POST" and form.is_valid():
         documento = form.save(user=request.user)
         carga = getattr(form, "_carga_creada", None)
+        if carga is not None:
+            from .auditoria import auditar_carga
+
+            auditar_carga(
+                request,
+                carga=carga,
+                detalle=(
+                    f"Documento propio {documento.codigo} con evidencia v{carga.version}"
+                ),
+            )
         try:
             avisar_documento_propio(
                 documento=documento,
@@ -2171,9 +2332,11 @@ def mi_empresa_documento_nuevo(request: HttpRequest) -> HttpResponse:
             )
         except Exception:  # noqa: BLE001
             pass
+        tipo_ev = "URL" if (carga and carga.es_url) else "archivo"
         messages.success(
             request,
-            "Documento propio creado con su evidencia. El consultor asociará los criterios después.",
+            f"Documento propio creado con evidencia por {tipo_ev}. "
+            "El consultor asociará los criterios después.",
         )
         return redirect("maestro:mi_empresa_documentos")
     return render(
@@ -2431,6 +2594,7 @@ def _aplicar_revision_parcial_carga(
     carga: DocumentoCarga,
     decisions: list,
     user,
+    request: HttpRequest | None = None,
 ) -> tuple[int, int]:
     """Aplica decisiones por pregunta, sync criterios y carga. Devuelve (cumplen, no_cumplen)."""
     from .models import EstadoRevisionPregunta
@@ -2474,6 +2638,15 @@ def _aplicar_revision_parcial_carga(
     sincronizar_estado_carga_documento(
         carga.empresa_documento, revisado_por=user
     )
+    if request is not None:
+        from .auditoria import auditar_aprobacion
+
+        carga.refresh_from_db()
+        auditar_aprobacion(
+            request,
+            carga=carga,
+            parcial=carga.estado_revision == EstadoRevisionCarga.PARCIAL,
+        )
     return n_ok, n_no
 
 
@@ -2586,6 +2759,7 @@ def seguimiento_carga_revisar(request: HttpRequest, pk: int, carga_id: int) -> H
         carga=carga,
         decisions=decisions,
         user=request.user,
+        request=request,
     )
     carga.refresh_from_db()
     if carga.estado_revision == EstadoRevisionCarga.APROBADO:
@@ -2670,6 +2844,7 @@ def seguimiento_carga_aprobar(request: HttpRequest, pk: int, carga_id: int) -> H
         carga=carga,
         decisions=decisions,
         user=request.user,
+        request=request,
     )
     messages.success(
         request,
@@ -2778,6 +2953,7 @@ def seguimiento_documento_vigencia(
                     carga=carga,
                     decisions=decisions,
                     user=request.user,
+                    request=request,
                 )
             _limpiar_aprobacion_pendiente(request)
         freq_txt = doc.get_frecuencia_actualizacion_display()
@@ -3043,6 +3219,9 @@ def seguimiento_carga_rechazar(request: HttpRequest, pk: int, carga_id: int) -> 
             "revisado_en",
         ]
     )
+    from .auditoria import auditar_rechazo
+
+    auditar_rechazo(request, carga=carga)
     registrar_mensaje(
         empresa_documento=carga.empresa_documento,
         texto=carga.motivo_rechazo,
@@ -3819,8 +3998,15 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         docs_sub = "todos"
     glosario_q = (request.GET.get("q") or "").strip()
 
-    revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
-    revision = _revision_seguimiento(empresa, request)
+    es_cliente = usuario_es_cliente(request.user)
+    if es_cliente:
+        revisiones_activas = list(revisiones_visibles_cliente(request.user))
+        revision = revision_cliente_actual(request)
+        if revision and revision.empresa_id != empresa.pk:
+            revision = None
+    else:
+        revisiones_activas = list(revisiones_activas_empresa(empresa.pk))
+        revision = _revision_seguimiento(empresa, request)
     progreso = calcular_progreso_revision(revision) if revision else None
 
     context: dict = {
@@ -3832,7 +4018,7 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         "tabs": TABS,
         "docs_sub": docs_sub,
         "glosario_q": glosario_q,
-        "solo_lectura": usuario_es_cliente(request.user),
+        "solo_lectura": es_cliente,
         "principios_avance": [],
         "documentos_ind": [],
         "cobertura": None,
@@ -3949,13 +4135,29 @@ def indicadores_documentos_export(request: HttpRequest, pk: int, formato: str) -
         request, empresa, revision, progreso
     )
     etiqueta = revision.etiqueta
+    from .auditoria import auditar_exportacion
+
     if formato == "xlsx":
+        auditar_exportacion(
+            request,
+            empresa=empresa,
+            detalle=f"Exportación Excel de documentos · {etiqueta}",
+            objeto_tipo="revision",
+            objeto_id=revision.pk,
+        )
         return exportar_documentos_excel(
             filtrados,
             empresa_nombre=empresa.nombre,
             revision_etiqueta=etiqueta,
         )
     if formato == "pdf":
+        auditar_exportacion(
+            request,
+            empresa=empresa,
+            detalle=f"Exportación PDF de documentos · {etiqueta}",
+            objeto_tipo="revision",
+            objeto_id=revision.pk,
+        )
         return exportar_documentos_pdf(
             filtrados,
             empresa_nombre=empresa.nombre,
@@ -4110,5 +4312,116 @@ def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "plantilla": plantilla,
             "preview_html": preview_html,
             "tab": tab,
+        },
+    )
+
+
+@login_required
+@require_GET
+def evidencia_abrir(request: HttpRequest, carga_id: int) -> HttpResponse:
+    """Registra descarga/apertura y redirige a la evidencia (archivo o URL)."""
+    carga = get_object_or_404(
+        DocumentoCarga.objects.select_related(
+            "empresa_documento",
+            "empresa_documento__revision",
+            "empresa_documento__revision__empresa",
+        ),
+        pk=carga_id,
+    )
+    empresa = carga.empresa_documento.revision.empresa
+    if not puede_ver_empresa(request.user, empresa):
+        messages.error(request, "No tienes acceso a esta evidencia.")
+        return redirect("maestro:home")
+    if usuario_es_cliente(request.user) and not puede_ver_revision(
+        request.user, carga.empresa_documento.revision
+    ):
+        messages.error(request, "No tienes acceso a la revisión de esta evidencia.")
+        return redirect("maestro:mi_empresa_documentos")
+    url = carga.evidencia_url
+    if not url:
+        messages.error(request, "Esta evidencia no tiene archivo ni URL disponible.")
+        return redirect("maestro:documento_conversacion", doc_id=carga.empresa_documento_id)
+    from .auditoria import auditar_descarga
+
+    auditar_descarga(request, carga=carga)
+    return redirect(url)
+
+
+@gestor_o_admin_required
+@require_GET
+def auditoria_list(request: HttpRequest) -> HttpResponse:
+    """Consulta del log de auditoría (Anexo 01 §9.5)."""
+    from datetime import datetime as dt
+
+    from django.core.paginator import Paginator
+
+    from .models import RegistroAuditoria, TipoAuditoria
+
+    qs = RegistroAuditoria.objects.select_related("usuario", "empresa").order_by(
+        "-creado_en"
+    )
+    if not usuario_es_administrador(request.user):
+        qs = qs.filter(empresa_id__in=empresas_visibles(request.user))
+
+    tipo = (request.GET.get("tipo") or "").strip()
+    if tipo in {c.value for c in TipoAuditoria}:
+        qs = qs.filter(tipo=tipo)
+
+    empresa_id = (request.GET.get("empresa") or "").strip()
+    if empresa_id.isdigit():
+        qs = qs.filter(empresa_id=int(empresa_id))
+
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        qs = qs.filter(
+            Q(detalle__icontains=q)
+            | Q(usuario_email__icontains=q)
+            | Q(usuario_nombre__icontains=q)
+            | Q(empresa_nombre__icontains=q)
+        )
+
+    hoy = timezone.localdate()
+    fecha_desde_raw = (request.GET.get("fecha_desde") or "").strip()
+    fecha_hasta_raw = (request.GET.get("fecha_hasta") or "").strip()
+    if "fecha_desde" not in request.GET and "fecha_hasta" not in request.GET:
+        fecha_desde = hoy - timedelta(days=30)
+        fecha_hasta = hoy
+    else:
+        try:
+            fecha_desde = (
+                dt.strptime(fecha_desde_raw, "%Y-%m-%d").date()
+                if fecha_desde_raw
+                else None
+            )
+        except ValueError:
+            fecha_desde = hoy - timedelta(days=30)
+        try:
+            fecha_hasta = (
+                dt.strptime(fecha_hasta_raw, "%Y-%m-%d").date()
+                if fecha_hasta_raw
+                else None
+            )
+        except ValueError:
+            fecha_hasta = hoy
+
+    if fecha_desde:
+        qs = qs.filter(creado_en__date__gte=fecha_desde)
+    if fecha_hasta:
+        qs = qs.filter(creado_en__date__lte=fecha_hasta)
+
+    page = Paginator(qs, 50).get_page(request.GET.get("page") or 1)
+    return render(
+        request,
+        "maestro/auditoria_list.html",
+        {
+            "page": page,
+            "registros": page.object_list,
+            "tipos": TipoAuditoria.choices,
+            "tipo": tipo,
+            "q": q,
+            "empresa_id": empresa_id,
+            "empresas": empresas_visibles(request.user).filter(activo=True),
+            "fecha_desde": fecha_desde.isoformat() if fecha_desde else "",
+            "fecha_hasta": fecha_hasta.isoformat() if fecha_hasta else "",
         },
     )

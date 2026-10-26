@@ -1,9 +1,3 @@
-Django==5.2
-psycopg[binary]==3.3.4
-python-dotenv==1.2.2
-msal==1.39.0
-openpyxl==3.1.5
-reportlab==4.4.3
-django-storages[azure]==1.14.6
-azure-communication-email==1.1.0
-django-azure-communication-email==1.6.0
+# Dependencias directas (editable). En producción preferir requirements.lock.txt
+# para fijar también las transitivas. Entrada canónica: requirements.in
+-r requirements.in

@@ -3,7 +3,7 @@
 {% block title %}Login empresas · GISTM{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
   .filters-bar {
     display: grid;
     grid-template-columns: 1.4fr 1fr 1fr auto;
@@ -27,7 +27,7 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1rem;">
+<section class="panel csi-16884469a8">
   <form method="get" class="filters-bar">
     <div class="form-row">
       <label for="id_empresa">Empresa</label>
@@ -48,7 +48,7 @@
       <label for="id_fecha_hasta">Hasta</label>
       <input class="input" type="date" name="fecha_hasta" id="id_fecha_hasta" value="{{ filtro_fecha_hasta }}">
     </div>
-    <div class="form-row" style="display:flex; gap:0.5rem;">
+    <div class="form-row csi-d1b4842bfc">
       <button type="submit" class="btn">Filtrar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:login_externo_list' %}">Última semana</a>
     </div>

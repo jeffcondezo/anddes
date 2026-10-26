@@ -10,9 +10,19 @@ from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 
-from .models import Actividad, AlcanceActividad, Empresa, PerfilUsuario, TipoUsuario
+from .models import (
+    Actividad,
+    AlcanceActividad,
+    Empresa,
+    PerfilUsuario,
+    Revision,
+    TIPOS_CLIENTE,
+    TipoUsuario,
+)
 
 User = get_user_model()
+
+SESSION_CLIENTE_REV = "cliente_revision_id"
 
 
 def get_perfil(user) -> PerfilUsuario | None:
@@ -36,7 +46,13 @@ def usuario_es_gestor(user) -> bool:
 
 def usuario_es_cliente(user) -> bool:
     perfil = get_perfil(user)
-    return bool(perfil and perfil.tipo == TipoUsuario.CLIENTE and perfil.activo)
+    return bool(perfil and perfil.tipo in TIPOS_CLIENTE and perfil.activo)
+
+
+def usuario_cliente_puede_cargar(user) -> bool:
+    """Cliente con permiso de carga de evidencias (no solo lectura)."""
+    perfil = get_perfil(user)
+    return bool(perfil and perfil.es_cliente_carga)
 
 
 def empresas_visibles(user) -> QuerySet[Empresa]:
@@ -67,6 +83,64 @@ def puede_ver_empresa(user, empresa: Empresa) -> bool:
     return False
 
 
+def revisiones_visibles_cliente(user) -> QuerySet[Revision]:
+    """Revisiones explícitamente asignadas al cliente (de su empresa)."""
+    perfil = get_perfil(user)
+    if not perfil or not usuario_es_cliente(user) or not perfil.empresa_id:
+        return Revision.objects.none()
+    return (
+        perfil.revisiones.filter(empresa_id=perfil.empresa_id)
+        .select_related("empresa")
+        .order_by("-anio", "-creado_en")
+    )
+
+
+def puede_ver_revision(user, revision: Revision) -> bool:
+    if usuario_es_administrador(user):
+        return True
+    if usuario_es_gestor(user):
+        return puede_ver_empresa(user, revision.empresa)
+    if usuario_es_cliente(user):
+        perfil = get_perfil(user)
+        if not perfil or perfil.empresa_id != revision.empresa_id:
+            return False
+        return perfil.revisiones.filter(pk=revision.pk).exists()
+    return False
+
+
+def revision_cliente_actual(
+    request: HttpRequest, *, rev_id: int | None = None
+) -> Revision | None:
+    """
+    Revisión de trabajo del cliente: parámetro ?rev=, sesión, o la más reciente
+    entre las permitidas (prioriza activas).
+    """
+    qs = revisiones_visibles_cliente(request.user)
+    if not qs.exists():
+        return None
+    if rev_id is None:
+        raw = (request.GET.get("rev") or request.POST.get("rev") or "").strip()
+        if raw.isdigit():
+            rev_id = int(raw)
+        else:
+            session_rev = request.session.get(SESSION_CLIENTE_REV)
+            if session_rev:
+                rev_id = int(session_rev)
+    if rev_id is not None:
+        elegida = qs.filter(pk=rev_id).first()
+        if elegida is not None:
+            request.session[SESSION_CLIENTE_REV] = elegida.pk
+            return elegida
+    activa = qs.filter(activo=True).first()
+    if activa is not None:
+        request.session[SESSION_CLIENTE_REV] = activa.pk
+        return activa
+    primera = qs.first()
+    if primera is not None:
+        request.session[SESSION_CLIENTE_REV] = primera.pk
+    return primera
+
+
 def administrador_required(view_func: Callable) -> Callable:
     @login_required
     @wraps(view_func)
@@ -90,6 +164,23 @@ def cliente_required(view_func: Callable) -> Callable:
         if not perfil or not perfil.empresa_id:
             messages.error(request, "Tu perfil de cliente no tiene empresa asignada.")
             return redirect("maestro:home")
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped
+
+
+def cliente_carga_required(view_func: Callable) -> Callable:
+    """Portal cliente con permiso de carga (archivo/URL y documento propio)."""
+
+    @cliente_required
+    @wraps(view_func)
+    def _wrapped(request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        if not usuario_cliente_puede_cargar(request.user):
+            messages.error(
+                request,
+                "Tu perfil es de solo lectura; no puedes cargar evidencias.",
+            )
+            return redirect("maestro:mi_empresa_documentos")
         return view_func(request, *args, **kwargs)
 
     return _wrapped

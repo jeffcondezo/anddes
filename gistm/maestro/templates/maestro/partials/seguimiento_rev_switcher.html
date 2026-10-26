@@ -1,7 +1,7 @@
 {% if revisiones_activas and revisiones_activas|length > 1 and revision %}
-  <form method="get" class="form-row" style="margin:0 0 1rem;max-width:22rem;">
+  <form method="get" class="form-row csi-656d802630">
     <label for="id_rev_switch">Revisión activa</label>
-    <select class="input" name="rev" id="id_rev_switch" onchange="this.form.submit()">
+    <select class="input" name="rev" id="id_rev_switch" data-autosubmit>
       {% for r in revisiones_activas %}
         <option value="{{ r.pk }}" {% if r.pk == revision.pk %}selected{% endif %}>
           {{ r.etiqueta }} · {{ r.anio }}{% if r.instalacion_deposito %} · {{ r.instalacion_deposito }}{% endif %}

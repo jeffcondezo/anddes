@@ -47,22 +47,22 @@
     </article>
     <article class="stat-card">
       <div class="stat-label">Principios / Temas</div>
-      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-value csi-95b5a8dd07">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
       <div class="stat-hint">{{ progreso.principios_completos }}/{{ progreso.principios_total }} princ. · {{ progreso.temas_completos }}/{{ progreso.temas_total }} temas</div>
     </article>
   </div>
 
   {% if progreso.criterios_huerfanos_count %}
-    <div class="info-banner" style="margin-top:1rem;">
+    <div class="info-banner csi-0cf8f93b0e">
       <div>
         <h2>Criterios sin documento</h2>
         <p>Hay {{ progreso.criterios_huerfanos_count }} criterio(s) aplicable(s) sin documento asignado. Puedes registrar un documento adicional mientras el consultor completa la configuración.</p>
-        <p style="margin-top:0.75rem;"><a class="btn" href="{% url 'maestro:mi_empresa_documento_nuevo' %}">Documento adicional</a></p>
+        <p class="csi-21d8fb5d75"><a class="btn" href="{% url 'maestro:mi_empresa_documento_nuevo' %}">Documento adicional</a></p>
       </div>
     </div>
   {% endif %}
 
-  <section class="panel" style="margin-top:1.25rem;">
+  <section class="panel csi-a847778823">
     <div class="panel-head">
       <div>
         <h2>Detalle por tema</h2>
@@ -70,7 +70,7 @@
       </div>
     </div>
     {% if not progreso.temas %}
-      <p class="muted" style="margin:0;">No hay criterios aplicables en esta revisión.</p>
+      <p class="muted csi-1da9facb4d">No hay criterios aplicables en esta revisión.</p>
     {% else %}
       <div class="theme-list">
         {% for tema in progreso.temas %}
@@ -80,13 +80,13 @@
                 <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
                 <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} criterios con evidencia aprobada</div>
               </div>
-              <div class="meter" style="min-width:7.5rem;">
+              <div class="meter csi-8cb48043c2">
                 <div class="meter-top">
                   <span></span>
                   <strong>{{ tema.pct }}%</strong>
                 </div>
                 <div class="meter-bar {% if tema.pct >= 100 %}is-ok{% elif tema.pct < 25 %}is-warn{% endif %}">
-                  <span style="width: {{ tema.pct|unlocalize }}%;"></span>
+                  <span data-pct="{{ tema.pct|unlocalize }}"></span>
                 </div>
               </div>
             </summary>
@@ -96,7 +96,7 @@
                   <div>
                     <div class="level-label">Principio</div>
                     <div class="level-code">{{ principio.codigo }}</div>
-                    <div class="muted" style="font-size:0.78rem;">{{ principio.completos }}/{{ principio.total }} requisitos</div>
+                    <div class="muted csi-496d03cb53">{{ principio.completos }}/{{ principio.total }} requisitos</div>
                   </div>
                   <div class="level-pct">{{ principio.pct }}%</div>
                 </div>
@@ -105,7 +105,7 @@
                     <div>
                       <div class="level-label">Requisito</div>
                       <div class="level-code">{{ requisito.codigo }}</div>
-                      <div class="muted" style="font-size:0.78rem;">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
+                      <div class="muted csi-496d03cb53">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
                     </div>
                     <div class="level-pct">{{ requisito.pct }}%</div>
                   </div>

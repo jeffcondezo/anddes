@@ -90,6 +90,12 @@ urlpatterns = [
     ),
     path("accesos-denegados/", views.acceso_denegado_list, name="acceso_denegado_list"),
     path("logins-empresas/", views.login_externo_list, name="login_externo_list"),
+    path("auditoria/", views.auditoria_list, name="auditoria_list"),
+    path(
+        "evidencias/<int:carga_id>/abrir/",
+        views.evidencia_abrir,
+        name="evidencia_abrir",
+    ),
     path("catalogo/temas/", views.tema_list, name="tema_list"),
     path("catalogo/temas/nuevo/", views.tema_create, name="tema_create"),
     path("catalogo/temas/<int:pk>/editar/", views.tema_edit, name="tema_edit"),

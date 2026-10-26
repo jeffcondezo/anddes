@@ -152,7 +152,7 @@ class Command(BaseCommand):
 
         uploader = (
             User.objects.filter(
-                perfil__tipo=TipoUsuario.CLIENTE,
+                perfil__tipo=TipoUsuario.CLIENTE_CARGA,
                 perfil__empresa_id=revision.empresa_id,
                 perfil__activo=True,
             )

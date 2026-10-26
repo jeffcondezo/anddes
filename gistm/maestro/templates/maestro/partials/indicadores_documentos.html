@@ -4,7 +4,7 @@
     No hay documentos de revisión para mostrar.
   </div>
 {% else %}
-  <div class="coverage-tabs" style="margin-bottom:1rem;">
+  <div class="coverage-tabs csi-16884469a8">
     <a href="?tab=documentos&amp;docs=todos&amp;rev={{ revision.pk }}" class="{% if docs_sub == 'todos' %}active{% endif %}">
       Todos <span class="count">{{ docs_count_todos|default:0 }}</span>
     </a>
@@ -19,13 +19,13 @@
     </a>
   </div>
 
-  <section class="panel" style="margin-bottom:1rem;">
+  <section class="panel csi-16884469a8">
     <div class="panel-head">
       <div>
         <h2>Filtros</h2>
         <p class="muted">Ubica documentos por nombre, consultor, área, estado o fechas.</p>
       </div>
-      <div class="page-actions" style="margin:0;">
+      <div class="page-actions csi-1da9facb4d">
         <a
           class="btn btn-ghost"
           href="{% url 'maestro:indicadores_documentos_export' empresa.pk 'xlsx' %}?{{ request.GET.urlencode }}"
@@ -36,16 +36,16 @@
         >PDF</a>
       </div>
     </div>
-    <form method="get" class="filters-docs" style="display:grid; gap:0.75rem;">
+    <form method="get" class="filters-docs csi-f0d48426db">
       <input type="hidden" name="tab" value="documentos">
       <input type="hidden" name="docs" value="{{ docs_sub }}">
       {% if revision %}<input type="hidden" name="rev" value="{{ revision.pk }}">{% endif %}
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:0.75rem; align-items:end;">
-        <div class="form-row" style="margin:0;">
+      <div class="csi-853fedc39c">
+        <div class="form-row csi-1da9facb4d">
           <label for="doc_q">Buscar</label>
           <input class="input" type="search" name="doc_q" id="doc_q" value="{{ docs_filtros.doc_q }}" placeholder="Código o nombre…">
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="consultor">Consultor (revisado por)</label>
           <select class="input" name="consultor" id="consultor">
             <option value="">Todos</option>
@@ -54,7 +54,7 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="area">Área</label>
           <select class="input" name="area" id="area">
             <option value="">Todas</option>
@@ -63,7 +63,7 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="estado">Estado</label>
           <select class="input" name="estado" id="estado">
             <option value="">Todos</option>
@@ -72,22 +72,22 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="fecha_desde">Fecha desde</label>
           <input class="input" type="date" name="fecha_desde" id="fecha_desde" value="{{ docs_filtros.fecha_desde }}">
         </div>
-        <div class="form-row" style="margin:0;">
+        <div class="form-row csi-1da9facb4d">
           <label for="fecha_hasta">Fecha hasta</label>
           <input class="input" type="date" name="fecha_hasta" id="fecha_hasta" value="{{ docs_filtros.fecha_hasta }}">
         </div>
       </div>
-      <p class="muted" style="margin:0; font-size:0.8rem;">
+      <p class="muted csi-5bea80950e">
         Las fechas filtran por fecha límite del plan; si no hay, por fecha de revisión o de carga.
       </p>
-      <div class="form-actions" style="margin:0;">
+      <div class="form-actions csi-1da9facb4d">
         <button type="submit" class="btn">Aplicar filtros</button>
         <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}">Limpiar</a>
-        <span class="muted" style="margin-left:auto; font-size:0.85rem;">
+        <span class="muted csi-a81d06aae2">
           {{ docs_total_filtrados }} resultado(s)
         </span>
       </div>
@@ -113,7 +113,7 @@
             <tr>
               <td>
                 <strong class="mono">{{ d.codigo }}</strong>
-                <div class="muted" style="font-size:0.82rem;">{{ d.nombre }}</div>
+                <div class="muted csi-b5b8533655">{{ d.nombre }}</div>
               </td>
               <td>
                 <span class="badge {% if d.clasificacion == 'referenciales' %}badge-info{% else %}badge-warn{% endif %}">
@@ -132,9 +132,9 @@
                   {{ d.estado_label }}
                 </span>
               </td>
-              <td style="font-size:0.82rem;">{% if d.areas %}{{ d.areas|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
-              <td class="mono" style="font-size:0.8rem;">{% if d.principios %}{{ d.principios|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
-              <td style="font-size:0.78rem; white-space:nowrap;">
+              <td class="csi-b5b8533655">{% if d.areas %}{{ d.areas|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td class="mono csi-94db95e1b0">{% if d.principios %}{{ d.principios|join:", " }}{% else %}<span class="muted">—</span>{% endif %}</td>
+              <td class="csi-1221587382">
                 {% if d.fecha_limite %}<div>Límite: {{ d.fecha_limite|date:"d/m/Y" }}</div>{% endif %}
                 {% if d.fecha_revision %}<div class="muted">Rev.: {{ d.fecha_revision|date:"d/m/Y" }}</div>{% endif %}
                 {% if not d.fecha_limite and not d.fecha_revision and d.fecha_carga %}
@@ -154,7 +154,7 @@
                     <p><strong>Criterios:</strong> {% if d.criterios %}<span class="mono">{{ d.criterios|join:", " }}</span>{% else %}—{% endif %}</p>
                     <p><strong>Consultores (empresa):</strong> {% if d.consultores %}{{ d.consultores|join:", " }}{% else %}—{% endif %}</p>
                     <p><strong>Revisado por:</strong> {{ d.revisado_por|default:"—" }}</p>
-                    <p style="margin-top:0.5rem;">
+                    <p class="csi-c9ef2a58eb">
                       <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' d.id %}">Conversación</a>
                     </p>
                   </div>
@@ -175,27 +175,27 @@
     </div>
 
     {% if docs_page_obj and docs_page_obj.paginator.num_pages > 1 %}
-      <div class="docs-pagination" style="display:flex; flex-wrap:wrap; gap:0.65rem; align-items:center; justify-content:space-between; padding:0.85rem 1rem; border-top:1px solid var(--border, #e2e8f0);">
-        <span class="muted" style="font-size:0.85rem;">
+      <div class="docs-pagination csi-afde000464">
+        <span class="muted csi-22d055cd63">
           Página {{ docs_page_obj.number }} de {{ docs_page_obj.paginator.num_pages }}
           · {{ docs_total_filtrados }} documento(s)
         </span>
-        <nav class="docs-pagination-nav" aria-label="Paginación de documentos" style="display:flex; gap:0.3rem; flex-wrap:wrap; align-items:center;">
+        <nav class="docs-pagination-nav csi-b1850a6dda" aria-label="Paginación de documentos">
           {% if docs_page_obj.has_previous %}
             <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page=1" title="Primera">«</a>
             <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.previous_page_number }}">Anterior</a>
           {% else %}
-            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">«</span>
-            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">Anterior</span>
+            <span class="btn btn-ghost csi-f51574850b" aria-disabled="true">«</span>
+            <span class="btn btn-ghost csi-f51574850b" aria-disabled="true">Anterior</span>
           {% endif %}
 
           {% for n in docs_page_numbers %}
             {% if n is None %}
-              <span class="muted" style="padding:0 0.25rem;">…</span>
+              <span class="muted csi-25340d2da5">…</span>
             {% elif n == docs_page_obj.number %}
-              <span class="btn" aria-current="page" style="min-width:2.25rem; justify-content:center;">{{ n }}</span>
+              <span class="btn csi-bb007b1cf5" aria-current="page">{{ n }}</span>
             {% else %}
-              <a class="btn btn-ghost" style="min-width:2.25rem; justify-content:center;" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ n }}">{{ n }}</a>
+              <a class="btn btn-ghost csi-bb007b1cf5" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ n }}">{{ n }}</a>
             {% endif %}
           {% endfor %}
 
@@ -203,8 +203,8 @@
             <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.next_page_number }}">Siguiente</a>
             <a class="btn btn-ghost" href="?tab=documentos&amp;docs={{ docs_sub }}&amp;rev={{ revision.pk }}&amp;doc_q={{ docs_filtros.doc_q|urlencode }}&amp;consultor={{ docs_filtros.consultor|urlencode }}&amp;area={{ docs_filtros.area|urlencode }}&amp;estado={{ docs_filtros.estado|urlencode }}&amp;fecha_desde={{ docs_filtros.fecha_desde }}&amp;fecha_hasta={{ docs_filtros.fecha_hasta }}&amp;page={{ docs_page_obj.paginator.num_pages }}" title="Última">»</a>
           {% else %}
-            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">Siguiente</span>
-            <span class="btn btn-ghost" style="opacity:0.4; pointer-events:none;" aria-disabled="true">»</span>
+            <span class="btn btn-ghost csi-f51574850b" aria-disabled="true">Siguiente</span>
+            <span class="btn btn-ghost csi-f51574850b" aria-disabled="true">»</span>
           {% endif %}
         </nav>
       </div>

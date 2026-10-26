@@ -130,14 +130,13 @@ def avisar_nueva_carga(*, carga: DocumentoCarga, actor=None) -> list[AvisoConsul
     revision = getattr(doc, "revision", None)
     if revision is not None:
         url = f"{url}?rev={revision.pk}"
-    nombre = carga.nombre_original or (
-        carga.archivo.name.rsplit("/", 1)[-1] if carga.archivo else "archivo"
-    )
+    nombre = carga.etiqueta_evidencia
+    verbo = "registró una URL" if carga.es_url else "cargó"
     return crear_avisos_consultor(
         empresa=empresa,
         tipo=TipoAvisoConsultor.CARGA,
         titulo=f"Nueva evidencia · {doc.codigo}",
-        detalle=f"{actor_label(actor)} cargó «{nombre}» para {doc.nombre}.",
+        detalle=f"{actor_label(actor)} {verbo} «{nombre}» para {doc.nombre}.",
         url=url,
         actor=actor,
         empresa_documento=doc,

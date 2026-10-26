@@ -55,9 +55,9 @@
       <div class="stat-label">Documentos</div>
       <div class="stat-value">{{ progreso.docs_pct }}%</div>
       <div class="stat-hint">{{ progreso.docs_cargados }} / {{ progreso.docs_total }} aprobados</div>
-      <div class="meter" style="margin-top:0.75rem;">
+      <div class="meter csi-21d8fb5d75">
         <div class="meter-bar {% if progreso.docs_pct >= 100 %}is-ok{% elif progreso.docs_pct < 25 %}is-warn{% endif %}">
-          <span style="width: {{ progreso.docs_pct|unlocalize }}%;"></span>
+          <span data-pct="{{ progreso.docs_pct|unlocalize }}"></span>
         </div>
       </div>
     </article>
@@ -65,9 +65,9 @@
       <div class="stat-label">Criterios</div>
       <div class="stat-value">{{ progreso.criterios_pct }}%</div>
       <div class="stat-hint">{{ progreso.criterios_completos }} / {{ progreso.criterios_total }} completos</div>
-      <div class="meter" style="margin-top:0.75rem;">
+      <div class="meter csi-21d8fb5d75">
         <div class="meter-bar {% if progreso.criterios_pct >= 100 %}is-ok{% elif progreso.criterios_pct < 25 %}is-warn{% endif %}">
-          <span style="width: {{ progreso.criterios_pct|unlocalize }}%;"></span>
+          <span data-pct="{{ progreso.criterios_pct|unlocalize }}"></span>
         </div>
       </div>
     </article>
@@ -78,7 +78,7 @@
     </article>
     <article class="stat-card">
       <div class="stat-label">Principios · Temas</div>
-      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-value csi-95b5a8dd07">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
       <div class="stat-hint">Por revisar: {{ progreso.docs_por_revisar }}</div>
     </article>
   </div>
@@ -123,7 +123,7 @@
             <div class="doc-row">
               <div class="doc-row-main">
                 <strong>{{ doc.codigo }} · {{ doc.nombre }}</strong>
-                <div style="margin:0.3rem 0 0; display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
+                <div class="csi-a4fc6fabf7">
                   {% if doc.revision_texto %}
                     <span class="badge badge-info">Revisión: {{ doc.revision_texto }}</span>
                   {% else %}
@@ -192,9 +192,9 @@
                 {% else %}
                   <span class="badge badge-off">Sin evidencia</span>
                 {% endif %}
-                {% if doc.carga and doc.carga.archivo and doc.cargado %}
-                  <a href="{{ doc.carga.archivo.url }}" target="_blank" rel="noopener">
-                    {{ doc.carga.nombre_original|default:"Descargar"|truncatechars:28 }}
+                {% if doc.carga and doc.carga.evidencia_url and doc.cargado %}
+                  <a href="{% url 'maestro:evidencia_abrir' doc.carga.pk %}" target="_blank" rel="noopener">
+                    {{ doc.carga.etiqueta_evidencia|truncatechars:28 }}
                   </a>
                 {% endif %}
                 {% if doc.rechazado or doc.pendiente_revision or doc.cargado %}
@@ -211,9 +211,8 @@
                   <form
                     method="post"
                     action="{% url 'maestro:seguimiento_carga_revertir' empresa.pk doc.carga.id %}"
-                    style="display:inline;"
-                    onsubmit="return confirm('¿Revertir la aprobación de {{ doc.codigo }}? Volverá a Por revisar.');"
-                  >
+                    data-confirm="¿Revertir la aprobación de {{ doc.codigo }}? Volverá a Por revisar."
+                   class="csi-0cd28ce9ba">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ request.get_full_path }}">
                     <button type="submit" class="btn btn-ghost">Revertir aprobación</button>
@@ -257,7 +256,7 @@
                   <div class="doc-row-meta">
                     <span>{{ c.descripcion|default:"Sin descripción"|truncatechars:120 }}</span>
                   </div>
-                  <div class="doc-row-meta" style="margin-top:0.25rem;">
+                  <div class="doc-row-meta csi-04cdf78d3c">
                     <span class="muted">
                       {{ c.tema.codigo }} · {{ c.principio.codigo }} · {{ c.requisito.codigo }}
                     </span>
@@ -270,7 +269,7 @@
             {% endfor %}
           </div>
           {% if es_administrador %}
-            <p style="margin:1rem 0 0;">
+            <p class="csi-71a654e590">
               <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}?tab=huerfanos">
                 Configurar documentos / huérfanos
               </a>
@@ -293,7 +292,7 @@
         </div>
 
         {% if not progreso.temas %}
-          <p class="muted" style="margin:0;">No hay criterios aplicables.</p>
+          <p class="muted csi-1da9facb4d">No hay criterios aplicables.</p>
         {% else %}
           <div class="theme-list">
             {% for tema in progreso.temas %}
@@ -303,13 +302,13 @@
                     <div class="theme-title">{{ tema.codigo }} · {{ tema.nombre }}</div>
                     <div class="theme-sub">{{ tema.completos }}/{{ tema.total }} criterios al 100% · avance parcial {{ tema.pct }}%</div>
                   </div>
-                  <div class="meter" style="min-width:7.5rem;">
+                  <div class="meter csi-8cb48043c2">
                     <div class="meter-top">
                       <span></span>
                       <strong>{{ tema.pct }}%</strong>
                     </div>
                     <div class="meter-bar {% if tema.pct >= 100 %}is-ok{% elif tema.pct < 25 %}is-warn{% endif %}">
-                      <span style="width: {{ tema.pct|unlocalize }}%;"></span>
+                      <span data-pct="{{ tema.pct|unlocalize }}"></span>
                     </div>
                   </div>
                 </summary>
@@ -319,7 +318,7 @@
                       <div>
                         <div class="level-label">Principio</div>
                         <div class="level-code">{{ principio.codigo }}</div>
-                        <div class="muted" style="font-size:0.78rem;">{{ principio.completos }}/{{ principio.total }} requisitos</div>
+                        <div class="muted csi-496d03cb53">{{ principio.completos }}/{{ principio.total }} requisitos</div>
                       </div>
                       <div class="level-pct">{{ principio.pct }}%</div>
                     </div>
@@ -328,7 +327,7 @@
                         <div>
                           <div class="level-label">Requisito</div>
                           <div class="level-code">{{ requisito.codigo }}</div>
-                          <div class="muted" style="font-size:0.78rem;">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
+                          <div class="muted csi-496d03cb53">{{ requisito.completos }}/{{ requisito.total }} criterios</div>
                         </div>
                         <div class="level-pct">{{ requisito.pct }}%</div>
                       </div>
@@ -343,7 +342,7 @@
     {% endif %}
   </div>
 {% endif %}
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     function openModal(id) {
       var el = document.getElementById(id);

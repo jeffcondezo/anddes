@@ -1,0 +1,109 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Auditoría · GISTM{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Administración</p>
+    <h1>Auditoría</h1>
+    <p class="page-desc">
+      Registro de login, carga, edición, aprobación, rechazo, descarga y exportación
+      (quién y cuándo). Los eventos no se modifican ni eliminan desde la aplicación.
+    </p>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="get" class="form-grid two-col csi-630845f262">
+    <div class="form-row">
+      <label for="id_tipo">Tipo</label>
+      <select name="tipo" id="id_tipo" class="input">
+        <option value="">Todos</option>
+        {% for value, label in tipos %}
+          <option value="{{ value }}" {% if tipo == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_empresa">Empresa</label>
+      <select name="empresa" id="id_empresa" class="input">
+        <option value="">Todas</option>
+        {% for e in empresas %}
+          <option value="{{ e.pk }}" {% if empresa_id == e.pk|stringformat:"s" %}selected{% endif %}>{{ e.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_desde">Desde</label>
+      <input type="date" class="input" name="fecha_desde" id="id_fecha_desde" value="{{ fecha_desde }}">
+    </div>
+    <div class="form-row">
+      <label for="id_fecha_hasta">Hasta</label>
+      <input type="date" class="input" name="fecha_hasta" id="id_fecha_hasta" value="{{ fecha_hasta }}">
+    </div>
+    <div class="form-row span-2">
+      <label for="id_q">Buscar</label>
+      <input type="search" class="input" name="q" id="id_q" value="{{ q }}" placeholder="Usuario, empresa o detalle…">
+    </div>
+    <div class="form-actions span-2">
+      <button type="submit" class="btn">Filtrar</button>
+      <a class="btn btn-ghost" href="{% url 'maestro:auditoria_list' %}">Últimos 30 días</a>
+    </div>
+  </form>
+</section>
+
+<section class="panel panel-flush">
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Fecha / hora</th>
+          <th>Tipo</th>
+          <th>Usuario</th>
+          <th>Empresa</th>
+          <th>Detalle</th>
+          <th>IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+          <tr>
+            <td class="mono">{{ r.creado_en|date:"d/m/Y H:i:s" }}</td>
+            <td><span class="badge badge-info">{{ r.get_tipo_display }}</span></td>
+            <td>
+              <strong>{{ r.usuario_nombre|default:r.usuario_email|default:"—" }}</strong>
+              {% if r.usuario_email and r.usuario_nombre %}
+                <div class="muted mono">{{ r.usuario_email }}</div>
+              {% endif %}
+            </td>
+            <td>{{ r.empresa_nombre|default:"—" }}</td>
+            <td>{{ r.detalle }}</td>
+            <td class="mono muted">{{ r.ip|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6">
+              <div class="empty-state">
+                <strong>Sin eventos en el periodo</strong>
+                Ajusta los filtros o espera a que ocurran cargas, logins o exportaciones.
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page.paginator.num_pages > 1 %}
+    <div class="table-pager csi-21d831feac">
+      {% if page.has_previous %}
+        <a class="btn btn-ghost" href="?page={{ page.previous_page_number }}&tipo={{ tipo }}&empresa={{ empresa_id }}&q={{ q }}&fecha_desde={{ fecha_desde }}&fecha_hasta={{ fecha_hasta }}">Anterior</a>
+      {% endif %}
+      <span class="muted">Página {{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}
+        <a class="btn btn-ghost" href="?page={{ page.next_page_number }}&tipo={{ tipo }}&empresa={{ empresa_id }}&q={{ q }}&fecha_desde={{ fecha_desde }}&fecha_hasta={{ fecha_hasta }}">Siguiente</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

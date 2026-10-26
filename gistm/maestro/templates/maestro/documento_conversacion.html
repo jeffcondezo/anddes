@@ -14,7 +14,9 @@
   <div class="page-actions">
     {% if es_cliente %}
       <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}?estado=rechazados">Mis documentos</a>
-      <a class="btn" href="{% url 'maestro:mi_empresa_documento_cargar' documento.pk %}">Cargar / reemplazar</a>
+      {% if cliente_puede_cargar %}
+        <a class="btn" href="{% url 'maestro:mi_empresa_documento_cargar' documento.pk %}">Cargar / reemplazar</a>
+      {% endif %}
     {% else %}
       <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}">Por revisar</a>
       <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_detail' empresa.pk %}">Detalle</a>
@@ -23,19 +25,22 @@
 </header>
 
 {% if carga_actual %}
-  <div class="info-banner" style="margin-bottom:1rem;">
+  <div class="info-banner csi-16884469a8">
     <div>
       <h2>Evidencia vigente · v{{ carga_actual.version }}</h2>
       <p>
-        {{ carga_actual.nombre_original|default:carga_actual.archivo.name }}
+        {{ carga_actual.etiqueta_evidencia }}
         · {{ carga_actual.get_estado_revision_display }}
         · {{ carga_actual.creado_en|date:"d/m/Y H:i" }}
-        {% if carga_actual.archivo %}
-          · <a href="{{ carga_actual.archivo.url }}" target="_blank" rel="noopener" style="color:#fff; text-decoration:underline;">Ver archivo</a>
+        {% if carga_actual.es_url %}
+          · <span class="badge badge-info">URL</span>
+        {% endif %}
+        {% if carga_actual.evidencia_url %}
+          · {% include "maestro/partials/evidencia_enlace.html" with carga=carga_actual class="csi-97deebe5b4" label="Ver evidencia" %}
         {% endif %}
       </p>
       {% if documento.fecha_caducidad %}
-        <p style="margin:0.5rem 0 0;opacity:0.95;font-size:0.9rem;">
+        <p class="csi-a91e0c87fd">
           Vigencia:
           {% if documento.frecuencia_actualizacion %}
             {{ documento.get_frecuencia_actualizacion_display }}{% if documento.frecuencia_otro %}: {{ documento.frecuencia_otro }}{% endif %} ·
@@ -43,12 +48,12 @@
           {% if documento.fecha_ultima_revision %}Rev. 0 {{ documento.fecha_ultima_revision|date:"d/m/Y" }} · {% endif %}
           caduca {{ documento.fecha_caducidad|date:"d/m/Y" }}
           {% if es_consultor %}
-            · <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" style="color:#fff;text-decoration:underline;">Editar</a>
+            · <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" class="csi-3346fe4599">Editar</a>
           {% endif %}
         </p>
       {% elif es_consultor and carga_actual.estado_revision == 'APROBADO' %}
-        <p style="margin:0.5rem 0 0;">
-          <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" style="color:#fff;text-decoration:underline;">
+        <p class="csi-3cbd6db236">
+          <a href="{% url 'maestro:seguimiento_documento_vigencia' empresa.pk documento.pk %}" class="csi-3346fe4599">
             Completar vigencia (obligatorio)
           </a>
         </p>
@@ -57,12 +62,11 @@
         <form
           method="post"
           action="{% url 'maestro:seguimiento_carga_revertir' empresa.pk carga_actual.id %}"
-          style="margin-top:0.75rem;"
-          onsubmit="return confirm('¿Revertir la aprobación de este documento?');"
-        >
+          data-confirm="¿Revertir la aprobación de este documento?"
+         class="csi-21d8fb5d75">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          <button type="submit" class="btn btn-ghost" style="background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.35);">
+          <button type="submit" class="btn btn-ghost csi-60e91d3209">
             Revertir aprobación
           </button>
         </form>
@@ -72,7 +76,7 @@
 {% endif %}
 
 {% if versiones|length > 1 %}
-<section class="panel" style="margin-bottom:1rem;">
+<section class="panel csi-16884469a8">
   <div class="panel-head">
     <div>
       <h2>Versiones del archivo</h2>
@@ -94,13 +98,14 @@
         {% for v in versiones %}
           <tr {% if v.activo %}style="background:#f0f7fb;"{% endif %}>
             <td><strong>v{{ v.version }}</strong>{% if v.activo %} <span class="badge badge-ok">Vigente</span>{% endif %}</td>
-            <td>{{ v.nombre_original|default:v.archivo.name }}</td>
+            <td>
+              {{ v.etiqueta_evidencia }}
+              {% if v.es_url %}<span class="badge badge-info">URL</span>{% endif %}
+            </td>
             <td>{{ v.get_estado_revision_display }}</td>
             <td>{{ v.creado_en|date:"d/m/Y H:i" }}</td>
             <td class="actions">
-              {% if v.archivo %}
-                <a href="{{ v.archivo.url }}" target="_blank" rel="noopener">Descargar</a>
-              {% endif %}
+              {% include "maestro/partials/evidencia_enlace.html" with carga=v %}
             </td>
           </tr>
         {% endfor %}
@@ -144,10 +149,11 @@
           <time datetime="{{ msg.creado_en|date:'c' }}">{{ msg.creado_en|date:"d/m/Y H:i" }}</time>
         </div>
         <div class="chat-text">{{ msg.texto|linebreaksbr }}</div>
-        {% if msg.carga and msg.carga.archivo %}
+        {% if msg.carga and msg.carga.evidencia_url %}
           <div class="chat-attach">
-            <a href="{{ msg.carga.archivo.url }}" target="_blank" rel="noopener">
-              Descargar v{{ msg.carga.version }}: {{ msg.carga.nombre_original|default:msg.carga.archivo.name }}
+            <a href="{% url 'maestro:evidencia_abrir' msg.carga.pk %}" target="_blank" rel="noopener">
+              {% if msg.carga.es_url %}Abrir{% else %}Descargar{% endif %}
+              v{{ msg.carga.version }}: {{ msg.carga.etiqueta_evidencia }}
             </a>
           </div>
         {% endif %}
@@ -160,29 +166,33 @@
     {% endfor %}
   </div>
 
-  <form method="post" class="chat-composer" novalidate>
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <div>{{ form.non_field_errors }}</div>
-    {% endif %}
-    <div class="form-grid two-col">
-      <div class="form-row span-2">
-        <label for="id_texto">Nuevo mensaje</label>
-        {{ form.texto }}
-        {{ form.texto.errors }}
+  {% if solo_lectura_cliente %}
+    <p class="muted csi-077e9a2ab8">Tu perfil es de solo lectura; puedes consultar el historial pero no enviar mensajes.</p>
+  {% else %}
+    <form method="post" class="chat-composer" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div>{{ form.non_field_errors }}</div>
+      {% endif %}
+      <div class="form-grid two-col">
+        <div class="form-row span-2">
+          <label for="id_texto">Nuevo mensaje</label>
+          {{ form.texto }}
+          {{ form.texto.errors }}
+        </div>
+        <div class="form-row">
+          <label for="id_tipo">Tipo</label>
+          {{ form.tipo }}
+        </div>
+        <div class="form-actions csi-7054699c26">
+          <button type="submit" class="btn">Enviar mensaje</button>
+        </div>
       </div>
-      <div class="form-row">
-        <label for="id_tipo">Tipo</label>
-        {{ form.tipo }}
-      </div>
-      <div class="form-actions" style="align-self:end;">
-        <button type="submit" class="btn">Enviar mensaje</button>
-      </div>
-    </div>
-  </form>
+    </form>
+  {% endif %}
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     var thread = document.getElementById("chat-thread");
     if (thread) thread.scrollTop = thread.scrollHeight;

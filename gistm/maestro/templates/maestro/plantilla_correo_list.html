@@ -29,7 +29,7 @@
             <td>
               <strong>{{ p.nombre }}</strong>
               {% if p.descripcion %}
-                <div class="muted" style="font-size:0.85rem;max-width:28rem;">{{ p.descripcion|truncatechars:120 }}</div>
+                <div class="muted csi-35fdc88962">{{ p.descripcion|truncatechars:120 }}</div>
               {% endif %}
             </td>
             <td><code>{{ p.codigo }}</code></td>
@@ -43,7 +43,7 @@
             <td>
               {{ p.actualizado_en|date:"d/m/Y H:i" }}
               {% if p.actualizado_por %}
-                <div class="muted" style="font-size:0.8rem;">{{ p.actualizado_por.get_full_name|default:p.actualizado_por.username }}</div>
+                <div class="muted csi-94db95e1b0">{{ p.actualizado_por.get_full_name|default:p.actualizado_por.username }}</div>
               {% endif %}
             </td>
             <td class="actions">

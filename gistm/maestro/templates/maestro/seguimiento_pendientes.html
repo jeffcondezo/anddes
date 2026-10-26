@@ -39,7 +39,7 @@
     </div>
   </div>
 {% else %}
-  <div class="stat-grid" style="margin-bottom:1.25rem;">
+  <div class="stat-grid csi-d44ae31e3b">
     <article class="stat-card">
       <div class="stat-label">Sin entregar</div>
       <div class="stat-value">{{ progreso.docs_por_subir }}</div>
@@ -131,7 +131,7 @@
                 <div class="doc-row-meta">
                   <span>{{ c.descripcion|default:"Sin descripción"|truncatechars:120 }}</span>
                 </div>
-                <div class="doc-row-meta" style="margin-top:0.25rem;">
+                <div class="doc-row-meta csi-04cdf78d3c">
                   <span class="muted">
                     {{ c.tema.codigo }} · {{ c.principio.codigo }} · {{ c.requisito.codigo }}
                   </span>
@@ -144,7 +144,7 @@
           {% endfor %}
         </div>
         {% if es_administrador %}
-          <p style="margin:1rem 0 0;">
+          <p class="csi-71a654e590">
             <a class="btn btn-ghost" href="{% url 'maestro:empresa_documento_list' empresa.pk revision.pk %}?tab=huerfanos">
               Configurar documentos / huérfanos
             </a>

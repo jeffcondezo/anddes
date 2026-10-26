@@ -52,6 +52,7 @@ from maestro.models import (
     TipoActividad,
     TipoAvisoConsultor,
     TipoNotificacionAcuerdo,
+    TIPOS_CLIENTE,
     TipoUsuario,
     sincronizar_estado_criterio_desde_preguntas,
 )
@@ -74,15 +75,17 @@ def _user(email: str, **kwargs) -> User:
     )
 
 
-def _perfil(user, tipo: str, *, empresa=None, empresas=None) -> PerfilUsuario:
+def _perfil(user, tipo: str, *, empresa=None, empresas=None, revisiones=None) -> PerfilUsuario:
     perfil = PerfilUsuario.objects.create(
         user=user,
         tipo=tipo,
         activo=True,
-        empresa=empresa if tipo == TipoUsuario.CLIENTE else None,
+        empresa=empresa if tipo in TIPOS_CLIENTE else None,
     )
     if tipo == TipoUsuario.GESTOR and empresas:
         perfil.empresas.set(empresas)
+    if tipo in TIPOS_CLIENTE and revisiones is not None:
+        perfil.revisiones.set(revisiones)
     return perfil
 
 
@@ -95,6 +98,7 @@ class FixturesMixin:
         self.revision = Revision.objects.create(
             empresa=self.empresa, anio=2026, nombre="R2026", activo=True
         )
+        # Snapshot se crea tras el criterio (abajo), vía asegurar en tests que lo necesiten.
 
         self.tema = Tema.objects.create(codigo="T1", nombre="Tema 1")
         self.principio = Principio.objects.create(
@@ -132,6 +136,9 @@ class FixturesMixin:
         self.respuesta = EmpresaDocumentoPregunta.objects.get(
             vinculo_criterio=self.vinculo, pregunta=self.pregunta
         )
+        from maestro.models import crear_snapshot_catalogo_revision
+
+        crear_snapshot_catalogo_revision(self.revision)
 
         self.admin = _user("admin@test.local", first_name="Ana", last_name="Admin")
         _perfil(self.admin, TipoUsuario.ADMINISTRADOR)
@@ -140,7 +147,12 @@ class FixturesMixin:
         _perfil(self.gestor, TipoUsuario.GESTOR, empresas=[self.empresa])
 
         self.cliente = _user("cliente@test.local", first_name="Carlos", last_name="Cliente")
-        _perfil(self.cliente, TipoUsuario.CLIENTE, empresa=self.empresa)
+        self.perfil_cliente = _perfil(
+            self.cliente,
+            TipoUsuario.CLIENTE_CARGA,
+            empresa=self.empresa,
+            revisiones=[self.revision],
+        )
 
     def _aprobar_criterio_via_preguntas(self, vinculo=None):
         vinculo = vinculo or self.vinculo
@@ -162,6 +174,36 @@ class FixturesMixin:
 class ProgressTests(FixturesMixin, TestCase):
     def test_revision_activa(self):
         self.assertEqual(revision_activa_empresa(self.empresa.pk), self.revision)
+
+    def test_snapshot_catalogo_no_cambia_con_edicion_posterior(self):
+        from maestro.models import RevisionCatalogoCriterio
+        from maestro.progress import calcular_progreso_revision
+
+        snap = RevisionCatalogoCriterio.objects.get(
+            revision=self.revision, criterio=self.criterio
+        )
+        self.assertEqual(snap.codigo, "C1")
+        self.assertIn("Criterio 1", snap.descripcion)
+
+        # Edición del catálogo vivo no debe alterar el snapshot ni el árbol histórico.
+        self.criterio.codigo = "C1-FUSIONADO"
+        self.criterio.descripcion = "Texto nuevo que no debe verse en la revisión"
+        self.criterio.save()
+
+        snap.refresh_from_db()
+        self.assertEqual(snap.codigo, "C1")
+        self.assertIn("Criterio 1", snap.descripcion)
+
+        progreso = calcular_progreso_revision(self.revision)
+        codigos = [c.codigo for c in progreso.criterios_huerfanos] + [
+            n.codigo
+            for t in progreso.temas
+            for p in t.children
+            for r in p.children
+            for n in r.children
+        ]
+        self.assertIn("C1", codigos)
+        self.assertNotIn("C1-FUSIONADO", codigos)
 
     def test_varias_revisiones_activas_en_paralelo(self):
         otra = Revision.objects.create(
@@ -258,6 +300,8 @@ class ProgressTests(FixturesMixin, TestCase):
         self.assertEqual(progreso.criterios_pct, 100.0)
 
     def test_aprobacion_parcial_suma_criterio_no_documento(self):
+        from maestro.models import crear_snapshot_catalogo_revision
+
         c2 = Criterio.objects.create(
             codigo="C2",
             descripcion="Criterio 2",
@@ -266,6 +310,8 @@ class ProgressTests(FixturesMixin, TestCase):
         Pregunta.objects.create(
             codigo="Q-C2", texto="Pregunta C2", criterio=c2, orden=1
         )
+        # Simula que ambos criterios existían al abrir la revisión.
+        crear_snapshot_catalogo_revision(self.revision, force=True)
         EmpresaDocumentoCriterio.objects.create(
             revision=self.revision,
             empresa_documento=self.doc,
@@ -986,6 +1032,102 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         resp = self.client.get(reverse("maestro:seguimiento_list"))
         self.assertEqual(resp.status_code, 302)
 
+    def test_cliente_carga_evidencia_por_url(self):
+        self.client.force_login(self.cliente)
+        url = reverse("maestro:mi_empresa_documento_cargar", args=[self.doc.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "URL / enlace")
+        resp = self.client.post(
+            url,
+            {
+                "tipo_evidencia": "url",
+                "url_evidencia": "https://example.com/evidencia-gistm.pdf",
+                "observaciones": "Enlace SharePoint",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        carga = DocumentoCarga.objects.filter(
+            empresa_documento=self.doc, activo=True
+        ).first()
+        self.assertIsNotNone(carga)
+        self.assertTrue(carga.es_url)
+        self.assertEqual(
+            carga.url_evidencia, "https://example.com/evidencia-gistm.pdf"
+        )
+        self.assertFalse(bool(carga.archivo))
+        self.assertEqual(carga.evidencia_url, "https://example.com/evidencia-gistm.pdf")
+
+    def test_cliente_lectura_no_puede_cargar(self):
+        lectura = _user("lectura@test.local", first_name="Luz", last_name="Lectura")
+        _perfil(
+            lectura,
+            TipoUsuario.CLIENTE_LECTURA,
+            empresa=self.empresa,
+            revisiones=[self.revision],
+        )
+        self.client.force_login(lectura)
+        resp = self.client.get(reverse("maestro:mi_empresa_documentos"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Cargar")
+        resp = self.client.get(
+            reverse("maestro:mi_empresa_documento_cargar", args=[self.doc.pk])
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(
+            reverse("maestro:mi_empresa_documentos"),
+            resp.url,
+        )
+
+    def test_cliente_solo_ve_revisiones_asignadas(self):
+        otra_rev = Revision.objects.create(
+            empresa=self.empresa, anio=2025, nombre="R2025", activo=True
+        )
+        # Solo asignada la revisión 2026
+        self.perfil_cliente.revisiones.set([self.revision])
+        self.client.force_login(self.cliente)
+        resp = self.client.get(
+            reverse("maestro:indicadores_empresa", args=[self.empresa.pk]),
+            {"rev": otra_rev.pk},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["revision"].pk, self.revision.pk)
+        self.assertNotIn(
+            otra_rev,
+            resp.context["revisiones_activas"],
+        )
+
+    def test_empresa_delete_solo_desactiva(self):
+        pk = self.empresa.pk
+        self.empresa.delete()
+        empresa = Empresa.objects.get(pk=pk)
+        self.assertFalse(empresa.activo)
+        self.assertTrue(Revision.objects.filter(empresa_id=pk).exists())
+
+    def test_auditoria_carga_y_listado(self):
+        from maestro.models import RegistroAuditoria, TipoAuditoria
+
+        self.client.force_login(self.cliente)
+        url = reverse("maestro:mi_empresa_documento_cargar", args=[self.doc.pk])
+        resp = self.client.post(
+            url,
+            {
+                "tipo_evidencia": "url",
+                "url_evidencia": "https://example.com/audit-ev.pdf",
+                "observaciones": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(
+            RegistroAuditoria.objects.filter(
+                tipo=TipoAuditoria.CARGA, usuario=self.cliente
+            ).exists()
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("maestro:auditoria_list"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Carga de evidencia")
+
     def _completar_vigencia_aprobacion(self, doc):
         """Paso obligatorio tras aprobar: guardar vigencia confirma la aprobación."""
         hoy = timezone.localdate()
@@ -1331,3 +1473,34 @@ class IndicadoresTests(FixturesMixin, TestCase):
         self.assertContains(resp, "Curva avance")
         self.assertContains(resp, "Prioritarios")
         self.assertContains(resp, "chart-curva-avance")
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    CSP_ENABLED=True,
+    SECURE_SSL_REDIRECT=False,
+)
+class SecurityHeadersTests(TestCase):
+    def test_csp_header_con_nonce_sin_unsafe_inline_scripts(self):
+        client = Client()
+        resp = client.get(reverse("maestro:login"))
+        self.assertEqual(resp.status_code, 200)
+        csp = resp.get("Content-Security-Policy", "")
+        self.assertIn("default-src 'self'", csp)
+        self.assertIn("object-src 'none'", csp)
+        self.assertNotIn("cdn.jsdelivr.net", csp)
+        self.assertNotIn("fonts.googleapis.com", csp)
+        self.assertNotIn("fonts.gstatic.com", csp)
+        self.assertIn("script-src 'self'", csp)
+        self.assertIn("font-src 'self'", csp)
+        self.assertContains(resp, "maestro/css/fonts.css")
+        self.assertContains(resp, "Montserrat")
+        self.assertRegex(csp, r"script-src[^;]*'nonce-[A-Za-z0-9_\-]+'")
+        self.assertRegex(csp, r"style-src[^;]*'nonce-[A-Za-z0-9_\-]+'")
+        # Sin unsafe-inline en script ni style
+        for directive in ("script-src", "style-src"):
+            parts = [p.strip() for p in csp.split(";") if p.strip().startswith(directive)]
+            self.assertTrue(parts, msg=directive)
+            self.assertNotIn("'unsafe-inline'", parts[0], msg=directive)
+        self.assertContains(resp, 'nonce="')
+        self.assertContains(resp, "csp_inline.css")

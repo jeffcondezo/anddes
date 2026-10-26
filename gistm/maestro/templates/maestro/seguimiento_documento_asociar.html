@@ -37,7 +37,7 @@
           <strong>{{ documento.codigo }}</strong>
           <span>
             {% if carga %}
-              {{ carga.nombre_original|default:carga.archivo.name }}
+              {{ carga.etiqueta_evidencia }}{% if carga.es_url %} <span class="badge badge-info">URL</span>{% endif %}
               · {{ carga.creado_en|date:"d/m/Y H:i" }}
               {% if carga.subido_por %} · {{ carga.subido_por.get_full_name|default:carga.subido_por.email }}{% endif %}
             {% else %}
@@ -45,19 +45,19 @@
             {% endif %}
           </span>
           {% if carga and carga.observaciones %}
-            <span style="display:block; margin-top:0.35rem;">Obs.: {{ carga.observaciones }}</span>
+            <span class="csi-a43a9635c5">Obs.: {{ carga.observaciones }}</span>
           {% endif %}
         </div>
         <div class="doc-row-side">
-          {% if carga and carga.archivo %}
-            <a class="btn btn-ghost" href="{{ carga.archivo.url }}" target="_blank" rel="noopener">Ver / descargar</a>
+          {% if carga and carga.evidencia_url %}
+            {% include "maestro/partials/evidencia_enlace.html" with carga=carga class="btn btn-ghost" %}
           {% endif %}
         </div>
       </div>
     </div>
 
     {% if vinculos %}
-      <div class="panel-head" style="margin-top:1.25rem;">
+      <div class="panel-head csi-a847778823">
         <div>
           <h2>Criterios ya asociados</h2>
           <p class="muted">Este documento ya cubre estos criterios.</p>
@@ -79,7 +79,7 @@
               <tr>
                 <td>
                   <strong class="mono">{{ v.criterio.codigo }}</strong>
-                  <div class="muted" style="font-size:0.82rem;">{{ v.criterio.descripcion|truncatechars:100 }}</div>
+                  <div class="muted csi-b5b8533655">{{ v.criterio.descripcion|truncatechars:100 }}</div>
                 </td>
                 <td>{{ v.get_rol_display }}</td>
                 <td class="mono">
@@ -113,7 +113,7 @@
         Todos los criterios aplicables ya tienen documento, o el filtro no dejó resultados.
       </div>
     {% else %}
-      <form method="get" class="form-grid two-col" style="margin-bottom:1rem;">
+      <form method="get" class="form-grid two-col csi-16884469a8">
         <div class="form-row">
           <label for="id_filtro_tema">Filtrar por tema</label>
           <select class="input" name="tema" id="id_filtro_tema">
@@ -151,9 +151,9 @@
           {{ form.criterios }}
           {{ form.criterios.errors }}
           {% if form.criterios.help_text %}
-            <p class="muted" style="margin:0.35rem 0 0;">{{ form.criterios.help_text }}</p>
+            <p class="muted csi-ee82ee4339">{{ form.criterios.help_text }}</p>
           {% endif %}
-          <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
+          <p class="muted csi-ee82ee4339">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
         </div>
         <div class="form-row">
           <label for="id_rol">Rol</label>

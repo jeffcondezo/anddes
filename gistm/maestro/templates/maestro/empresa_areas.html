@@ -19,7 +19,7 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1.25rem;">
+<section class="panel csi-d44ae31e3b">
   <div class="panel-head">
     <div>
       <h2>Nueva área</h2>
@@ -36,13 +36,13 @@
         {{ area_form.nombre.errors }}
       </div>
       <div class="form-row">
-        <label style="display:flex; align-items:center; gap:0.5rem; margin-top:1.6rem;">
+        <label class="csi-14d76a2e1c">
           {{ area_form.activo }} Activa
         </label>
         {{ area_form.activo.errors }}
       </div>
     </div>
-    <div class="form-actions" style="margin-top:0.75rem;">
+    <div class="form-actions csi-21d8fb5d75">
       <button type="submit" class="btn">Agregar área</button>
     </div>
   </form>
@@ -50,7 +50,7 @@
 
 {% for item in areas_ctx %}
   {% with area=item.area rf=item.responsable_form %}
-  <section class="panel" style="margin-bottom:1.25rem;">
+  <section class="panel csi-d44ae31e3b">
     <div class="panel-head">
       <div>
         <h2>{{ area.nombre }}</h2>
@@ -63,9 +63,9 @@
           · {{ area.responsables.count }} responsable(s)
         </p>
       </div>
-      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+      <div class="csi-79be51bdaa">
         <button type="button" class="btn" data-resp-modal="resp-modal-{{ area.pk }}">+ Responsable</button>
-        <form method="post" style="display:inline;">
+        <form method="post" class="csi-0cd28ce9ba">
           {% csrf_token %}
           <input type="hidden" name="accion" value="toggle_area">
           <input type="hidden" name="area_id" value="{{ area.pk }}">
@@ -107,26 +107,20 @@
                 {% endif %}
               </td>
               <td class="actions">
-                <form method="post" style="display:inline;">
+                <form method="post" class="csi-0cd28ce9ba">
                   {% csrf_token %}
                   <input type="hidden" name="accion" value="toggle_responsable">
                   <input type="hidden" name="responsable_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem; font-size:0.8rem;">
+                  <button type="submit" class="btn btn-ghost csi-2aa37014f7">
                     {% if r.activo %}Desactivar{% else %}Activar{% endif %}
                   </button>
-                </form>
-                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar a {{ r.nombre }}?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="accion" value="eliminar_responsable">
-                  <input type="hidden" name="responsable_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem; font-size:0.8rem;">Eliminar</button>
                 </form>
               </td>
             </tr>
           {% empty %}
             <tr>
               <td colspan="6">
-                <div class="empty-state" style="padding:1rem;">
+                <div class="empty-state csi-c951e35a79">
                   <strong>Sin responsables</strong>
                   Usa «+ Responsable» para agregar el primero.
                 </div>
@@ -146,7 +140,7 @@
     aria-modal="true"
     aria-labelledby="resp-modal-title-{{ area.pk }}"
   >
-    <div class="modal-panel" style="max-width:min(560px, 100%);">
+    <div class="modal-panel csi-06a98e318c">
       <header>
         <div>
           <h3 id="resp-modal-title-{{ area.pk }}">Nuevo responsable</h3>
@@ -180,15 +174,15 @@
             {{ rf.correo.errors }}
           </div>
           <div class="form-row span-2">
-            <label style="display:flex; align-items:center; gap:0.5rem;">
+            <label class="csi-1dfbba896f">
               {{ rf.activo }} Activo
             </label>
           </div>
         </div>
         {% if rf.non_field_errors %}
-          <div class="info-banner" style="margin:0.5rem 0;">{{ rf.non_field_errors }}</div>
+          <div class="info-banner csi-0464e4d702">{{ rf.non_field_errors }}</div>
         {% endif %}
-        <div class="form-actions" style="margin-top:1rem;">
+        <div class="form-actions csi-0cf8f93b0e">
           <button type="submit" class="btn">Guardar responsable</button>
           <button type="button" class="btn btn-ghost" data-resp-modal-close>Cancelar</button>
         </div>
@@ -205,7 +199,7 @@
   </section>
 {% endfor %}
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     function openModal(id) {
       var el = document.getElementById(id);

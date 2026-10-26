@@ -31,8 +31,10 @@ from maestro.models import (
     Responsable,
     Revision,
     TipoActividad,
+    TIPOS_CLIENTE,
     TipoUsuario,
     aplicar_deshabilitados_catalogo_a_revision,
+    crear_snapshot_catalogo_revision,
     aplicar_estandar_a_revision,
     sincronizar_actividades_pasadas,
     sincronizar_acuerdos_vencidos,
@@ -201,13 +203,18 @@ class Command(BaseCommand):
             },
         )
         if created:
+            n_snap = crear_snapshot_catalogo_revision(revision)
             n_des = aplicar_deshabilitados_catalogo_a_revision(revision)
             self.stdout.write(
                 f"  Revisión creada: {empresa.nombre} · {nombre} "
-                f"(deshabilitados catálogo: {n_des})"
+                f"(snapshot: {n_snap}, deshabilitados catálogo: {n_des})"
             )
         else:
-            self.stdout.write(f"  Revisión ya existía: {empresa.nombre} · {nombre}")
+            n_snap = crear_snapshot_catalogo_revision(revision)
+            self.stdout.write(
+                f"  Revisión ya existía: {empresa.nombre} · {nombre}"
+                + (f" (snapshot creado: {n_snap})" if n_snap else "")
+            )
 
         docs, vinc = aplicar_estandar_a_revision(revision, area)
         preguntas = EmpresaDocumentoPregunta.objects.filter(revision=revision).count()
@@ -240,20 +247,22 @@ class Command(BaseCommand):
         for email, empresa in mapa.items():
             perfil = (
                 PerfilUsuario.objects.filter(
-                    user__email__iexact=email, tipo=TipoUsuario.CLIENTE
+                    user__email__iexact=email, tipo__in=TIPOS_CLIENTE
                 )
                 .select_related("user")
                 .first()
             )
             if perfil:
                 perfil.empresa = empresa
-                perfil.save(update_fields=["empresa"])
+                perfil.tipo = TipoUsuario.CLIENTE_CARGA
+                perfil.save(update_fields=["empresa", "tipo"])
+                perfil.revisiones.set(Revision.objects.filter(empresa=empresa))
                 self.stdout.write(f"  Cliente {email} → {empresa.nombre}")
 
     def _usuario_cliente(self, empresa: Empresa):
         perfil = (
             PerfilUsuario.objects.filter(
-                tipo=TipoUsuario.CLIENTE, empresa=empresa, activo=True
+                tipo__in=TIPOS_CLIENTE, empresa=empresa, activo=True
             )
             .select_related("user")
             .first()

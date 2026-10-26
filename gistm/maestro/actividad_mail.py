@@ -28,7 +28,6 @@ from .models import (
     TipoActividad,
     TipoCorreoEnvio,
     TipoDocumentoMensaje,
-    TipoUsuario,
 )
 
 
@@ -66,9 +65,11 @@ def destinatarios_consultor_acuerdo(acuerdo: Acuerdo) -> list[str]:
 
 
 def destinatarios_cliente(empresa_id: int) -> list[str]:
+    from .models import TIPOS_CLIENTE  # evita import circular en carga de módulos
+
     perfiles = (
         PerfilUsuario.objects.filter(
-            tipo=TipoUsuario.CLIENTE,
+            tipo__in=TIPOS_CLIENTE,
             activo=True,
             empresa_id=empresa_id,
             user__is_active=True,

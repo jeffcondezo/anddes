@@ -1,0 +1,18 @@
+# Dependencias directas de GISTM (entrada para generar el lock).
+# Regenerar lock: ver docs/despliegue.md
+# Último parche de seguridad de la rama 5.2 LTS (soporte extendido hasta abr. 2028).
+Django==5.2.18
+# Producción: variante C acordada (lista librerías rev2 27-ago). Requiere libpq en el servidor.
+psycopg[c]==3.3.4
+python-dotenv==1.2.2
+msal==1.39.0
+openpyxl==3.1.5
+reportlab==4.4.3
+django-storages==1.14.6
+azure-storage-blob==12.26.0
+azure-communication-email==1.1.0
+django-azure-communication-email==1.6.0
+# Pins explícitos (Python 3.13 / Debian + Azure)
+typing_extensions>=4.13.2
+cffi>=1.17.0
+cryptography>=44.0.0

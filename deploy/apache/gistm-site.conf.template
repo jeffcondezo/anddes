@@ -1,0 +1,42 @@
+# GISTM — VirtualHost Apache + mod_wsgi (generado por bootstrap-ubuntu-24.04.sh)
+# No editar a mano el archivo instalado en sites-available; regenerar con el script.
+
+{{LOAD_MODULE_LINES}}
+
+<VirtualHost *:80>
+    ServerName {{SERVER_NAME}}
+    ServerAdmin webmaster@localhost
+
+    # Logs
+    ErrorLog ${APACHE_LOG_DIR}/gistm-error.log
+    CustomLog ${APACHE_LOG_DIR}/gistm-access.log combined
+
+    # Estáticos Django (collectstatic → STATIC_ROOT)
+    Alias /static/ {{STATIC_ROOT}}/
+    <Directory "{{STATIC_ROOT}}">
+        Require all granted
+    </Directory>
+
+    # Aplicación WSGI
+    WSGIDaemonProcess gistm \
+        python-home={{PYTHON_HOME}} \
+        python-path={{GISTM_DIR}} \
+        processes={{WSGI_PROCESSES}} \
+        threads={{WSGI_THREADS}} \
+        display-name=%{GROUP} \
+        lang='es_PE.UTF-8' \
+        locale='es_PE.UTF-8'
+    WSGIProcessGroup gistm
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIPassAuthorization On
+    WSGIScriptAlias / {{WSGI_FILE}}
+
+    <Directory "{{GISTM_PACKAGE_DIR}}">
+        <Files "wsgi.py">
+            Require all granted
+        </Files>
+    </Directory>
+
+    # Por ahora solo HTTP :80 (sin SSL). Cuando haya dominio/certificado,
+    # añadir VirtualHost :443 y ajustar ALLOWED_HOSTS / CSRF / Entra redirect.
+</VirtualHost>

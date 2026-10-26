@@ -17,9 +17,9 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1rem;">
-  <h2 style="font-size:1.05rem; margin:0 0 0.75rem;">Agregar criterios</h2>
-  <form method="get" class="form-grid two-col" style="margin-bottom:1rem;">
+<section class="panel csi-16884469a8">
+  <h2 class="csi-2500004fdf">Agregar criterios</h2>
+  <form method="get" class="form-grid two-col csi-16884469a8">
     <div class="form-row">
       <label for="id_filtro_tema">Filtrar por tema</label>
       <select class="input" name="tema" id="id_filtro_tema">
@@ -56,7 +56,7 @@
       <label for="id_criterios">Criterios</label>
       {{ form.criterios }}
       {{ form.criterios.errors }}
-      <p class="muted" style="margin:0.35rem 0 0;">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
+      <p class="muted csi-ee82ee4339">Mantén Ctrl (o Cmd) para seleccionar varios.</p>
     </div>
     <div class="form-row">
       <label for="id_rol">Rol</label>
@@ -78,7 +78,7 @@
     </div>
   </form>
   {% if not form.fields.area.queryset %}
-    <p class="muted" style="margin-top:0.75rem;">
+    <p class="muted csi-21d8fb5d75">
       Esta empresa aún no tiene áreas activas.
       <a href="{% url 'maestro:empresa_edit' empresa.pk %}">Agregar áreas</a> antes de vincular criterios.
     </p>
@@ -86,8 +86,8 @@
 </section>
 
 <section class="panel panel-flush">
-  <div style="padding:1rem 1.1rem 0.5rem;">
-    <h2 style="font-size:1.05rem; margin:0;">Criterios donde este documento es principal</h2>
+  <div class="csi-b4d14f6e4e">
+    <h2 class="csi-2926a5ed90">Criterios donde este documento es principal</h2>
   </div>
   <div class="table-wrap">
     <table class="data">
@@ -140,10 +140,10 @@
 </section>
 
 {% if vinculos_como_secundario %}
-<section class="panel panel-flush" style="margin-top:1rem;">
-  <div style="padding:1rem 1.1rem 0.5rem;">
-    <h2 style="font-size:1.05rem; margin:0;">También figura como documento secundario</h2>
-    <p class="muted" style="margin:0.35rem 0 0;">El vínculo se gestiona desde el documento principal.</p>
+<section class="panel panel-flush csi-0cf8f93b0e">
+  <div class="csi-b4d14f6e4e">
+    <h2 class="csi-2926a5ed90">También figura como documento secundario</h2>
+    <p class="muted csi-ee82ee4339">El vínculo se gestiona desde el documento principal.</p>
   </div>
   <div class="table-wrap">
     <table class="data">

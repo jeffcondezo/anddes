@@ -20,8 +20,8 @@
 </header>
 
 {% if plantilla.descripcion %}
-  <section class="panel" style="margin-bottom:1rem;">
-    <p class="muted" style="margin:0;white-space:pre-wrap;">{{ plantilla.descripcion }}</p>
+  <section class="panel csi-16884469a8">
+    <p class="muted csi-780589da9b">{{ plantilla.descripcion }}</p>
   </section>
 {% endif %}
 
@@ -29,16 +29,16 @@
   {% csrf_token %}
   <input type="hidden" name="tab" id="plantilla-tab-field" value="{{ tab }}">
 
-  <div style="display:grid;gap:1rem;margin-bottom:1rem;">
-    <label style="display:grid;gap:0.35rem;">
+  <div class="csi-c1c71b7eca">
+    <label class="csi-846f4d72a1">
       <span>Nombre</span>
       <input type="text" name="nombre" class="input" value="{{ plantilla.nombre }}" maxlength="120" required>
     </label>
-    <label style="display:grid;gap:0.35rem;">
+    <label class="csi-846f4d72a1">
       <span>Descripción / ayuda</span>
       <textarea name="descripcion" class="input" rows="2">{{ plantilla.descripcion }}</textarea>
     </label>
-    <label style="display:flex;align-items:center;gap:0.5rem;">
+    <label class="csi-c2e70fe5d0">
       <input type="checkbox" name="activo" {% if plantilla.activo %}checked{% endif %}>
       <span>Plantilla activa (si se desactiva, se usa el HTML del repositorio)</span>
     </label>
@@ -61,8 +61,8 @@
       data-plantilla-panel="html"
       {% if tab == 'preview' %}hidden{% endif %}
     >
-      <label style="display:grid;gap:0.35rem;">
-        <span class="muted" style="font-size:0.85rem;">Código HTML de la plantilla</span>
+      <label class="csi-846f4d72a1">
+        <span class="muted csi-22d055cd63">Código HTML de la plantilla</span>
         <textarea
           name="html"
           id="plantilla-html"
@@ -80,7 +80,7 @@
       data-plantilla-panel="preview"
       {% if tab != 'preview' %}hidden{% endif %}
     >
-      <p class="muted" style="margin:0 0 0.75rem;">
+      <p class="muted csi-077e9a2ab8">
         Render con datos de un acuerdo reciente. Guarda los cambios del HTML para actualizar la vista previa.
       </p>
       <iframe
@@ -93,13 +93,13 @@
     </div>
   </div>
 
-  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;">
+  <div class="csi-81517818e6">
     <button type="submit" class="btn">Guardar plantilla</button>
     <a class="btn btn-ghost" href="{% url 'maestro:plantilla_correo_list' %}">Cancelar</a>
   </div>
 </form>
 
-<style>
+<style nonce="{{ csp_nonce }}">
   .plantilla-tabs {
     display: flex;
     gap: 0.25rem;
@@ -139,7 +139,7 @@
   }
 </style>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   const form = document.getElementById("plantilla-correo-form");
   if (!form) return;

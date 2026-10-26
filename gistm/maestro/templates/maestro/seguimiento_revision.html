@@ -56,7 +56,7 @@
               <div class="review-card-top">
                 <div>
                   <h3>{{ doc.codigo }} · {{ doc.nombre }}</h3>
-                  <p class="muted" style="margin:0.25rem 0 0;">
+                  <p class="muted csi-dca51949c2">
                     {% if doc.es_catalogo %}Precargado{% else %}Del cliente{% endif %}
                     {% if doc.carga %} · {{ doc.carga.creado_en|date:"d/m/Y H:i" }}{% endif %}
                     {% if doc.carga and doc.carga.subido_por %}
@@ -87,20 +87,19 @@
             {% if doc.carga %}
               <div class="review-file">
                 <div>
-                  <strong>{{ doc.carga.nombre_original|default:doc.carga.archivo.name }}</strong>
+                  <strong>{{ doc.carga.etiqueta_evidencia }}</strong>
+                  {% if doc.carga.es_url %}<span class="badge badge-info">URL</span>{% endif %}
                   {% if doc.carga.observaciones %}
-                    <p class="muted" style="margin:0.25rem 0 0;">Obs. cliente: {{ doc.carga.observaciones }}</p>
+                    <p class="muted csi-dca51949c2">Obs. cliente: {{ doc.carga.observaciones }}</p>
                   {% endif %}
                 </div>
-                <div style="display:flex; flex-direction:column; gap:0.35rem; align-items:flex-end;">
-                  {% if doc.carga.archivo %}
-                    <a class="btn btn-ghost" href="{{ doc.carga.archivo.url }}" target="_blank" rel="noopener">Ver / descargar</a>
-                  {% endif %}
+                <div class="csi-94408a66c3">
+                  {% include "maestro/partials/evidencia_enlace.html" with carga=doc.carga class="btn btn-ghost" %}
                   {% include "maestro/partials/documento_revision_consultor.html" with empresa=empresa doc=doc next_url=request.get_full_path %}
                 </div>
               </div>
             {% else %}
-              <div style="display:flex; justify-content:flex-end;">
+              <div class="csi-c1ece01589">
                 {% include "maestro/partials/documento_revision_consultor.html" with empresa=empresa doc=doc next_url=request.get_full_path %}
               </div>
             {% endif %}
@@ -114,10 +113,10 @@
                 {% csrf_token %}
                 <input type="hidden" name="accion" value="guardar">
                 <h4>Preguntas — revisión por sí/no</h4>
-                <ul class="review-criterios-list" style="list-style:none;padding:0;display:grid;gap:0.75rem;">
+                <ul class="review-criterios-list csi-96d9da17a3">
                   {% for v in doc.vinculos %}
-                    <li style="border:1px solid var(--border);border-radius:10px;padding:0.75rem 0.9rem;">
-                      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:baseline;justify-content:space-between;">
+                    <li class="csi-a35c821c9e">
+                      <div class="csi-aabf5855cd">
                         <div>
                           <strong class="mono">{{ v.criterio.codigo }}</strong>
                           <span class="muted">· {{ v.criterio.descripcion|truncatechars:90 }}</span>
@@ -133,14 +132,14 @@
                       </div>
                       {% with pregs=v.preguntas.all %}
                         {% if not pregs %}
-                          <p class="muted" style="margin:0.5rem 0 0;font-size:0.85rem;">
+                          <p class="muted csi-4152e1785b">
                             Este criterio no tiene preguntas en el catálogo: no puede completarse hasta que se carguen.
                           </p>
                         {% else %}
-                          <ul style="list-style:none;padding:0;margin:0.65rem 0 0;display:grid;gap:0.55rem;">
+                          <ul class="csi-413dc7c5f5">
                             {% for p in pregs %}
-                              <li style="background:var(--bg-soft,#f4f7f9);border-radius:8px;padding:0.55rem 0.7rem;">
-                                <div style="display:flex;flex-wrap:wrap;gap:0.45rem;justify-content:space-between;align-items:baseline;">
+                              <li class="csi-4a6d6b50fe">
+                                <div class="csi-e26fc07f58">
                                   <div>
                                     <strong class="mono">{{ p.pregunta.codigo }}</strong>
                                     <span>{{ p.pregunta.texto|truncatechars:120 }}</span>
@@ -154,20 +153,19 @@
                                   {% endif %}
                                 </div>
                                 {% if p.estado_revision == "CUMPLE" %}
-                                  <div style="margin-top:0.35rem;">
+                                  <div class="csi-792c3b8675">
                                     <button
                                       type="submit"
                                       class="btn btn-ghost"
                                       formaction="{% url 'maestro:seguimiento_carga_revertir' empresa.pk doc.carga.id %}"
                                       formmethod="post"
                                       name="pregunta_id"
-                                      value="{{ p.pk }}"
-                                      onclick="return confirm('¿Revertir el cumplimiento de {{ p.pregunta.codigo }}?');"
+                                      value="{{ p.pk }}" data-confirm="¿Revertir el cumplimiento de {{ p.pregunta.codigo }}?"
                                     >Revertir</button>
                                   </div>
                                 {% else %}
-                                  <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.45rem;">
-                                    <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.9rem;">
+                                  <div class="csi-4c839cfc08">
+                                    <label class="csi-9c0998c67c">
                                       <input
                                         type="radio"
                                         name="accion_p_{{ p.pk }}"
@@ -176,7 +174,7 @@
                                       >
                                       Cumple
                                     </label>
-                                    <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.9rem;">
+                                    <label class="csi-9c0998c67c">
                                       <input
                                         type="radio"
                                         name="accion_p_{{ p.pk }}"
@@ -188,9 +186,8 @@
                                     </label>
                                   </div>
                                   <div
-                                    class="form-row"
+                                    class="form-row obs-wrap{% if p.estado_revision != 'NO_CUMPLE' %} is-hidden{% endif %}"
                                     id="obs-wrap-{{ p.pk }}"
-                                    style="margin-top:0.45rem;{% if p.estado_revision != 'NO_CUMPLE' %}display:none;{% endif %}"
                                   >
                                     <label for="obs-p-{{ p.pk }}">Observación</label>
                                     <textarea
@@ -211,22 +208,21 @@
                         {% endif %}
                       {% endwith %}
                       {% if v.estado_revision == "APROBADO" %}
-                        <div style="margin-top:0.45rem;">
+                        <div class="csi-62450721a4">
                           <button
                             type="submit"
                             class="btn btn-ghost"
                             formaction="{% url 'maestro:seguimiento_carga_revertir' empresa.pk doc.carga.id %}"
                             formmethod="post"
                             name="vinculo_id"
-                            value="{{ v.pk }}"
-                            onclick="return confirm('¿Revertir todas las preguntas de {{ v.criterio.codigo }}?');"
+                            value="{{ v.pk }}" data-confirm="¿Revertir todas las preguntas de {{ v.criterio.codigo }}?"
                           >Revertir criterio</button>
                         </div>
                       {% endif %}
                     </li>
                   {% endfor %}
                 </ul>
-                <div class="review-actions" style="margin-top:0.9rem;">
+                <div class="review-actions csi-ea3ce50e93">
                   <a
                     class="btn btn-ghost"
                     href="{% url 'maestro:documento_conversacion' doc.id %}"
@@ -250,17 +246,16 @@
                       class="btn btn-ghost"
                       formaction="{% url 'maestro:seguimiento_carga_revertir' empresa.pk doc.carga.id %}"
                       formmethod="post"
-                      formnovalidate
-                      onclick="return confirm('¿Revertir todas las respuestas de {{ doc.codigo }}?');"
+                      formnovalidate data-confirm="¿Revertir todas las respuestas de {{ doc.codigo }}?"
                     >Revertir todas</button>
                   {% endif %}
                   <input type="hidden" name="next" value="{{ request.get_full_path }}">
                 </div>
               </form>
               {% if not doc.parcial %}
-                <details class="reject-box" style="margin-top:0.5rem;">
+                <details class="reject-box csi-c9ef2a58eb">
                   <summary class="btn btn-ghost">Rechazar evidencia completa</summary>
-                  <form method="post" action="{% url 'maestro:seguimiento_carga_rechazar' empresa.pk doc.carga.id %}" class="form-grid" style="margin-top:0.75rem;">
+                  <form method="post" action="{% url 'maestro:seguimiento_carga_rechazar' empresa.pk doc.carga.id %}" class="form-grid csi-21d8fb5d75">
                     {% csrf_token %}
                     <div class="form-row">
                       <label for="motivo-{{ doc.carga.id }}">Motivo para la minera</label>
@@ -275,7 +270,7 @@
                       ></textarea>
                     </div>
                     <div class="form-actions">
-                      <button type="submit" class="btn" style="background:var(--danger); box-shadow:none;">Confirmar rechazo</button>
+                      <button type="submit" class="btn csi-96a7e42f9c">Confirmar rechazo</button>
                     </div>
                   </form>
                 </details>
@@ -283,7 +278,7 @@
             {% else %}
               <div class="review-criterios">
                 <h4>Criterios asociados</h4>
-                <p class="muted" style="margin:0;">
+                <p class="muted csi-1da9facb4d">
                   Sin criterios todavía.
                   {% if doc.es_propio %}Asócialos antes de revisar.{% else %}Revisa la configuración de la revisión.{% endif %}
                 </p>
@@ -317,7 +312,7 @@
   </section>
 {% endif %}
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   function syncObs(preguntaId) {
     var wrap = document.getElementById("obs-wrap-" + preguntaId);

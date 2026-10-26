@@ -34,7 +34,7 @@
             <td>{{ perfil.user.get_full_name|default:"—" }}</td>
             <td><span class="badge badge-info">{{ perfil.get_tipo_display }}</span></td>
             <td>
-              {% if perfil.tipo == "CLIENTE" %}
+              {% if perfil.tipo == "CLIENTE_LECTURA" or perfil.tipo == "CLIENTE_CARGA" %}
                 {{ perfil.empresa.nombre|default:"—" }}
               {% elif perfil.tipo == "GESTOR" %}
                 {% for empresa in perfil.empresas.all %}

@@ -1,0 +1,6 @@
+Chart.js v4.4.6
+https://www.chartjs.org
+Copyright (c) 2024 Chart.js Contributors
+License: MIT
+Source: npm package chart.js@4.4.6 → dist/chart.umd.js
+Registered in: docs/librerias-frontend.md

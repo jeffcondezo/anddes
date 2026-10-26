@@ -1,0 +1,20 @@
+{# Requiere: carga (DocumentoCarga). Opcional: label, class, show_kind #}
+{% if carga and carga.evidencia_url %}
+  <a
+    href="{% url 'maestro:evidencia_abrir' carga.pk %}"
+    target="_blank"
+    rel="noopener"
+    {% if class %}class="{{ class }}"{% endif %}
+  >
+    {% if label %}
+      {{ label }}
+    {% elif carga.es_url %}
+      Abrir URL
+    {% else %}
+      Ver / descargar
+    {% endif %}
+  </a>
+  {% if show_kind %}
+    <span class="muted">{% if carga.es_url %}(enlace){% else %}(archivo){% endif %}</span>
+  {% endif %}
+{% endif %}

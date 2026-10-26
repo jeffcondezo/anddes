@@ -45,9 +45,9 @@
                 <strong>{{ fila.progreso.docs_pct }}%</strong>
               </div>
               <div class="meter-bar {% if fila.progreso.docs_pct >= 100 %}is-ok{% elif fila.progreso.docs_pct < 25 %}is-warn{% endif %}">
-                <span style="width: {{ fila.progreso.docs_pct|unlocalize }}%;"></span>
+                <span data-pct="{{ fila.progreso.docs_pct|unlocalize }}"></span>
               </div>
-              <span class="muted" style="font-size:0.78rem;">{{ fila.progreso.docs_cargados }} / {{ fila.progreso.docs_total }}</span>
+              <span class="muted csi-496d03cb53">{{ fila.progreso.docs_cargados }} / {{ fila.progreso.docs_total }}</span>
             </div>
             <div class="meter">
               <div class="meter-top">
@@ -55,13 +55,13 @@
                 <strong>{{ fila.progreso.criterios_pct }}%</strong>
               </div>
               <div class="meter-bar {% if fila.progreso.criterios_pct >= 100 %}is-ok{% elif fila.progreso.criterios_pct < 25 %}is-warn{% endif %}">
-                <span style="width: {{ fila.progreso.criterios_pct|unlocalize }}%;"></span>
+                <span data-pct="{{ fila.progreso.criterios_pct|unlocalize }}"></span>
               </div>
-              <span class="muted" style="font-size:0.78rem;">{{ fila.progreso.criterios_completos }} / {{ fila.progreso.criterios_total }}</span>
+              <span class="muted csi-496d03cb53">{{ fila.progreso.criterios_completos }} / {{ fila.progreso.criterios_total }}</span>
             </div>
           </div>
         {% else %}
-          <p class="muted" style="margin:0;">Activa una revisión para ver el avance de evidencias.</p>
+          <p class="muted csi-1da9facb4d">Activa una revisión para ver el avance de evidencias.</p>
         {% endif %}
 
         <div class="entity-card-actions">

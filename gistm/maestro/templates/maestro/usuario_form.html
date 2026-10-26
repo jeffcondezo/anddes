@@ -42,7 +42,7 @@
       {{ form.tipo.errors }}
     </div>
     <div class="form-row">
-      <label style="margin-top:1.7rem;">
+      <label class="csi-e2be1e97a5">
         {{ form.activo }} {{ form.activo.label }}
       </label>
       {{ form.activo.errors }}
@@ -51,6 +51,14 @@
       <label for="id_empresa">{{ form.empresa.label }}</label>
       {{ form.empresa }}
       {{ form.empresa.errors }}
+    </div>
+    <div class="form-row span-2" id="row-revisiones">
+      <label for="id_revisiones">{{ form.revisiones.label }}</label>
+      {{ form.revisiones }}
+      {% if form.revisiones.help_text %}
+        <p class="muted csi-38e6665aad">{{ form.revisiones.help_text }}</p>
+      {% endif %}
+      {{ form.revisiones.errors }}
     </div>
     <div class="form-row span-2" id="row-empresas">
       <label for="id_empresas">{{ form.empresas.label }}</label>
@@ -61,7 +69,7 @@
       <label for="id_reporta_a">{{ form.reporta_a.label }}</label>
       {{ form.reporta_a }}
       {% if form.reporta_a.help_text %}
-        <p class="muted" style="margin:0.35rem 0 0; font-size:0.8rem;">{{ form.reporta_a.help_text }}</p>
+        <p class="muted csi-38e6665aad">{{ form.reporta_a.help_text }}</p>
       {% endif %}
       {{ form.reporta_a.errors }}
     </div>
@@ -73,19 +81,44 @@
   </form>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     const tipo = document.getElementById("id_tipo");
+    const empresa = document.getElementById("id_empresa");
+    const revisiones = document.getElementById("id_revisiones");
     const rowEmpresa = document.getElementById("row-empresa");
+    const rowRevisiones = document.getElementById("row-revisiones");
     const rowEmpresas = document.getElementById("row-empresas");
     const rowReporta = document.getElementById("row-reporta-a");
+
+    function esCliente(value) {
+      return value === "CLIENTE_LECTURA" || value === "CLIENTE_CARGA";
+    }
+
+    function filtrarRevisiones() {
+      if (!revisiones || !empresa) return;
+      const empId = empresa.value;
+      Array.prototype.forEach.call(revisiones.options, function (opt) {
+        if (!opt.value) return;
+        const match = !empId || opt.getAttribute("data-empresa") === empId;
+        opt.hidden = !match;
+        opt.disabled = !match;
+        if (!match) opt.selected = false;
+      });
+    }
+
     function sync() {
       const value = tipo.value;
-      rowEmpresa.style.display = value === "CLIENTE" ? "" : "none";
+      const cliente = esCliente(value);
+      rowEmpresa.style.display = cliente ? "" : "none";
+      rowRevisiones.style.display = cliente ? "" : "none";
       rowEmpresas.style.display = value === "GESTOR" ? "" : "none";
       rowReporta.style.display = value === "GESTOR" ? "" : "none";
+      if (cliente) filtrarRevisiones();
     }
+
     tipo.addEventListener("change", sync);
+    if (empresa) empresa.addEventListener("change", filtrarRevisiones);
     sync();
   })();
 </script>

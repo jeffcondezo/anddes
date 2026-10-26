@@ -36,6 +36,7 @@ from .models import (
     RevisionCriterioDesactivado,
     RolDocumentoCriterio,
     Tema,
+    TIPOS_CLIENTE,
     TipoNotificacionAcuerdo,
     TipoUsuario,
 )
@@ -52,6 +53,27 @@ EXTENSIONES_CARGA_PERMITIDAS = {
     ".gif",
     ".webp",
 }
+
+
+class RevisionSelectMultiple(forms.SelectMultiple):
+    """Select múltiple con data-empresa para filtrar por empresa en el formulario de usuario."""
+
+    def __init__(self, *args, empresa_by_rev: dict | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empresa_by_rev = empresa_by_rev or {}
+
+    def create_option(
+        self, name, value, label, selected, index, subindex=None, attrs=None
+    ):
+        option = super().create_option(
+            name, value, label, selected, index, subindex=subindex, attrs=attrs
+        )
+        raw = getattr(value, "value", value)
+        if raw not in (None, ""):
+            emp = self.empresa_by_rev.get(str(raw))
+            if emp is not None:
+                option["attrs"]["data-empresa"] = str(emp)
+        return option
 
 User = get_user_model()
 
@@ -386,6 +408,18 @@ class UsuarioForm(forms.Form):
         empty_label="Seleccione una empresa",
         widget=forms.Select(attrs={"class": "input", "id": "id_empresa"}),
     )
+    revisiones = forms.ModelMultipleChoiceField(
+        label="Revisiones permitidas",
+        queryset=Revision.objects.none(),
+        required=False,
+        widget=RevisionSelectMultiple(
+            attrs={"class": "input", "id": "id_revisiones", "size": "8"}
+        ),
+        help_text=(
+            "El cliente solo verá estas revisiones de la empresa. "
+            "Selecciona al menos una."
+        ),
+    )
     empresas = forms.ModelMultipleChoiceField(
         label="Empresas (gestor)",
         queryset=Empresa.objects.none(),
@@ -415,6 +449,19 @@ class UsuarioForm(forms.Form):
             empresas_qs = (empresas_qs | instance.empresas.all()).distinct()
         self.fields["empresas"].queryset = empresas_qs
 
+        # Todas las revisiones (el JS filtra por empresa); validación en clean.
+        revs_qs = Revision.objects.select_related("empresa").order_by(
+            "empresa__nombre", "-anio", "-creado_en"
+        )
+        self.fields["revisiones"].queryset = revs_qs
+        self.fields["revisiones"].label_from_instance = (
+            lambda r: f"{r.empresa.nombre} · {r.etiqueta}"
+            + ("" if r.activo else " (inactiva)")
+        )
+        self.fields["revisiones"].widget.empresa_by_rev = {
+            str(r.pk): r.empresa_id for r in revs_qs
+        }
+
         jefes_qs = User.objects.filter(
             is_active=True,
             perfil__activo=True,
@@ -436,6 +483,9 @@ class UsuarioForm(forms.Form):
             self.fields["activo"].initial = instance.activo
             self.fields["empresa"].initial = instance.empresa_id
             self.fields["empresas"].initial = list(instance.empresas.values_list("pk", flat=True))
+            self.fields["revisiones"].initial = list(
+                instance.revisiones.values_list("pk", flat=True)
+            )
             self.fields["reporta_a"].initial = instance.reporta_a_id
             self.fields["email"].widget.attrs["readonly"] = True
             self.fields["email"].help_text = "El correo no se puede modificar (identidad Entra ID)."
@@ -457,21 +507,38 @@ class UsuarioForm(forms.Form):
         tipo = cleaned.get("tipo")
         empresa = cleaned.get("empresa")
         empresas = cleaned.get("empresas")
+        revisiones = cleaned.get("revisiones")
         reporta_a = cleaned.get("reporta_a")
+        es_cliente = tipo in TIPOS_CLIENTE
 
-        if tipo == TipoUsuario.CLIENTE and not empresa:
+        if es_cliente and not empresa:
             self.add_error("empresa", "El usuario cliente debe estar asociado a una empresa minera.")
+        if es_cliente and empresa:
+            if not revisiones:
+                self.add_error(
+                    "revisiones",
+                    "Selecciona al menos una revisión a la que el cliente pueda acceder.",
+                )
+            else:
+                ajenas = [r for r in revisiones if r.empresa_id != empresa.pk]
+                if ajenas:
+                    self.add_error(
+                        "revisiones",
+                        "Todas las revisiones deben pertenecer a la empresa del cliente.",
+                    )
         if tipo == TipoUsuario.GESTOR and (not empresas or len(empresas) < 1):
             self.add_error("empresas", "El gestor debe supervisar al menos una empresa.")
         if tipo == TipoUsuario.ADMINISTRADOR:
             cleaned["empresa"] = None
             cleaned["empresas"] = []
+            cleaned["revisiones"] = []
             cleaned["reporta_a"] = None
-        if tipo == TipoUsuario.CLIENTE:
+        if es_cliente:
             cleaned["empresas"] = []
             cleaned["reporta_a"] = None
         if tipo == TipoUsuario.GESTOR:
             cleaned["empresa"] = None
+            cleaned["revisiones"] = []
             if reporta_a and self.instance and reporta_a.pk == self.instance.user_id:
                 self.add_error("reporta_a", "Un usuario no puede reportarse a sí mismo.")
             elif reporta_a:
@@ -502,6 +569,8 @@ class UsuarioForm(forms.Form):
         activo = bool(self.cleaned_data.get("activo"))
         empresa = self.cleaned_data.get("empresa")
         empresas = self.cleaned_data.get("empresas") or []
+        revisiones = self.cleaned_data.get("revisiones") or []
+        es_cliente = tipo in TIPOS_CLIENTE
         reporta_a = self.cleaned_data.get("reporta_a") if tipo == TipoUsuario.GESTOR else None
 
         if self.instance:
@@ -513,7 +582,7 @@ class UsuarioForm(forms.Form):
             perfil = self.instance
             perfil.tipo = tipo
             perfil.activo = activo
-            perfil.empresa = empresa if tipo == TipoUsuario.CLIENTE else None
+            perfil.empresa = empresa if es_cliente else None
             perfil.reporta_a = reporta_a
             perfil.save()
         else:
@@ -524,14 +593,22 @@ class UsuarioForm(forms.Form):
                 user=user,
                 tipo=tipo,
                 activo=activo,
-                empresa=empresa if tipo == TipoUsuario.CLIENTE else None,
+                empresa=empresa if es_cliente else None,
                 reporta_a=reporta_a,
             )
 
         if tipo == TipoUsuario.GESTOR:
             perfil.empresas.set(empresas)
+            perfil.revisiones.clear()
+        elif es_cliente:
+            perfil.empresas.clear()
+            perfil.revisiones.set(revisiones)
+            if perfil.reporta_a_id:
+                perfil.reporta_a = None
+                perfil.save(update_fields=["reporta_a", "actualizado_en"])
         else:
             perfil.empresas.clear()
+            perfil.revisiones.clear()
             if perfil.reporta_a_id:
                 perfil.reporta_a = None
                 perfil.save(update_fields=["reporta_a", "actualizado_en"])
@@ -945,8 +1022,17 @@ class EmpresaDocumentoCriterioForm(forms.Form):
     def __init__(self, *args, empresa_documento: EmpresaDocumento, **kwargs):
         self.empresa_documento = empresa_documento
         super().__init__(*args, **kwargs)
+        from .models import (
+            RevisionCatalogoCriterio,
+            asegurar_snapshot_catalogo_revision,
+        )
+
         empresa = empresa_documento.revision.empresa
         revision = empresa_documento.revision
+        asegurar_snapshot_catalogo_revision(revision)
+        snap_ids = RevisionCatalogoCriterio.objects.filter(
+            revision=revision
+        ).values_list("criterio_id", flat=True)
         ya_en_revision = EmpresaDocumentoCriterio.objects.filter(
             revision=revision
         ).values_list("criterio_id", flat=True)
@@ -954,7 +1040,8 @@ class EmpresaDocumentoCriterioForm(forms.Form):
             revision=revision
         ).values_list("criterio_id", flat=True)
         self.fields["criterios"].queryset = (
-            Criterio.objects.select_related("requisito", "principio", "tema")
+            Criterio.objects.filter(pk__in=snap_ids)
+            .select_related("requisito", "principio", "tema")
             .exclude(pk__in=ya_en_revision)
             .exclude(pk__in=desactivados)
             .order_by("codigo")
@@ -1071,11 +1158,33 @@ def _validar_tamano_archivo(archivo, tamano_max_mb: int | None) -> None:
 
 
 class DocumentoCargaForm(forms.ModelForm):
+    """Carga de evidencia: archivo (Blob) o URL externa."""
+
+    TIPO_ARCHIVO = "archivo"
+    TIPO_URL = "url"
+
+    tipo_evidencia = forms.ChoiceField(
+        label="Tipo de evidencia",
+        choices=(
+            (TIPO_ARCHIVO, "Archivo"),
+            (TIPO_URL, "URL / enlace"),
+        ),
+        initial=TIPO_ARCHIVO,
+        widget=forms.RadioSelect,
+    )
+
     class Meta:
         model = DocumentoCarga
-        fields = ["archivo", "observaciones"]
+        fields = ["archivo", "url_evidencia", "observaciones"]
         widgets = {
             "archivo": forms.ClearableFileInput(attrs={"class": "input"}),
+            "url_evidencia": forms.URLInput(
+                attrs={
+                    "class": "input",
+                    "placeholder": "https://…",
+                    "inputmode": "url",
+                }
+            ),
             "observaciones": forms.Textarea(
                 attrs={"class": "input", "rows": 3, "placeholder": "Opcional"}
             ),
@@ -1084,18 +1193,41 @@ class DocumentoCargaForm(forms.ModelForm):
     def __init__(self, *args, empresa: Empresa | None = None, **kwargs):
         self.empresa = empresa
         super().__init__(*args, **kwargs)
+        self.fields["archivo"].required = False
+        self.fields["url_evidencia"].required = False
+        self.fields["url_evidencia"].label = "URL de la evidencia"
         if empresa and getattr(empresa, "tamano_max_mb", None):
             self.fields["archivo"].help_text = (
                 f"Máximo {empresa.tamano_max_mb} MB. "
                 "Formatos: PDF, DOC/DOCX, XLS/XLSX o imagen."
             )
+        self.fields["url_evidencia"].help_text = (
+            "Enlace público o compartido (https) al documento o repositorio."
+        )
 
     def clean_archivo(self):
         archivo = self.cleaned_data.get("archivo")
-        _validar_extension_archivo(archivo)
-        lim = self.empresa.tamano_max_mb if self.empresa else None
-        _validar_tamano_archivo(archivo, lim)
+        if archivo:
+            _validar_extension_archivo(archivo)
+            lim = self.empresa.tamano_max_mb if self.empresa else None
+            _validar_tamano_archivo(archivo, lim)
         return archivo
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = (cleaned.get("tipo_evidencia") or self.TIPO_ARCHIVO).strip()
+        archivo = cleaned.get("archivo")
+        url = (cleaned.get("url_evidencia") or "").strip()
+        if tipo == self.TIPO_URL:
+            if not url:
+                self.add_error("url_evidencia", "Indica la URL de la evidencia.")
+            cleaned["archivo"] = None
+            cleaned["url_evidencia"] = url
+        else:
+            if not archivo:
+                self.add_error("archivo", "Selecciona un archivo para subir.")
+            cleaned["url_evidencia"] = ""
+        return cleaned
 
     def save(self, commit=True):
         from .models import (
@@ -1105,6 +1237,14 @@ class DocumentoCargaForm(forms.ModelForm):
         )
 
         obj = super().save(commit=False)
+        tipo = (self.cleaned_data.get("tipo_evidencia") or self.TIPO_ARCHIVO).strip()
+        if tipo == self.TIPO_URL:
+            obj.archivo = None
+            obj.url_evidencia = (self.cleaned_data.get("url_evidencia") or "").strip()
+            if not obj.nombre_original:
+                obj.nombre_original = obj.url_evidencia[:255]
+        else:
+            obj.url_evidencia = ""
         obj.estado_revision = EstadoRevisionCarga.PENDIENTE
         obj.motivo_rechazo = ""
         obj.revisado_por = None
@@ -1269,11 +1409,31 @@ class DocumentoMensajeForm(forms.Form):
 
 
 class ClienteDocumentoPropioCargaForm(forms.ModelForm):
-    """Crear documento propio de la revisión + primera evidencia."""
+    """Crear documento propio de la revisión + primera evidencia (archivo o URL)."""
 
+    TIPO_ARCHIVO = "archivo"
+    TIPO_URL = "url"
+
+    tipo_evidencia = forms.ChoiceField(
+        label="Tipo de evidencia",
+        choices=(
+            (TIPO_ARCHIVO, "Archivo"),
+            (TIPO_URL, "URL / enlace"),
+        ),
+        initial=TIPO_ARCHIVO,
+        widget=forms.RadioSelect,
+    )
     archivo = forms.FileField(
         label="Archivo",
+        required=False,
         widget=forms.ClearableFileInput(attrs={"class": "input"}),
+    )
+    url_evidencia = forms.URLField(
+        label="URL de la evidencia",
+        required=False,
+        widget=forms.URLInput(
+            attrs={"class": "input", "placeholder": "https://…", "inputmode": "url"}
+        ),
     )
     observaciones = forms.CharField(
         label="Observaciones",
@@ -1301,6 +1461,9 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
                 f"Máximo {self.empresa.tamano_max_mb} MB. "
                 "Formatos: PDF, DOC/DOCX, XLS/XLSX o imagen."
             )
+        self.fields["url_evidencia"].help_text = (
+            "Enlace público o compartido (https) al documento o repositorio."
+        )
 
     def clean_codigo(self):
         codigo = (self.cleaned_data.get("codigo") or "").strip()
@@ -1311,10 +1474,27 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
 
     def clean_archivo(self):
         archivo = self.cleaned_data.get("archivo")
-        _validar_extension_archivo(archivo)
-        lim = self.empresa.tamano_max_mb if self.empresa else None
-        _validar_tamano_archivo(archivo, lim)
+        if archivo:
+            _validar_extension_archivo(archivo)
+            lim = self.empresa.tamano_max_mb if self.empresa else None
+            _validar_tamano_archivo(archivo, lim)
         return archivo
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = (cleaned.get("tipo_evidencia") or self.TIPO_ARCHIVO).strip()
+        archivo = cleaned.get("archivo")
+        url = (cleaned.get("url_evidencia") or "").strip()
+        if tipo == self.TIPO_URL:
+            if not url:
+                self.add_error("url_evidencia", "Indica la URL de la evidencia.")
+            cleaned["archivo"] = None
+            cleaned["url_evidencia"] = url
+        else:
+            if not archivo:
+                self.add_error("archivo", "Selecciona un archivo para subir.")
+            cleaned["url_evidencia"] = ""
+        return cleaned
 
     def save(self, user, commit=True):
         obj = super().save(commit=False)
@@ -1327,14 +1507,22 @@ class ClienteDocumentoPropioCargaForm(forms.ModelForm):
             obj.save()
             from .models import EstadoRevisionCarga
 
-            self._carga_creada = DocumentoCarga.objects.create(
-                empresa_documento=obj,
-                archivo=self.cleaned_data["archivo"],
-                observaciones=(self.cleaned_data.get("observaciones") or "").strip(),
-                subido_por=user,
-                activo=True,
-                estado_revision=EstadoRevisionCarga.PENDIENTE,
-            )
+            tipo = (self.cleaned_data.get("tipo_evidencia") or self.TIPO_ARCHIVO).strip()
+            url = (self.cleaned_data.get("url_evidencia") or "").strip()
+            archivo = self.cleaned_data.get("archivo")
+            kwargs = {
+                "empresa_documento": obj,
+                "observaciones": (self.cleaned_data.get("observaciones") or "").strip(),
+                "subido_por": user,
+                "activo": True,
+                "estado_revision": EstadoRevisionCarga.PENDIENTE,
+            }
+            if tipo == self.TIPO_URL:
+                kwargs["url_evidencia"] = url
+                kwargs["nombre_original"] = url[:255]
+            else:
+                kwargs["archivo"] = archivo
+            self._carga_creada = DocumentoCarga.objects.create(**kwargs)
         return obj
 
 

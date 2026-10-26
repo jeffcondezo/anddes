@@ -3,7 +3,7 @@
 {% block title %}{{ titulo }} · GISTM{% endblock %}
 
 {% block extra_head %}
-<style>
+<style nonce="{{ csp_nonce }}">
   .info-value {
     display: flex;
     flex-direction: column;
@@ -78,11 +78,11 @@
       {{ form.descripcion.errors }}
     </div>
     <div class="form-row span-2">
-      <label for="id_activo" style="display:flex;align-items:center;gap:0.5rem;">
+      <label for="id_activo" class="csi-c2e70fe5d0">
         {{ form.activo }}
         Habilitado para revisiones nuevas
       </label>
-      <small style="color:#667780;">Si se deshabilita, no se incluye al crear una revisión nueva. No afecta histórico ni revisiones en curso.</small>
+      <small class="csi-7a4a3acdea">Si se deshabilita, no se incluye al crear una revisión nueva. No afecta histórico ni revisiones en curso.</small>
       {{ form.activo.errors }}
     </div>
     <div class="form-actions span-2">
@@ -92,7 +92,7 @@
   </form>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
   (function () {
     const currentRequisitoId = "{{ form.instance_requisito_id|default_if_none:'' }}";
     const map = {

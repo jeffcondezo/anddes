@@ -7,10 +7,11 @@
   <title>{% block title %}GISTM{% endblock %}</title>
   <link rel="icon" type="image/png" href="{% static 'maestro/img/isotipo.png' %}">
   <link rel="apple-touch-icon" href="{% static 'maestro/img/isotipo.png' %}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
+  <link rel="stylesheet" href="{% static 'maestro/css/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'maestro/css/csp_inline.css' %}">
+  <style nonce="{{ csp_nonce }}">
+    .is-hidden { display: none !important; }
+    .obs-wrap { margin-top: 0.45rem; }
     :root {
       --primary: #0069aa;
       --primary-dark: #0b4f7d;
@@ -29,7 +30,7 @@
       --shadow-sm: 0 1px 2px rgba(25, 40, 55, 0.04);
       --shadow-card: 0 2px 10px rgba(25, 40, 55, 0.05);
       --radius: 14px;
-      --font: "Source Sans 3", "Segoe UI", sans-serif;
+      --font: "Montserrat", "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
     body {
@@ -1807,16 +1808,22 @@
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/></svg>
             Recordatorios
           </a>
+          {% if es_gestor and not es_administrador %}
+          <a href="{% url 'maestro:auditoria_list' %}" class="{% if request.resolver_match.url_name == 'auditoria_list' %}active{% endif %}">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg>
+            Auditoría
+          </a>
+          {% endif %}
         {% endif %}
         {% if es_administrador %}
           <div class="nav-section-label">Administración</div>
           {% with usuarios_active=request.resolver_match.url_name %}
-          <div class="nav-group{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' %} open{% endif %}" data-nav-group>
+          <div class="nav-group{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' or usuarios_active == 'auditoria_list' %} open{% endif %}" data-nav-group>
             <button
               type="button"
-              class="nav-group-toggle{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' %} open active-parent{% endif %}"
+              class="nav-group-toggle{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' or usuarios_active == 'auditoria_list' %} open active-parent{% endif %}"
               data-nav-toggle
-              aria-expanded="{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' %}true{% else %}false{% endif %}"
+              aria-expanded="{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' or usuarios_active == 'acceso_denegado_list' or usuarios_active == 'login_externo_list' or usuarios_active == 'auditoria_list' %}true{% else %}false{% endif %}"
             >
               <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span>Usuarios y accesos</span>
@@ -1826,6 +1833,7 @@
               <a href="{% url 'maestro:usuario_list' %}" class="{% if usuarios_active == 'usuario_list' or usuarios_active == 'usuario_create' or usuarios_active == 'usuario_edit' %}active{% endif %}">Usuarios</a>
               <a href="{% url 'maestro:acceso_denegado_list' %}" class="{% if usuarios_active == 'acceso_denegado_list' %}active{% endif %}">Accesos denegados</a>
               <a href="{% url 'maestro:login_externo_list' %}" class="{% if usuarios_active == 'login_externo_list' %}active{% endif %}">Login empresas</a>
+              <a href="{% url 'maestro:auditoria_list' %}" class="{% if usuarios_active == 'auditoria_list' %}active{% endif %}">Auditoría</a>
             </div>
           </div>
           {% endwith %}
@@ -1924,7 +1932,7 @@
       </div>
     </div>
   </div>
-  <script>
+  <script nonce="{{ csp_nonce }}">
     (function () {
       var toggle = document.getElementById("menu-toggle");
       var backdrop = document.getElementById("sidebar-backdrop");
@@ -1966,6 +1974,40 @@
       document.addEventListener("click", function () { closeAllNotifs(); });
       document.querySelectorAll(".notif-panel").forEach(function (panel) {
         panel.addEventListener("click", function (e) { e.stopPropagation(); });
+      });
+
+      // CSP: sin handlers inline (onclick/onsubmit/onchange).
+      document.addEventListener("submit", function (e) {
+        var form = e.target;
+        if (!form || !form.getAttribute) return;
+        var msg = form.getAttribute("data-confirm");
+        if (msg && !window.confirm(msg)) {
+          e.preventDefault();
+        }
+      });
+      document.addEventListener("click", function (e) {
+        var el = e.target.closest("[data-confirm]");
+        if (!el || el.tagName === "FORM") return;
+        if (el.tagName === "BUTTON" || el.tagName === "A" || el.getAttribute("type") === "submit") {
+          var msg = el.getAttribute("data-confirm");
+          if (msg && !window.confirm(msg)) {
+            e.preventDefault();
+          }
+        }
+      });
+      document.addEventListener("change", function (e) {
+        var el = e.target;
+        if (!el || !el.hasAttribute || !el.hasAttribute("data-autosubmit")) return;
+        if (el.form) el.form.submit();
+      });
+
+      // Barras de progreso: width dinamico via JS (CSP no permite style width percentual inline).
+      document.querySelectorAll("[data-pct]").forEach(function (el) {
+        var raw = el.getAttribute("data-pct");
+        if (raw == null || raw === "") return;
+        var n = Number(String(raw).replace(",", "."));
+        if (!isFinite(n)) return;
+        el.style.width = Math.max(0, Math.min(100, n)) + "%";
       });
     })();
   </script>

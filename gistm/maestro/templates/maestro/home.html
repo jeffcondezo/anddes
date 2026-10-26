@@ -33,7 +33,7 @@
     </article>
     <article class="stat-card danger">
       <div class="stat-label">Estado</div>
-      <div class="stat-value" style="font-size:1.35rem; padding-top:0.35rem;">Activo</div>
+      <div class="stat-value csi-95b5a8dd07">Activo</div>
       <div class="stat-hint">Sistema operativo</div>
     </article>
   </div>
@@ -91,22 +91,28 @@
         </article>
         <article class="stat-card accent">
           <div class="stat-label">Revisión</div>
-          <div class="stat-value" style="font-size:1.2rem; padding-top:0.45rem;">{{ revision.etiqueta }}</div>
+          <div class="stat-value csi-599449bece">{{ revision.etiqueta }}</div>
           <div class="stat-hint">{{ empresa.nombre }} · {{ revision.anio }}</div>
         </article>
       {% else %}
         <article class="stat-card neutral">
           <div class="stat-label">Empresa</div>
-          <div class="stat-value" style="font-size:1.2rem; padding-top:0.45rem;">{{ empresa.nombre }}</div>
+          <div class="stat-value csi-599449bece">{{ empresa.nombre }}</div>
           <div class="stat-hint">Sin revisión activa</div>
         </article>
       {% endif %}
     </div>
   {% endif %}
 
-  <section class="panel" style="margin-top:1.25rem;">
-    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Tu portal</h2>
-    <p class="muted" style="margin:0 0 0.75rem;">Consulta el avance, carga evidencias y sigue actividades y acuerdos con Anddes.</p>
+  <section class="panel csi-a847778823">
+    <h2 class="csi-1acfa77338">Tu portal</h2>
+    <p class="muted csi-077e9a2ab8">
+      {% if cliente_puede_cargar %}
+        Consulta el avance, carga evidencias y sigue actividades y acuerdos con Anddes.
+      {% else %}
+        Consulta el avance, documentos, actividades y acuerdos (acceso de solo lectura).
+      {% endif %}
+    </p>
     <div class="quick-links">
       <a class="quick-link" href="{% url 'maestro:mi_empresa_dashboard' %}">
         <strong>Avance</strong>
@@ -114,7 +120,9 @@
       </a>
       <a class="quick-link" href="{% url 'maestro:mi_empresa_documentos' %}">
         <strong>Mis documentos</strong>
-        <span>Lista de documentos, carga de archivos y comentarios.</span>
+        <span>
+          {% if cliente_puede_cargar %}Lista de documentos, carga de archivos y comentarios.{% else %}Lista de documentos y detalle de evidencias.{% endif %}
+        </span>
       </a>
       <a class="quick-link" href="{% url 'maestro:actividad_calendario' %}">
         <strong>Actividades</strong>
@@ -136,9 +144,9 @@
     </article>
   </div>
 
-  <section class="panel" style="margin-top:1.25rem;">
-    <h2 style="font-size:1.05rem; margin-bottom:0.25rem;">Seguimiento</h2>
-    <p class="muted" style="margin:0 0 0.75rem;">Consulta el avance de evidencias de las empresas a tu cargo.</p>
+  <section class="panel csi-a847778823">
+    <h2 class="csi-1acfa77338">Seguimiento</h2>
+    <p class="muted csi-077e9a2ab8">Consulta el avance de evidencias de las empresas a tu cargo.</p>
     <div class="quick-links">
       <a class="quick-link" href="{% url 'maestro:seguimiento_list' %}">
         <strong>Ir a seguimiento</strong>

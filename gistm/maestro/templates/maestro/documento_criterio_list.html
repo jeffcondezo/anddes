@@ -34,13 +34,13 @@
       <h2>Importar desde Excel</h2>
       <button type="button" class="btn btn-ghost" data-close-importar-excel>Cerrar</button>
     </header>
-    <p class="muted" style="margin:0 0 0.75rem;">
+    <p class="muted csi-077e9a2ab8">
       Flujo recomendado: <strong>Descargar Excel</strong> (trae las relaciones actuales + hoja
       <span class="mono">Instrucciones</span>), editar, <strong>Borrar relaciones actuales</strong> e
       <strong>Importar</strong>. En la hoja de datos: verde = obligatorio, ámbar = se usa (opcional),
       gris = solo referencia.
     </p>
-    <label class="form-row" style="display:grid;gap:0.35rem;">
+    <label class="form-row csi-846f4d72a1">
       <span>Archivo Excel</span>
       <input
         type="file"
@@ -50,7 +50,7 @@
         required
       >
     </label>
-    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+    <div class="page-actions csi-6c93f26d8e">
       <a class="btn btn-ghost" href="{% url 'maestro:documento_criterio_plantilla' %}">Descargar Excel actual</a>
       <button type="button" class="btn btn-ghost" data-close-importar-excel>Cancelar</button>
       <button type="submit" class="btn">Importar</button>
@@ -65,24 +65,24 @@
       <h2>¿Borrar relaciones actuales?</h2>
       <button type="button" class="btn btn-ghost" data-close-borrar-relaciones>Cerrar</button>
     </header>
-    <p style="margin:0 0 0.5rem;">
+    <p class="csi-287c83d32d">
       Se eliminarán <strong>{{ total_relaciones }}</strong> relación(es) Documento ↔ Criterio
       del estándar.
     </p>
-    <p class="muted" style="margin:0 0 0.75rem;">
+    <p class="muted csi-077e9a2ab8">
       Esta acción no se puede deshacer. Las revisiones de empresa que ya aplicaron el estándar
       no se modifican automáticamente.
     </p>
-    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+    <div class="page-actions csi-6c93f26d8e">
       <button type="button" class="btn btn-ghost" data-close-borrar-relaciones>Cancelar</button>
-      <button type="submit" class="btn" style="background:var(--danger);border-color:var(--danger);">
+      <button type="submit" class="btn csi-7c0e42f286">
         Sí, borrar todas
       </button>
     </div>
   </form>
 </dialog>
 
-<section class="panel" style="margin-bottom:1rem;">
+<section class="panel csi-16884469a8">
   <form method="get" class="form-grid two-col">
     <div class="form-row">
       <label for="id_filtro_documento">Documento</label>
@@ -145,12 +145,12 @@
             <td>{{ relacion.get_rol_display }}</td>
             <td>
               <span class="mono">{{ relacion.documento.codigo }}</span>
-              <div class="muted" style="font-size:0.82rem;">{{ relacion.documento.nombre|truncatechars:40 }}</div>
+              <div class="muted csi-b5b8533655">{{ relacion.documento.nombre|truncatechars:40 }}</div>
             </td>
             <td>
               {% if relacion.documento_secundario %}
                 <span class="mono">{{ relacion.documento_secundario.codigo }}</span>
-                <div class="muted" style="font-size:0.82rem;">{{ relacion.documento_secundario.nombre|truncatechars:40 }}</div>
+                <div class="muted csi-b5b8533655">{{ relacion.documento_secundario.nombre|truncatechars:40 }}</div>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
@@ -159,7 +159,7 @@
             <td class="mono">{{ relacion.criterio.principio.codigo }}</td>
             <td class="actions">
               <a href="{% url 'maestro:documento_criterio_edit' relacion.pk %}">Editar</a>
-              <form method="post" action="{% url 'maestro:documento_criterio_delete' relacion.pk %}" style="display:inline;" onsubmit="return confirm('¿Eliminar esta relación del estándar?');">
+              <form method="post" action="{% url 'maestro:documento_criterio_delete' relacion.pk %}" data-confirm="¿Eliminar esta relación del estándar?" class="csi-0cd28ce9ba">
                 {% csrf_token %}
                 <button type="submit" class="link-btn">Eliminar</button>
               </form>
@@ -180,7 +180,7 @@
   </div>
 </section>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   function wireModal(openAttr, closeAttr, modalId) {
     const modal = document.getElementById(modalId);

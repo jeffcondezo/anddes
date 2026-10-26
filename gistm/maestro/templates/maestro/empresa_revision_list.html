@@ -47,7 +47,7 @@
             <td>{% if revision.fase %}{{ revision.get_fase_display }}{% else %}—{% endif %}</td>
             <td>{{ revision.capacidad|default:"—" }}</td>
             <td>{{ revision.vida_util|default:"—" }}</td>
-            <td class="mono" style="white-space:nowrap;font-size:0.82rem;">
+            <td class="mono csi-29eaba55de">
               {% if revision.fecha_inicio and revision.fecha_fin %}
                 {{ revision.fecha_inicio|date:"d/m/Y" }} → {{ revision.fecha_fin|date:"d/m/Y" }}
               {% else %}

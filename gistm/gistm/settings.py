@@ -35,13 +35,66 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+_allowed_hosts = (os.getenv('DJANGO_ALLOWED_HOSTS') or '').strip()
+if _allowed_hosts:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
+else:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+
+# Orígenes CSRF confiables (HTTPS), ej. https://gistm.anddes.com
+_csrf_origins = (os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS') or '').strip()
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in _csrf_origins.split(',') if o.strip()
+]
+
+# Endurecimiento HTTP solo fuera de DEBUG/tests (Anexo 01 / checklist producción).
+# Detrás de nginx/TLS: DJANGO_SECURE_PROXY_SSL=True y cabecera X-Forwarded-Proto.
+_secure_proxy_default = 'True' if (not DEBUG and not TESTING) else 'False'
+_secure_proxy = os.getenv('DJANGO_SECURE_PROXY_SSL', _secure_proxy_default).lower() in (
+    '1',
+    'true',
+    'yes',
+)
+if _secure_proxy:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+if not DEBUG and not TESTING:
+    SECURE_SSL_REDIRECT = os.getenv('DJANGO_SECURE_SSL_REDIRECT', 'True').lower() in (
+        '1',
+        'true',
+        'yes',
+    )
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
+    X_FRAME_OPTIONS = 'DENY'
+    # HSTS: 1 año por defecto. Subir solo con HTTPS estable.
+    SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '31536000') or '0')
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv(
+        'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', 'True'
+    ).lower() in ('1', 'true', 'yes')
+    SECURE_HSTS_PRELOAD = os.getenv('DJANGO_SECURE_HSTS_PRELOAD', 'False').lower() in (
+        '1',
+        'true',
+        'yes',
+    )
+    CSP_ENABLED = True
+else:
+    CSP_ENABLED = os.getenv('DJANGO_CSP_ENABLED', 'False').lower() in (
+        '1',
+        'true',
+        'yes',
+    )
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -52,6 +105,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'maestro.middleware.ContentSecurityPolicyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -132,6 +186,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+# collectstatic / Apache Alias /static/ (producción sin venv).
+STATIC_ROOT = Path(os.getenv('DJANGO_STATIC_ROOT') or (BASE_DIR / 'staticfiles'))
 
 MEDIA_URL = 'media/'
 # MEDIA_ROOT solo para tests (FileSystemStorage). En runtime los archivos van a Azure Blob.
@@ -170,7 +226,9 @@ else:
     except Exception as exc:  # noqa: BLE001
         raise ValueError(
             'No se pudo cargar storages.backends.azure_storage.AzureStorage. '
-            'Instala django-storages[azure].'
+            'Instala en el venv de producción: '
+            'pip install "django-storages==1.14.6" "azure-storage-blob>=12". '
+            f'Detalle: {exc}'
         ) from exc
 
     # Connection string con AccountKey → django-storages puede generar SAS temporal.

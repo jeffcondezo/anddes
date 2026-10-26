@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from django.db.models import Count, Prefetch, Q
 
 from .models import (
-    Criterio,
     DocumentoCarga,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
@@ -13,10 +13,10 @@ from .models import (
     EstadoRevisionCarga,
     EstadoRevisionPregunta,
     OrigenEmpresaDocumento,
-    Principio,
     Revision,
+    RevisionCatalogoCriterio,
     RevisionCriterioDesactivado,
-    Tema,
+    asegurar_snapshot_catalogo_revision,
 )
 
 
@@ -32,6 +32,57 @@ class NivelProgreso:
     @property
     def completo(self) -> bool:
         return self.pct >= 100.0
+
+
+@dataclass
+class _SnapCodigo:
+    codigo: str
+    descripcion: str = ""
+    nombre: str = ""
+
+
+@dataclass
+class CriterioSnapView:
+    """Criterio visto desde el snapshot de la revisión (histórico congelado)."""
+
+    id: int
+    codigo: str
+    descripcion: str
+    tema: _SnapCodigo
+    principio: _SnapCodigo
+    requisito: _SnapCodigo
+    ponderacion: Decimal = Decimal("1")
+
+    @property
+    def pk(self) -> int:
+        return self.id
+
+
+def _criterios_desde_snapshot(
+    revision: Revision, desactivados_ids: set[int]
+) -> list[CriterioSnapView]:
+    asegurar_snapshot_catalogo_revision(revision)
+    snaps = (
+        RevisionCatalogoCriterio.objects.filter(revision=revision)
+        .exclude(criterio_id__in=desactivados_ids)
+        .order_by("tema_codigo", "principio_codigo", "requisito_codigo", "codigo")
+    )
+    return [
+        CriterioSnapView(
+            id=s.criterio_id,
+            codigo=s.codigo,
+            descripcion=s.descripcion or "",
+            tema=_SnapCodigo(codigo=s.tema_codigo, nombre=s.tema_nombre or ""),
+            principio=_SnapCodigo(
+                codigo=s.principio_codigo, descripcion=s.principio_descripcion or ""
+            ),
+            requisito=_SnapCodigo(
+                codigo=s.requisito_codigo, descripcion=s.requisito_descripcion or ""
+            ),
+            ponderacion=s.ponderacion or Decimal("1"),
+        )
+        for s in snaps
+    ]
 
 
 @dataclass
@@ -373,15 +424,11 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             resp.vinculo_criterio.criterio_id, []
         ).append(resp)
 
-    criterios_aplicables = list(
-        Criterio.objects.exclude(pk__in=desactivados_ids)
-        .select_related("requisito", "principio", "tema")
-        .order_by("tema__codigo", "principio__codigo", "requisito__codigo", "codigo")
-    )
+    criterios_aplicables = _criterios_desde_snapshot(revision, desactivados_ids)
 
     criterio_completo: dict[int, bool] = {}
     criterio_preguntas_pct: dict[int, tuple[int, int, float]] = {}
-    criterios_huerfanos: list[Criterio] = []
+    criterios_huerfanos: list[CriterioSnapView] = []
     for criterio in criterios_aplicables:
         vinculo = vinculos_por_criterio.get(criterio.pk)
         if not vinculo:
@@ -411,34 +458,34 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         [criterio_preguntas_pct[c.pk][2] for c in criterios_aplicables]
     )
 
-    # Agrupar: requisito → principio → tema
-    por_requisito: dict[int, list[Criterio]] = {}
+    # Agrupar por códigos congelados del snapshot: requisito → principio → tema
+    por_requisito: dict[str, list[CriterioSnapView]] = {}
     for c in criterios_aplicables:
-        por_requisito.setdefault(c.requisito_id, []).append(c)
+        por_requisito.setdefault(c.requisito.codigo, []).append(c)
 
-    por_principio: dict[int, set[int]] = {}
-    principio_meta: dict[int, Principio] = {}
+    por_principio: dict[str, set[str]] = {}
+    principio_meta: dict[str, _SnapCodigo] = {}
     for c in criterios_aplicables:
-        por_principio.setdefault(c.principio_id, set()).add(c.requisito_id)
-        principio_meta[c.principio_id] = c.principio
+        por_principio.setdefault(c.principio.codigo, set()).add(c.requisito.codigo)
+        principio_meta[c.principio.codigo] = c.principio
 
-    por_tema: dict[int, set[int]] = {}
-    tema_meta: dict[int, Tema] = {}
+    por_tema: dict[str, set[str]] = {}
+    tema_meta: dict[str, _SnapCodigo] = {}
     for c in criterios_aplicables:
-        por_tema.setdefault(c.tema_id, set()).add(c.principio_id)
-        tema_meta[c.tema_id] = c.tema
+        por_tema.setdefault(c.tema.codigo, set()).add(c.principio.codigo)
+        tema_meta[c.tema.codigo] = c.tema
 
     # Árbol: el % de cada nivel es el promedio de los % de sus hijos
     # (el avance parcial de preguntas sube a criterio → requisito → principio → tema).
     temas_nivel: list[NivelProgreso] = []
-    for tema_id in sorted(por_tema.keys(), key=lambda i: tema_meta[i].codigo):
-        tema = tema_meta[tema_id]
+    for tema_codigo in sorted(por_tema.keys()):
+        tema = tema_meta[tema_codigo]
         principios_nivel: list[NivelProgreso] = []
-        for prin_id in sorted(por_tema[tema_id], key=lambda i: principio_meta[i].codigo):
-            principio = principio_meta[prin_id]
+        for prin_codigo in sorted(por_tema[tema_codigo]):
+            principio = principio_meta[prin_codigo]
             requisitos_nivel: list[NivelProgreso] = []
-            for req_id in sorted(por_principio[prin_id]):
-                crits = por_requisito[req_id]
+            for req_codigo in sorted(por_principio[prin_codigo]):
+                crits = por_requisito[req_codigo]
                 requisito = crits[0].requisito
                 hijos_crit = [
                     NivelProgreso(
@@ -481,7 +528,7 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
         temas_nivel.append(
             NivelProgreso(
                 codigo=tema.codigo,
-                nombre=tema.nombre,
+                nombre=tema.nombre or tema.codigo,
                 total=len(crits_tema),
                 completos=sum(1 for c in crits_tema if c.completo),
                 pct=_avg_pct([n.pct for n in principios_nivel]),

@@ -9,25 +9,42 @@
     <h1>Mis documentos</h1>
     <p class="page-desc">
       {% if revision %}
-        Carga evidencias para los documentos de la revisión <strong>{{ revision.etiqueta }}</strong>.
+        {% if cliente_puede_cargar %}
+          Carga evidencias para los documentos de la revisión <strong>{{ revision.etiqueta }}</strong>.
+        {% else %}
+          Consulta los documentos de la revisión <strong>{{ revision.etiqueta }}</strong> (solo lectura).
+        {% endif %}
       {% else %}
-        No hay revisión activa.
+        No tienes revisiones asignadas o no hay revisión disponible.
       {% endif %}
     </p>
   </div>
   <div class="page-actions">
     <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_dashboard' %}">Avance</a>
-    {% if revision and progreso.criterios_huerfanos_count %}
+    {% if cliente_puede_cargar and revision and progreso.criterios_huerfanos_count %}
       <a class="btn" href="{% url 'maestro:mi_empresa_documento_nuevo' %}">Documento adicional</a>
     {% endif %}
   </div>
 </header>
 
+{% if revisiones_cliente|length > 1 %}
+  <nav class="coverage-tabs csi-630845f262" aria-label="Revisiones">
+    {% for rev in revisiones_cliente %}
+      <a
+        href="?rev={{ rev.pk }}&estado={{ estado_tab }}"
+        class="{% if revision and revision.pk == rev.pk %}active{% endif %}"
+      >
+        {{ rev.etiqueta }}
+      </a>
+    {% endfor %}
+  </nav>
+{% endif %}
+
 {% if not revision %}
   <div class="info-banner">
     <div>
-      <h2>Sin revisión activa</h2>
-      <p>Cuando exista una revisión activa aparecerán aquí los documentos a cargar.</p>
+      <h2>Sin revisión disponible</h2>
+      <p>Cuando te asignen una revisión aparecerán aquí los documentos.</p>
     </div>
   </div>
 {% else %}
@@ -55,8 +72,8 @@
       </a>
     </nav>
 
-    <div class="table-toolbar" style="margin-bottom:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-      <input type="search" id="doc-filter" class="input" placeholder="Filtrar por código o nombre…" style="max-width:280px;">
+    <div class="table-toolbar csi-630845f262">
+      <input type="search" id="doc-filter" class="input csi-57f8c58df6" placeholder="Filtrar por código o nombre…">
       <span class="muted" id="doc-count"></span>
     </div>
     <div class="table-wrap">
@@ -90,7 +107,8 @@
               </td>
               <td class="muted">
                 {% if doc.carga %}
-                  {{ doc.carga.nombre_original|default:doc.carga.archivo.name }}
+                  {{ doc.carga.etiqueta_evidencia }}
+                  {% if doc.carga.es_url %}<span class="badge badge-info">URL</span>{% endif %}
                 {% else %}
                   —
                 {% endif %}
@@ -106,9 +124,11 @@
                     Detalles
                   </a>
                 {% endif %}
-                <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documento_cargar' doc.id %}">
-                  {% if doc.cargado or doc.pendiente_revision %}Reemplazar{% elif doc.rechazado %}Volver a cargar{% else %}Cargar{% endif %}
-                </a>
+                {% if cliente_puede_cargar %}
+                  <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documento_cargar' doc.id %}">
+                    {% if doc.cargado or doc.pendiente_revision %}Reemplazar{% elif doc.rechazado %}Volver a cargar{% else %}Cargar{% endif %}
+                  </a>
+                {% endif %}
               </td>
             </tr>
           {% empty %}
@@ -138,10 +158,10 @@
         </tbody>
       </table>
     </div>
-    <div id="docs-pager" class="table-pager" style="margin-top:0.75rem; display:flex; gap:0.5rem; align-items:center;"></div>
+    <div id="docs-pager" class="table-pager csi-21d831feac"></div>
   </section>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     (function () {
       var rows = Array.prototype.slice.call(document.querySelectorAll("#docs-table tbody tr[data-filter]"));
       var filter = document.getElementById("doc-filter");

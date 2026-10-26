@@ -27,7 +27,7 @@
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <div class="info-banner" style="margin-bottom:1rem;">{{ form.non_field_errors }}</div>
+      <div class="info-banner csi-16884469a8">{{ form.non_field_errors }}</div>
     {% endif %}
 
     <div class="form-grid two-col">
@@ -45,23 +45,23 @@
         <label for="id_tamano_max_mb">Tamaño máximo de archivo (MB)</label>
         {{ form.tamano_max_mb }}
         {% if form.tamano_max_mb.help_text %}
-          <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem;">{{ form.tamano_max_mb.help_text }}</p>
+          <p class="muted csi-d8abb8dc77">{{ form.tamano_max_mb.help_text }}</p>
         {% endif %}
         {{ form.tamano_max_mb.errors }}
       </div>
       <div class="form-row">
-        <label style="display:flex; align-items:center; gap:0.5rem; margin-top:1.6rem;">
+        <label class="csi-14d76a2e1c">
           {{ form.activo }} Activa
         </label>
         {{ form.activo.errors }}
       </div>
       <div class="form-row span-2">
-        <label style="display:flex; align-items:flex-start; gap:0.5rem;">
+        <label class="csi-f5f99dbec3">
           {{ form.notificaciones_activas }}
           <span>
             {{ form.notificaciones_activas.label }}
             {% if form.notificaciones_activas.help_text %}
-              <span class="muted" style="display:block;font-size:0.82rem;font-weight:400;margin-top:0.2rem;">
+              <span class="muted csi-b5ec841bd5">
                 {{ form.notificaciones_activas.help_text }}
               </span>
             {% endif %}
@@ -71,7 +71,7 @@
       </div>
     </div>
 
-    <div class="form-actions" style="margin-top:1.1rem;">
+    <div class="form-actions csi-e84534fbf5">
       <button type="submit" class="btn">Guardar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:empresa_list' %}">Cancelar</a>
     </div>

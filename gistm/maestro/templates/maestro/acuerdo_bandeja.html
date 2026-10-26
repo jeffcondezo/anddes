@@ -23,20 +23,20 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1rem;">
-  <form method="get" class="filters-row" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;">
-    <label style="display:grid;gap:0.25rem;min-width:9rem;">
-      <span class="muted" style="font-size:0.8rem;">Estado</span>
-      <select name="estado" class="input" onchange="this.form.submit()">
+<section class="panel csi-16884469a8">
+  <form method="get" class="filters-row csi-115a464134">
+    <label class="csi-1216e404d2">
+      <span class="muted csi-94db95e1b0">Estado</span>
+      <select name="estado" class="input" data-autosubmit>
         <option value="abiertos" {% if estado == 'abiertos' %}selected{% endif %}>Abiertos ({{ contadores.abiertos }})</option>
         <option value="vencidos" {% if estado == 'vencidos' %}selected{% endif %}>Vencidos ({{ contadores.vencidos }})</option>
         <option value="cumplidos" {% if estado == 'cumplidos' %}selected{% endif %}>Cumplidos</option>
         <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
       </select>
     </label>
-    <label style="display:grid;gap:0.25rem;min-width:9rem;">
-      <span class="muted" style="font-size:0.8rem;">Filtro</span>
-      <select name="filtro" class="input" onchange="this.form.submit()">
+    <label class="csi-1216e404d2">
+      <span class="muted csi-94db95e1b0">Filtro</span>
+      <select name="filtro" class="input" data-autosubmit>
         <option value="todos" {% if filtro == 'todos' %}selected{% endif %}>Sin filtro</option>
         <option value="vencidos" {% if filtro == 'vencidos' %}selected{% endif %}>Vencidos</option>
         <option value="hoy" {% if filtro == 'hoy' %}selected{% endif %}>Compromiso hoy</option>
@@ -44,9 +44,9 @@
       </select>
     </label>
     {% if not solo_lectura %}
-    <label style="display:grid;gap:0.25rem;min-width:12rem;flex:1;">
-      <span class="muted" style="font-size:0.8rem;">Empresa</span>
-      <select name="empresa" class="input" onchange="this.form.submit()">
+    <label class="csi-5793ebf3ad">
+      <span class="muted csi-94db95e1b0">Empresa</span>
+      <select name="empresa" class="input" data-autosubmit>
         <option value="">Todas</option>
         {% for emp in empresas %}
           <option value="{{ emp.pk }}" {% if empresa_q == emp.pk|stringformat:"s" %}selected{% endif %}>{{ emp.nombre }}</option>
@@ -77,13 +77,13 @@
           <tr>
             <td>
               <strong>{{ a.titulo }}</strong>
-              <div class="muted" style="font-size:0.8rem;margin-top:0.15rem;">
+              <div class="muted csi-2b3d51a0d4">
                 {{ a.actividad.titulo }}
                 {% if a.descripcion %} · {{ a.descripcion|truncatechars:70 }}{% endif %}
               </div>
             </td>
             <td>{% if emp %}{{ emp.nombre }}{% else %}<span class="muted">—</span>{% endif %}</td>
-            <td style="white-space:nowrap;">
+            <td class="csi-a9efa5449f">
               {% if a.fecha_compromiso %}
                 {{ a.fecha_compromiso|date:"d/m/Y H:i" }}
               {% else %}
@@ -101,7 +101,7 @@
                 <span class="badge badge-off">{{ a.get_estado_display }}</span>
               {% endif %}
             </td>
-            <td class="mono" style="font-size:0.8rem;">
+            <td class="mono csi-94db95e1b0">
               {% with docs=a.documentos.all %}
                 {% if docs %}
                   {% for d in docs %}{{ d.codigo }}{% if not forloop.last %}, {% endif %}{% endfor %}
@@ -111,7 +111,7 @@
               {% endwith %}
             </td>
             <td>{{ a.creado_por.get_full_name|default:a.creado_por.email }}</td>
-            <td class="actions" style="white-space:nowrap;">
+            <td class="actions csi-a9efa5449f">
               {% if solo_lectura %}
                 <a href="{% url 'maestro:actividad_detalle' a.actividad_id %}">Ver actividad</a>
               {% elif a.actividad.creado_por_id == request.user.id %}
@@ -122,16 +122,16 @@
                   {% if emp %}
                     <button
                       type="button"
-                      class="btn btn-ghost"
-                      style="padding:0.25rem 0.5rem;font-size:0.8rem;"
+                      class="btn btn-ghost csi-3f5b4f96be"
+                     
                       data-open-recordatorio="{{ a.pk }}"
                       data-empresa-id="{{ emp.pk }}"
                     >Recordar</button>
                   {% endif %}
-                  <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" style="display:inline;margin:0;">
+                  <form method="post" action="{% url 'maestro:acuerdo_marcar_cumplido' a.pk %}" class="csi-1654353117">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                    <button type="submit" class="btn btn-ghost" style="padding:0.25rem 0.5rem;font-size:0.8rem;">Cumplido</button>
+                    <button type="submit" class="btn btn-ghost csi-3f5b4f96be">Cumplido</button>
                   </form>
                 {% endif %}
               {% endif %}
@@ -166,15 +166,15 @@
       <h2>Enviar recordatorio</h2>
       <button type="button" class="btn btn-ghost" data-close-recordatorio>Cerrar</button>
     </header>
-    <p class="muted" style="margin:0 0 0.75rem;">
+    <p class="muted csi-077e9a2ab8">
       Elige responsables de la empresa (To + CC). Opcionalmente agrega una nota.
     </p>
-    <div id="recordatorio-responsables" style="margin-bottom:0.85rem;"></div>
-    <label style="display:grid;gap:0.35rem;">
+    <div id="recordatorio-responsables" class="csi-2e2405bf8d"></div>
+    <label class="csi-846f4d72a1">
       <span>Nota</span>
       <textarea name="mensaje" class="input" rows="3" placeholder="Ej.: Recordamos el compromiso de esta semana…"></textarea>
     </label>
-    <div class="page-actions" style="margin-top:1rem;justify-content:flex-end;">
+    <div class="page-actions csi-6c93f26d8e">
       <button type="button" class="btn btn-ghost" data-close-recordatorio>Cancelar</button>
       <button type="submit" class="btn" id="btn-enviar-recordatorio">Enviar correo</button>
     </div>
@@ -183,7 +183,7 @@
 
 {{ responsables_por_empresa|json_script:"responsables-por-empresa-data" }}
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   const modal = document.getElementById("modal-recordatorio");
   const form = document.getElementById("form-recordatorio");
@@ -207,11 +207,11 @@
       if (!porArea[r.area]) porArea[r.area] = [];
       porArea[r.area].push(r);
     });
-    let html = '<p style="margin:0 0 0.35rem;font-weight:650;font-size:0.85rem;">Destinatarios</p>';
+    let html = '<p class="csi-af2c45bfc2">Destinatarios</p>';
     Object.keys(porArea).sort().forEach(function (area) {
-      html += '<p style="margin:0.45rem 0 0.2rem;font-size:0.82rem;font-weight:600;">' + area + '</p>';
+      html += '<p class="csi-006e728def">' + area + '</p>';
       porArea[area].forEach(function (r) {
-        html += '<label style="display:flex;gap:0.4rem;align-items:flex-start;margin:0.2rem 0;font-size:0.88rem;">'
+        html += '<label class="csi-4b9553135e">'
           + '<input type="checkbox" name="responsables" value="' + r.id + '">'
           + '<span>' + r.nombre + ' <span class="muted">(' + r.correo + ')</span></span></label>';
       });

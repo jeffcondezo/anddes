@@ -20,14 +20,14 @@
   </div>
 </header>
 
-<section class="panel" style="margin-bottom:1.25rem;border-left:3px solid #0d5f95;">
-  <p style="margin:0 0 0.65rem;">
+<section class="panel csi-a3852f2062">
+  <p class="csi-d1044f669b">
     <strong>Configuración base del sistema:</strong>
     el <strong>día 0</strong> (mismo día del vencimiento / caducidad) siempre se envía un recordatorio.
     No hace falta —y no se permite— agregarlo como regla de la empresa.
     Estas reglas aplican a <strong>acuerdos</strong> y a <strong>caducidad de documentos</strong> aprobados.
   </p>
-  <p style="margin:0;" class="muted">
+  <p class="muted csi-1da9facb4d">
     Envío de correos para esta empresa:
     {% if empresa.notificaciones_activas %}
       <span class="badge badge-ok">Activo</span>
@@ -39,7 +39,7 @@
   </p>
 </section>
 
-<section class="panel" style="margin-bottom:1.25rem;">
+<section class="panel csi-d44ae31e3b">
   <div class="panel-head">
     <div>
       <h2>Agregar días</h2>
@@ -58,29 +58,29 @@
       <div class="form-row">
         <label for="{{ regla_form.dias.id_for_label }}">Días</label>
         {{ regla_form.dias }}
-        <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem;">{{ regla_form.dias.help_text }}</p>
+        <p class="muted csi-d8abb8dc77">{{ regla_form.dias.help_text }}</p>
         {{ regla_form.dias.errors }}
       </div>
       <div class="form-row span-2">
-        <label style="display:flex; align-items:center; gap:0.5rem;">
+        <label class="csi-1dfbba896f">
           {{ regla_form.activo }} Activa
         </label>
         {{ regla_form.activo.errors }}
       </div>
     </div>
     {% if regla_form.non_field_errors %}
-      <div class="info-banner" style="margin-top:0.75rem;">{{ regla_form.non_field_errors }}</div>
+      <div class="info-banner csi-21d8fb5d75">{{ regla_form.non_field_errors }}</div>
     {% endif %}
-    <div class="form-actions" style="margin-top:0.85rem;">
+    <div class="form-actions csi-9cc337615c">
       <button type="submit" class="btn">Agregar</button>
     </div>
   </form>
-  <p class="muted" style="margin:0.85rem 0 0;font-size:0.85rem;">
+  <p class="muted csi-1419162709">
     Ejemplos: antes <strong>2, 5, 7</strong> · post <strong>3, 7, 14</strong> (días exactos respecto al vencimiento).
   </p>
 </section>
 
-<section class="panel" style="margin-bottom:1.25rem;">
+<section class="panel csi-d44ae31e3b">
   <div class="panel-head">
     <div>
       <h2>Antes del vencimiento</h2>
@@ -109,19 +109,13 @@
                 {% endif %}
               </td>
               <td class="actions">
-                <form method="post" style="display:inline;">
+                <form method="post" class="csi-0cd28ce9ba">
                   {% csrf_token %}
                   <input type="hidden" name="accion" value="toggle_regla">
                   <input type="hidden" name="regla_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;">
+                  <button type="submit" class="btn btn-ghost csi-3889ffe81b">
                     {% if r.activo %}Desactivar{% else %}Activar{% endif %}
                   </button>
-                </form>
-                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar esta regla?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="accion" value="eliminar_regla">
-                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;color:var(--danger);">Eliminar</button>
                 </form>
               </td>
             </tr>
@@ -130,7 +124,7 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state" style="margin:0.5rem 0;">
+    <div class="empty-state csi-0464e4d702">
       <strong>Solo el día del vencimiento (sistema)</strong>
       Agrega días extra si quieres avisos previos (ej. 2, 5).
     </div>
@@ -166,19 +160,13 @@
                 {% endif %}
               </td>
               <td class="actions">
-                <form method="post" style="display:inline;">
+                <form method="post" class="csi-0cd28ce9ba">
                   {% csrf_token %}
                   <input type="hidden" name="accion" value="toggle_regla">
                   <input type="hidden" name="regla_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;">
+                  <button type="submit" class="btn btn-ghost csi-3889ffe81b">
                     {% if r.activo %}Desactivar{% else %}Activar{% endif %}
                   </button>
-                </form>
-                <form method="post" style="display:inline;" onsubmit="return confirm('¿Eliminar esta regla?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="accion" value="eliminar_regla">
-                  <input type="hidden" name="regla_id" value="{{ r.pk }}">
-                  <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;color:var(--danger);">Eliminar</button>
                 </form>
               </td>
             </tr>
@@ -187,7 +175,7 @@
       </table>
     </div>
   {% else %}
-    <div class="empty-state" style="margin:0.5rem 0;">
+    <div class="empty-state csi-0464e4d702">
       <strong>Sin reglas post vencimiento</strong>
       Ej.: <code>3, 7, 14</code> para recordar a los 3, 7 y 14 días después.
     </div>

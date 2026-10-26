@@ -44,6 +44,11 @@ class Empresa(models.Model):
     def __str__(self) -> str:
         return self.nombre
 
+    def delete(self, using=None, keep_parents=False):
+        """No se borra: se desactiva para conservar historial (Anexo §6.10)."""
+        self.activo = False
+        self.save(update_fields=["activo", "actualizado_en"])
+
     @property
     def tamano_max_bytes(self) -> int:
         return int(self.tamano_max_mb) * 1024 * 1024
@@ -357,7 +362,11 @@ class PlantillaCorreo(models.Model):
 class TipoUsuario(models.TextChoices):
     ADMINISTRADOR = "ADMINISTRADOR", "Administrador"
     GESTOR = "GESTOR", "Gestor"
-    CLIENTE = "CLIENTE", "Cliente"
+    CLIENTE_LECTURA = "CLIENTE_LECTURA", "Cliente (solo lectura)"
+    CLIENTE_CARGA = "CLIENTE_CARGA", "Cliente (con carga)"
+
+
+TIPOS_CLIENTE = (TipoUsuario.CLIENTE_LECTURA, TipoUsuario.CLIENTE_CARGA)
 
 
 class PerfilUsuario(models.Model):
@@ -381,6 +390,15 @@ class PerfilUsuario(models.Model):
         blank=True,
         related_name="clientes",
         help_text="Empresa minera asociada a un usuario cliente.",
+    )
+    revisiones = models.ManyToManyField(
+        "Revision",
+        blank=True,
+        related_name="clientes_autorizados",
+        help_text=(
+            "Revisiones a las que puede acceder el cliente. "
+            "Si está vacío, no ve ninguna revisión de la empresa."
+        ),
     )
     reporta_a = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -411,7 +429,15 @@ class PerfilUsuario(models.Model):
 
     @property
     def es_cliente(self) -> bool:
-        return self.tipo == TipoUsuario.CLIENTE and self.activo
+        return self.tipo in TIPOS_CLIENTE and self.activo
+
+    @property
+    def es_cliente_carga(self) -> bool:
+        return self.tipo == TipoUsuario.CLIENTE_CARGA and self.activo
+
+    @property
+    def es_cliente_lectura(self) -> bool:
+        return self.tipo == TipoUsuario.CLIENTE_LECTURA and self.activo
 
     def clean(self) -> None:
         if self.tipo != TipoUsuario.GESTOR:
@@ -511,6 +537,78 @@ class RegistroLoginExterno(models.Model):
 
     def __str__(self) -> str:
         return f"{self.email} · {self.creado_en}"
+
+
+class TipoAuditoria(models.TextChoices):
+    LOGIN = "LOGIN", "Inicio de sesión"
+    CARGA = "CARGA", "Carga de evidencia"
+    EDICION = "EDICION", "Edición"
+    APROBACION = "APROBACION", "Aprobación"
+    RECHAZO = "RECHAZO", "Rechazo"
+    DESCARGA = "DESCARGA", "Descarga / apertura"
+    EXPORTACION = "EXPORTACION", "Exportación"
+    ARCHIVO = "ARCHIVO", "Archivo / desactivación"
+
+
+class RegistroAuditoria(models.Model):
+    """
+    Log append-only de acciones sensibles (Anexo 01 §9.5).
+    No se actualiza ni elimina desde la aplicación.
+    """
+
+    tipo = models.CharField(max_length=16, choices=TipoAuditoria.choices, db_index=True)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="registros_auditoria",
+    )
+    usuario_email = models.CharField(
+        max_length=254,
+        blank=True,
+        help_text="Correo al momento del evento (histórico si el usuario se desactiva).",
+    )
+    usuario_nombre = models.CharField(max_length=255, blank=True)
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="registros_auditoria",
+    )
+    empresa_nombre = models.CharField(max_length=255, blank=True)
+    objeto_tipo = models.CharField(max_length=64, blank=True)
+    objeto_id = models.PositiveIntegerField(null=True, blank=True)
+    detalle = models.TextField()
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-creado_en"]
+        verbose_name = "Registro de auditoría"
+        verbose_name_plural = "Registros de auditoría"
+        indexes = [
+            models.Index(fields=["-creado_en", "tipo"]),
+            models.Index(fields=["empresa", "-creado_en"]),
+        ]
+
+    def __str__(self) -> str:
+        quien = self.usuario_email or self.usuario_nombre or "sistema"
+        return f"{self.get_tipo_display()} · {quien} · {self.creado_en}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError(
+                "Los registros de auditoría no se pueden modificar."
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Los registros de auditoría no se pueden eliminar desde la aplicación."
+        )
 
 
 class Tema(models.Model):
@@ -920,6 +1018,11 @@ class Revision(models.Model):
     def etiqueta(self) -> str:
         return self.nombre or str(self.anio)
 
+    def delete(self, using=None, keep_parents=False):
+        """No se borra: se desactiva para conservar documentos y evidencias."""
+        self.activo = False
+        self.save(update_fields=["activo", "actualizado_en"])
+
     def clean(self) -> None:
         if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
             raise ValidationError(
@@ -1294,6 +1397,92 @@ class RevisionCriterioDesactivado(models.Model):
         return f"{self.revision} · {self.criterio.codigo} (no aplica)"
 
 
+class RevisionCatalogoCriterio(models.Model):
+    """
+    Snapshot del criterio (y su jerarquía) al crear/abrir la revisión.
+    El avance histórico usa estos textos y pesos, no el catálogo vivo.
+    """
+
+    revision = models.ForeignKey(
+        Revision,
+        on_delete=models.CASCADE,
+        related_name="catalogo_criterios",
+    )
+    criterio = models.ForeignKey(
+        Criterio,
+        on_delete=models.PROTECT,
+        related_name="snapshots_revision",
+        help_text="Referencia al catálogo vivo (para vínculos documento–criterio).",
+    )
+    codigo = models.CharField(max_length=32)
+    descripcion = models.TextField()
+    requisito_codigo = models.CharField(max_length=32)
+    requisito_descripcion = models.TextField(blank=True)
+    principio_codigo = models.CharField(max_length=32)
+    principio_descripcion = models.TextField(blank=True)
+    tema_codigo = models.CharField(max_length=32)
+    tema_nombre = models.CharField(max_length=255, blank=True)
+    ponderacion = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal("1"))
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["tema_codigo", "principio_codigo", "requisito_codigo", "codigo"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "criterio"],
+                name="maestro_rev_cat_criterio_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["revision", "codigo"],
+                name="maestro_rev_cat_criterio_codigo_uniq",
+            ),
+        ]
+        verbose_name = "Snapshot criterio de revisión"
+        verbose_name_plural = "Snapshots criterios de revisión"
+
+    def __str__(self) -> str:
+        return f"{self.revision} · {self.codigo}"
+
+    @property
+    def criterio_id_catalogo(self) -> int:
+        return self.criterio_id
+
+
+class RevisionCatalogoPregunta(models.Model):
+    """Snapshot de pregunta del catálogo asociada a un criterio en la revisión."""
+
+    revision_criterio = models.ForeignKey(
+        RevisionCatalogoCriterio,
+        on_delete=models.CASCADE,
+        related_name="preguntas",
+    )
+    pregunta = models.ForeignKey(
+        "Pregunta",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="snapshots_revision",
+    )
+    codigo = models.CharField(max_length=32)
+    texto = models.TextField()
+    orden = models.PositiveSmallIntegerField(default=0)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["orden", "codigo"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision_criterio", "codigo"],
+                name="maestro_rev_cat_pregunta_codigo_uniq",
+            ),
+        ]
+        verbose_name = "Snapshot pregunta de revisión"
+        verbose_name_plural = "Snapshots preguntas de revisión"
+
+    def __str__(self) -> str:
+        return f"{self.revision_criterio.codigo} · {self.codigo}"
+
+
 def criterios_deshabilitados_en_catalogo():
     """
     Criterios que no deben entrar en revisiones nuevas:
@@ -1324,6 +1513,63 @@ def aplicar_deshabilitados_catalogo_a_revision(revision: "Revision") -> int:
         if created:
             creados += 1
     return creados
+
+
+def crear_snapshot_catalogo_revision(
+    revision: "Revision", *, force: bool = False
+) -> int:
+    """
+    Congela criterios/preguntas aplicables del catálogo en la revisión.
+    Por defecto no regenera si ya hay snapshot (force=True lo reemplaza).
+    """
+    if force:
+        revision.catalogo_criterios.all().delete()
+    elif revision.catalogo_criterios.exists():
+        return 0
+
+    deshabilitados = set(
+        criterios_deshabilitados_en_catalogo().values_list("pk", flat=True)
+    )
+    criterios = (
+        Criterio.objects.exclude(pk__in=deshabilitados)
+        .select_related("requisito", "principio", "tema")
+        .prefetch_related("preguntas")
+        .order_by("codigo")
+    )
+    creados = 0
+    for criterio in criterios:
+        snap = RevisionCatalogoCriterio.objects.create(
+            revision=revision,
+            criterio=criterio,
+            codigo=criterio.codigo,
+            descripcion=criterio.descripcion or "",
+            requisito_codigo=criterio.requisito.codigo,
+            requisito_descripcion=criterio.requisito.descripcion or "",
+            principio_codigo=criterio.principio.codigo,
+            principio_descripcion=criterio.principio.descripcion or "",
+            tema_codigo=criterio.tema.codigo,
+            tema_nombre=criterio.tema.nombre or "",
+            ponderacion=criterio.ponderacion or Decimal("1"),
+        )
+        creados += 1
+        for pregunta in criterio.preguntas.filter(activo=True).order_by(
+            "orden", "codigo"
+        ):
+            RevisionCatalogoPregunta.objects.create(
+                revision_criterio=snap,
+                pregunta=pregunta,
+                codigo=pregunta.codigo,
+                texto=pregunta.texto or "",
+                orden=pregunta.orden or 0,
+            )
+    return creados
+
+
+def asegurar_snapshot_catalogo_revision(revision: "Revision") -> int:
+    """Crea snapshot si falta (revisiones antiguas / primer acceso)."""
+    if revision.catalogo_criterios.exists():
+        return 0
+    return crear_snapshot_catalogo_revision(revision)
 
 
 def aplicar_estandar_a_revision(
@@ -1449,14 +1695,26 @@ class EstadoRevisionCarga(models.TextChoices):
 
 
 class DocumentoCarga(models.Model):
-    """Evidencia/archivo subido por el cliente para un documento de la revisión."""
+    """Evidencia del cliente: archivo en Blob o URL externa."""
 
     empresa_documento = models.ForeignKey(
         EmpresaDocumento,
         on_delete=models.CASCADE,
         related_name="cargas",
     )
-    archivo = models.FileField(upload_to=documento_carga_upload_to)
+    archivo = models.FileField(
+        upload_to=documento_carga_upload_to,
+        blank=True,
+        null=True,
+        help_text="Archivo en Blob. Vacío si la evidencia es solo una URL.",
+    )
+    url_evidencia = models.URLField(
+        max_length=1000,
+        blank=True,
+        default="",
+        verbose_name="URL de evidencia",
+        help_text="Enlace externo cuando no se sube archivo.",
+    )
     nombre_original = models.CharField(max_length=255, blank=True)
     version = models.PositiveIntegerField(
         default=1,
@@ -1502,9 +1760,45 @@ class DocumentoCarga(models.Model):
         ordering = ["-creado_en"]
         verbose_name = "Carga de documento"
         verbose_name_plural = "Cargas de documento"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(archivo__isnull=False) & ~models.Q(archivo="")
+                )
+                | ~models.Q(url_evidencia=""),
+                name="maestro_documentocarga_archivo_o_url",
+            ),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.empresa_documento.codigo} · {self.nombre_original or self.archivo.name}"
+        return f"{self.empresa_documento.codigo} · {self.etiqueta_evidencia}"
+
+    @property
+    def es_url(self) -> bool:
+        return bool((self.url_evidencia or "").strip())
+
+    @property
+    def evidencia_url(self) -> str | None:
+        """URL para abrir la evidencia (archivo en Blob o enlace externo)."""
+        url = (self.url_evidencia or "").strip()
+        if url:
+            return url
+        if self.archivo:
+            try:
+                return self.archivo.url
+            except ValueError:
+                return None
+        return None
+
+    @property
+    def etiqueta_evidencia(self) -> str:
+        if (self.nombre_original or "").strip():
+            return self.nombre_original.strip()
+        if (self.url_evidencia or "").strip():
+            return self.url_evidencia.strip()
+        if self.archivo:
+            return Path(self.archivo.name).name
+        return "evidencia"
 
     @property
     def esta_pendiente(self) -> bool:
@@ -1525,6 +1819,8 @@ class DocumentoCarga(models.Model):
     def save(self, *args, **kwargs) -> None:
         if self.archivo and not self.nombre_original:
             self.nombre_original = Path(self.archivo.name).name
+        elif self.url_evidencia and not self.nombre_original:
+            self.nombre_original = (self.url_evidencia or "").strip()[:255]
         # Asignar versión correlativa en altas nuevas (no borra blobs previos).
         if self._state.adding and self.empresa_documento_id:
             ultima = (
@@ -2153,21 +2449,22 @@ def pct_preguntas_vinculo(vinculo: "EmpresaDocumentoCriterio") -> tuple[int, int
 def ponderaciones_revision(revision: Revision) -> dict[int, Decimal]:
     """
     Ponderación efectiva por criterio en la revisión: 1/N entre criterios
-    activos (no desactivados) del mismo requisito.
+    del snapshot activos (no desactivados) del mismo requisito (código congelado).
     """
+    asegurar_snapshot_catalogo_revision(revision)
     desactivados = set(
         RevisionCriterioDesactivado.objects.filter(revision=revision).values_list(
             "criterio_id", flat=True
         )
     )
-    activos = (
-        Criterio.objects.exclude(pk__in=desactivados)
-        .values_list("id", "requisito_id")
-        .order_by("requisito_id", "id")
+    snaps = (
+        RevisionCatalogoCriterio.objects.filter(revision=revision)
+        .exclude(criterio_id__in=desactivados)
+        .order_by("requisito_codigo", "codigo")
     )
-    por_requisito: dict[int, list[int]] = {}
-    for criterio_id, requisito_id in activos:
-        por_requisito.setdefault(requisito_id, []).append(criterio_id)
+    por_requisito: dict[str, list[int]] = {}
+    for snap in snaps:
+        por_requisito.setdefault(snap.requisito_codigo, []).append(snap.criterio_id)
 
     resultado: dict[int, Decimal] = {}
     for ids in por_requisito.values():

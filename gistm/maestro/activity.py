@@ -56,23 +56,22 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
     for carga in cargas:
         doc = carga.empresa_documento
         rev = doc.revision
-        nombre_archivo = carga.nombre_original or (
-            carga.archivo.name.rsplit("/", 1)[-1] if carga.archivo else "archivo"
-        )
+        nombre_archivo = carga.etiqueta_evidencia
         reemplazo = "" if carga.activo else " (reemplazada)"
+        accion = "Se registró la URL" if carga.es_url else "Se cargó"
         eventos.append(
             EventoMonitoreo(
                 fecha=carga.creado_en,
                 tipo="carga",
                 titulo=f"Evidencia subida · {doc.codigo}",
                 detalle=(
-                    f"Se cargó «{nombre_archivo}» para el documento {doc.nombre}."
+                    f"{accion} «{nombre_archivo}» para el documento {doc.nombre}."
                     f"{reemplazo}"
                     + (f" Obs.: {carga.observaciones}" if carga.observaciones else "")
                 ),
                 actor=_actor_label(carga.subido_por),
                 revision_label=rev.etiqueta if rev else "—",
-                archivo_url=carga.archivo.url if carga.archivo else None,
+                archivo_url=carga.evidencia_url,
             )
         )
 
@@ -99,7 +98,7 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
                     ),
                     actor=_actor_label(carga.revisado_por),
                     revision_label=rev.etiqueta if rev else "—",
-                    archivo_url=carga.archivo.url if carga.archivo else None,
+                    archivo_url=carga.evidencia_url,
                 )
             )
 

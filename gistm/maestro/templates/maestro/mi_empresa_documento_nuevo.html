@@ -2,14 +2,31 @@
 
 {% block title %}Documento adicional · GISTM{% endblock %}
 
+{% block extra_head %}
+<style nonce="{{ csp_nonce }}">
+  .evidencia-tipo-hint { font-size: 0.85rem; }
+  .evidencia-tipo-opciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.35rem;
+  }
+  .evidencia-tipo-opciones label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <header class="page-header">
   <div>
     <p class="page-kicker">{{ empresa.nombre }} · {{ revision.etiqueta }}</p>
     <h1>Documento adicional</h1>
     <p class="page-desc">
-      Hay {{ huerfanos }} criterio(s) sin documento asignado. Registra un documento propio con su evidencia;
-      el consultor asociará los criterios después.
+      Hay {{ huerfanos }} criterio(s) sin documento asignado. Registra un documento propio con su evidencia
+      (archivo o URL); el consultor asociará los criterios después.
     </p>
   </div>
   <div class="page-actions">
@@ -18,7 +35,7 @@
 </header>
 
 <section class="panel">
-  <form method="post" enctype="multipart/form-data" class="form-grid two-col" novalidate>
+  <form method="post" enctype="multipart/form-data" class="form-grid two-col" id="form-doc-propio" novalidate>
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="span-2">{{ form.non_field_errors }}</div>
@@ -39,12 +56,32 @@
       {{ form.nombre.errors }}
     </div>
     <div class="form-row span-2">
+      <span class="muted evidencia-tipo-hint">Tipo de evidencia</span>
+      <div class="evidencia-tipo-opciones">
+        {% for radio in form.tipo_evidencia %}
+          <label>
+            {{ radio.tag }}
+            <span>{{ radio.choice_label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      {{ form.tipo_evidencia.errors }}
+    </div>
+    <div class="form-row span-2" data-evidencia-panel="archivo">
       <label for="id_archivo">Archivo</label>
       {{ form.archivo }}
       {% if form.archivo.help_text %}
-        <p class="muted" style="margin:0.35rem 0 0;font-size:0.82rem;">{{ form.archivo.help_text }}</p>
+        <p class="muted csi-d8abb8dc77">{{ form.archivo.help_text }}</p>
       {% endif %}
       {{ form.archivo.errors }}
+    </div>
+    <div class="form-row span-2" data-evidencia-panel="url" hidden>
+      <label for="id_url_evidencia">URL de la evidencia</label>
+      {{ form.url_evidencia }}
+      {% if form.url_evidencia.help_text %}
+        <p class="muted csi-d8abb8dc77">{{ form.url_evidencia.help_text }}</p>
+      {% endif %}
+      {{ form.url_evidencia.errors }}
     </div>
     <div class="form-row span-2">
       <label for="id_observaciones">Observaciones</label>
@@ -52,9 +89,30 @@
       {{ form.observaciones.errors }}
     </div>
     <div class="form-actions span-2">
-      <button type="submit" class="btn">Crear y cargar</button>
+      <button type="submit" class="btn" id="btn-doc-propio">Crear y cargar</button>
       <a class="btn btn-ghost" href="{% url 'maestro:mi_empresa_documentos' %}">Cancelar</a>
     </div>
   </form>
 </section>
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var form = document.getElementById("form-doc-propio");
+  if (!form) return;
+  var panelArchivo = form.querySelector('[data-evidencia-panel="archivo"]');
+  var panelUrl = form.querySelector('[data-evidencia-panel="url"]');
+  var btn = document.getElementById("btn-doc-propio");
+  function sync() {
+    var checked = form.querySelector('input[name="tipo_evidencia"]:checked');
+    var tipo = checked ? checked.value : "archivo";
+    var isUrl = tipo === "url";
+    if (panelArchivo) panelArchivo.hidden = isUrl;
+    if (panelUrl) panelUrl.hidden = !isUrl;
+    if (btn) btn.textContent = isUrl ? "Crear y registrar URL" : "Crear y cargar";
+  }
+  form.querySelectorAll('input[name="tipo_evidencia"]').forEach(function (el) {
+    el.addEventListener("change", sync);
+  });
+  sync();
+})();
+</script>
 {% endblock %}

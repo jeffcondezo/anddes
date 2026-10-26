@@ -1,20 +1,22 @@
-# GISTM — cron de producción (ejecutar 1 vez al día)
-# Ajustar rutas al VPS / contenedor reales.
+# GISTM — cron de producción (1 vez al día)
+# Ajustar rutas al VPS. Python del SISTEMA (sin venv).
 #
-# Zona horaria recomendada: America/Lima (o la del servidor de la app).
+# Zona horaria: America/Lima en Django; el crontab usa la TZ del OS.
+# Si el server está en UTC y quieres ~07:00 Lima → usar 12:00 UTC.
 #
 # Qué hace `procesar_actividades_diarias`:
 #   1. Actividades PROGRAMADA cuya fecha ya pasó → PASADA
-#   2. Acuerdos ABIERTO cuya fecha de compromiso ya pasó → VENCIDO
+#   2. Acuerdos ABIERTO vencidos → VENCIDO
 #   3. Avisos in-app de actividades próximas / pasadas
-#   4. Correos de recordatorio de acuerdos (reglas ANTES / POST por empresa)
+#   4. Correos de recordatorio de acuerdos (ANTES / POST)
+#   5. Correos de caducidad de documentos
 #
 SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 
-0 7 * * * cd /opt/gistm/gistm && /opt/gistm/.venv/bin/python manage.py procesar_actividades_diarias >> /var/log/gistm-cron.log 2>&1
+0 12 * * * cd /var/www/html/anddes/gistm && /usr/bin/python3.13 manage.py procesar_actividades_diarias >> /var/log/gistm-cron.log 2>&1
 
 # Prueba manual:
-#   cd gistm && python manage.py procesar_actividades_diarias
-#   python manage.py procesar_actividades_diarias --fecha 2026-10-22
-#   python manage.py procesar_actividades_diarias --sin-acuerdos
+#   cd /var/www/html/anddes/gistm && python3.13 manage.py procesar_actividades_diarias
+#   python3.13 manage.py procesar_actividades_diarias --fecha 2026-10-22
+#   python3.13 manage.py procesar_actividades_diarias --sin-acuerdos

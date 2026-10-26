@@ -23,12 +23,12 @@
     </article>
     <article class="stat-card">
       <div class="stat-label">Principios · Temas</div>
-      <div class="stat-value" style="font-size:1.35rem;padding-top:0.35rem;">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
+      <div class="stat-value csi-23d55b189c">{{ progreso.principios_pct }}% · {{ progreso.temas_pct }}%</div>
       <div class="stat-hint">{{ progreso.principios_completos }}/{{ progreso.principios_total }} · {{ progreso.temas_completos }}/{{ progreso.temas_total }}</div>
     </article>
   </div>
 
-  <div class="stat-grid" style="margin-top:1rem;">
+  <div class="stat-grid csi-0cf8f93b0e">
     <article class="stat-card neutral">
       <div class="stat-label">Por revisar</div>
       <div class="stat-value">{{ progreso.docs_por_revisar }}</div>
@@ -46,7 +46,7 @@
     </article>
   </div>
 
-  <div class="ind-charts" style="margin-top:1.25rem;">
+  <div class="ind-charts csi-a847778823">
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -71,7 +71,7 @@
     </section>
   </div>
 
-  <div class="ind-progreso-top" style="margin-top:1.25rem;">
+  <div class="ind-progreso-top csi-a847778823">
     <section class="panel ind-panel-chart">
       <div class="panel-head">
         <div>
@@ -107,7 +107,7 @@
           <p class="muted" data-side-desc="vencer" hidden>Con fecha límite en los próximos {{ dias_por_vencer }} días o ya vencida (no aprobados).</p>
         </div>
       </div>
-      <div class="coverage-tabs" style="margin:0 1rem 0.5rem;" role="tablist" aria-label="Listas de documentos">
+      <div class="coverage-tabs csi-697e29cdb6" role="tablist" aria-label="Listas de documentos">
         <button type="button" role="tab" class="active" data-side-tab="prioritarios" aria-selected="true">
           Prioritarios <span class="count" data-count-prioritarios>{{ docs_prioritarios|length }}</span>
         </button>
@@ -133,7 +133,7 @@
                 >
                   <td>
                     <a href="{% url 'maestro:documento_conversacion' d.id %}">{{ d.nombre }}</a>
-                    <div class="muted" style="font-size:0.75rem;">{{ d.codigo }} · {{ d.estado_label }}</div>
+                    <div class="muted csi-07bbf13a37">{{ d.codigo }} · {{ d.estado_label }}</div>
                   </td>
                   <td>{{ d.area }}</td>
                 </tr>
@@ -174,10 +174,10 @@
                 >
                   <td>
                     <a href="{% url 'maestro:documento_conversacion' d.id %}">{{ d.nombre }}</a>
-                    <div class="muted" style="font-size:0.75rem;">{{ d.codigo }} · {{ d.estado_label }}</div>
+                    <div class="muted csi-07bbf13a37">{{ d.codigo }} · {{ d.estado_label }}</div>
                   </td>
                   <td>{{ d.area }}</td>
-                  <td style="white-space:nowrap; font-size:0.8rem;">
+                  <td class="csi-f2b2abd1dc">
                     <div>{{ d.fecha_limite|date:"d/m/Y" }}</div>
                     {% if d.dias < 0 %}
                       <span class="badge badge-off">Vencido hace {{ d.dias_abs }} d</span>
@@ -209,7 +209,7 @@
           </table>
         </div>
       </div>
-      <script>
+      <script nonce="{{ csp_nonce }}">
         (function () {
           var panel = document.getElementById("docs-side-panel");
           if (!panel) return;
@@ -240,7 +240,7 @@
     </section>
   </div>
 
-  <div class="page-actions" style="margin-top:1rem;">
+  <div class="page-actions csi-0cf8f93b0e">
     {% if revision %}
       <a class="btn" href="{% url 'maestro:seguimiento_empresa_revision' empresa.pk %}?rev={{ revision.pk }}">Por revisar</a>
       <a class="btn btn-ghost" href="{% url 'maestro:seguimiento_empresa_pendientes' empresa.pk %}?rev={{ revision.pk }}">Pendientes</a>
