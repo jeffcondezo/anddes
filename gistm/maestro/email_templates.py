@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -9,6 +10,46 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from .models import Acuerdo, PlantillaCorreo, TipoNotificacionAcuerdo
+
+# Plantillas editables: solo control de flujo seguro + variables.
+# Evita SSTI (p. ej. {% include %}, {% load %}, {% ssi %}, |safe).
+_TAG_NAME_RE = re.compile(r"\{%\s*([a-zA-Z_]+)")
+_ALLOWED_TAGS = frozenset(
+    {
+        "if",
+        "elif",
+        "else",
+        "endif",
+        "for",
+        "empty",
+        "endfor",
+        "comment",
+        "endcomment",
+    }
+)
+_FORBIDDEN_FILTER_RE = re.compile(r"\|\s*(safe|safeseq)\b", re.IGNORECASE)
+
+
+def validar_html_plantilla_correo(html: str) -> str | None:
+    """Devuelve mensaje de error si el HTML no es seguro para Template(); None si OK."""
+    for match in _TAG_NAME_RE.finditer(html or ""):
+        tag = match.group(1).lower()
+        if tag not in _ALLOWED_TAGS:
+            return (
+                f"Etiqueta de plantilla no permitida: {{% {tag} %}}. "
+                "Solo se admiten if / for / comment (y sus cierres)."
+            )
+    if _FORBIDDEN_FILTER_RE.search(html or ""):
+        return "Filtro no permitido (|safe). El escape HTML es obligatorio."
+    return None
+
+
+def render_plantilla_html(html: str, ctx: dict) -> str:
+    """Renderiza HTML de plantilla de correo con autoescape y validación anti-SSTI."""
+    error = validar_html_plantilla_correo(html)
+    if error:
+        raise ValueError(error)
+    return Template(html).render(Context(ctx, autoescape=True))
 
 
 def _logo_filesystem_path() -> Path | None:
@@ -200,7 +241,11 @@ def render_correo_acuerdo_html(ctx: dict) -> str:
         .first()
     )
     if plantilla and (plantilla.html or "").strip():
-        return Template(plantilla.html).render(Context(ctx, autoescape=True))
+        try:
+            return render_plantilla_html(plantilla.html, ctx)
+        except ValueError:
+            # Plantilla inválida en BD: no bloquear el envío; caer al HTML del repo.
+            pass
     return render_to_string("maestro/email/acuerdo_notificacion.html", ctx)
 
 

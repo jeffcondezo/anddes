@@ -10,6 +10,7 @@ Documentación **viva** del repositorio (Anexo 01 §11.1). Se actualiza junto co
 4. [Diagramas](diagramas/README.md) — diagramas en Mermaid (formato editable en el repo).
 5. [Librerías (Python + licencias)](librerias.md) — inventario directo/indirecto y copyleft débil.
 6. [Librerías frontend](librerias-frontend.md) — Chart.js, Montserrat (versión, origen, hash).
+7. [Manuales de usuario (Word)](manuales/word/) — Administrador, Gestor y Cliente (editables; el Markdown/capturas son locales y no van al repo).
 
 ## Cómo mantenerla
 

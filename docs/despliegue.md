@@ -14,24 +14,27 @@
 
 ### Script de bootstrap (Ubuntu 24.04)
 
-[`deploy/bootstrap-ubuntu-24.04.sh`](../deploy/bootstrap-ubuntu-24.04.sh) deja la app instalada y sirviendo por **HTTP en la IP**.
+[`deploy/bootstrap-ubuntu-24.04.sh`](../deploy/bootstrap-ubuntu-24.04.sh) deja la app instalada y sirviendo por **HTTP en la IP**. También puede instalar el runtime:
 
 1. Pregunta (o `--ip`) la IP → `DJANGO_ALLOWED_HOSTS` / CSRF / Entra redirect provisional  
-2. apt + `pip` al **python3.13 del sistema** (sin venv)  
-3. Crea rol/BD si hay `DB_*` en `.env`  
-4. migrate + collectstatic  
-5. Apache + mod_wsgi en **:80**  
+2. **Python 3.13** vía PPA [deadsnakes](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) si no está  
+3. **PostgreSQL 16** (`postgresql-16` / `postgresql` en Ubuntu 24.04) si no está  
+4. apt build/Apache + `pip` al **python3.13 del sistema** (sin venv)  
+5. Crea rol/BD si hay `DB_*` en `.env`  
+6. migrate + collectstatic  
+7. Apache + mod_wsgi en **:80**  
 
 ```bash
 cd /var/www/html/anddes
 chmod +x deploy/bootstrap-ubuntu-24.04.sh
 # Completar en .env al menos DB_* y Azure (Blob/ACS/Entra) si aplica
-sudo ./deploy/bootstrap-ubuntu-24.04.sh
-# o sin pregunta interactiva:
 sudo ./deploy/bootstrap-ubuntu-24.04.sh --ip 203.0.113.10
 ```
 
+Si Python/Postgres ya están instalados a mano: `--skip-python` / `--skip-postgres`.  
 Acceso: `http://<IP>/`. Opciones: `--help`. Plantilla: [`deploy/apache/gistm-site.conf.template`](../deploy/apache/gistm-site.conf.template).
+
+**Nota:** deadsnakes no es el repo oficial de Ubuntu; se usa porque 24.04 trae 3.12 por defecto y el proyecto fija 3.13. No sustituye `/usr/bin/python3` del sistema.
 
 Cuando haya dominio y certificado **corporativo**: actualizar hosts, CSRF, `AZURE_AD_REDIRECT_URI` y el VirtualHost (este flujo no usa certbot).
 
@@ -83,10 +86,12 @@ En **Windows local** para tests se puede usar `psycopg[binary]` en un venv de de
 
 ### Instalación producción
 
-Preferir el script bootstrap. Equivalente manual:
+Preferir el script bootstrap (incluye deadsnakes + PostgreSQL 16). Equivalente manual:
 
 ```bash
-sudo apt-get install -y build-essential python3.13-dev libpq-dev apache2 apache2-dev
+sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update
+sudo apt-get install -y build-essential python3.13 python3.13-dev libpq-dev \
+  postgresql-16 postgresql-contrib apache2 apache2-dev
 python3.13 -m pip install --break-system-packages --ignore-installed -r requirements.lock.txt
 ```
 

@@ -457,6 +457,15 @@
   {% include "maestro/partials/indicadores_glosario.html" %}
 {% endif %}
 
+{% if tab == 'general' and progreso %}
+{{ chart_curva|json_script:"ind-chart-curva" }}
+{{ chart_general|json_script:"ind-chart-general" }}
+{{ chart_temas|json_script:"ind-chart-temas" }}
+{% endif %}
+{% if tab == 'progreso' and progreso %}
+{{ chart_tablero_progreso|json_script:"ind-chart-tablero-progreso" }}
+{% endif %}
+
 {% if tab == 'general' or tab == 'progreso' %}
 <script nonce="{{ csp_nonce }}" src="{% static 'maestro/js/chart.umd.js' %}"></script>
 <script nonce="{{ csp_nonce }}">
@@ -471,9 +480,9 @@
   };
 
   {% if tab == 'general' and progreso %}
-  const curva = {{ chart_curva_json|safe }};
-  const general = {{ chart_general_json|safe }};
-  const temas = {{ chart_temas_json|safe }};
+  const curva = JSON.parse(document.getElementById("ind-chart-curva").textContent);
+  const general = JSON.parse(document.getElementById("ind-chart-general").textContent);
+  const temas = JSON.parse(document.getElementById("ind-chart-temas").textContent);
   const curvaEl = document.getElementById("chart-curva-avance");
   const donutEl = document.getElementById("chart-docs-donut");
   const temasEl = document.getElementById("chart-temas-barras");
@@ -763,7 +772,7 @@
   {% endif %}
 
   {% if tab == 'progreso' and progreso %}
-  const tablero = {{ chart_tablero_progreso_json|safe }};
+  const tablero = JSON.parse(document.getElementById("ind-chart-tablero-progreso").textContent);
   const temasByCode = {};
   (tablero.temas || []).forEach(function (t) { temasByCode[t.codigo] = t; });
 
@@ -1100,9 +1109,10 @@
 {% endif %}
 
 {% if tab == 'estandar' %}
+{{ chart_tablero_estandar|json_script:"ind-chart-tablero-estandar" }}
 <script nonce="{{ csp_nonce }}">
 (function () {
-  const board = {{ chart_tablero_estandar_json|safe }};
+  const board = JSON.parse(document.getElementById("ind-chart-tablero-estandar").textContent);
   const byCode = {};
   (board.temas || []).forEach(function (t) { byCode[t.codigo] = t; });
 

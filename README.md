@@ -63,15 +63,13 @@ python manage.py runserver
 
 ## Producción (Ubuntu 24.04)
 
-Sin venv; Apache HTTP por IP (sin dominio/SSL por ahora):
+Sin venv; Apache HTTP por IP (sin dominio/SSL por ahora). El bootstrap instala también Python 3.13 (deadsnakes) y PostgreSQL 16 si faltan:
 
 ```bash
 sudo ./deploy/bootstrap-ubuntu-24.04.sh --ip 203.0.113.10
 ```
 
-Detalle: [`docs/despliegue.md`](docs/despliegue.md).
-
-Requisitos prod: Python **3.13**, PostgreSQL **16**, Azure (Blob + ACS + Entra) según `.env.example`.
+Detalle: [`docs/despliegue.md`](docs/despliegue.md). Azure (Blob + ACS + Entra) según `.env.example`.
 
 ## Tests
 

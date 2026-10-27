@@ -142,11 +142,12 @@ WSGI_APPLICATION = 'gistm.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'gistm'),
-        'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', ''),
-        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+        # `or` evita HOST/PORT vacíos en .env (libpq usaría socket y puede colgarse pidiendo password).
+        'NAME': os.getenv('DB_NAME') or 'gistm',
+        'USER': os.getenv('DB_USER') or 'postgres',
+        'PASSWORD': os.getenv('DB_PASSWORD') or '',
+        'HOST': os.getenv('DB_HOST') or '127.0.0.1',
+        'PORT': os.getenv('DB_PORT') or '5432',
     }
 }
 

@@ -20,3 +20,9 @@ media/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Manuales: Markdown, capturas y script de conversión quedan locales.
+# En el repo / despliegue solo van los Word editables (docs/manuales/word/).
+docs/manuales/*.md
+docs/manuales/_md_to_docx.py
+docs/manuales/img/

@@ -53,7 +53,6 @@ from .indicadores import (
     opciones_filtros_documentos,
     filas_empresas_indicadores,
     glosario_items,
-    to_json,
 )
 from .forms import (
     ActivarDocumentosCatalogoForm,
@@ -4024,12 +4023,13 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
         "cobertura": None,
         "glosario": [],
         "glosario_json": [],
-        "chart_general_json": "{}",
-        "chart_temas_json": "{}",
-        "chart_principios_json": "{}",
-        "chart_tablero_progreso_json": "{}",
-        "chart_tablero_estandar_json": "{}",
-        "chart_curva_json": "{}",
+        # Objetos Python → |json_script en la plantilla (sin |safe / XSS).
+        "chart_general": {},
+        "chart_temas": {},
+        "chart_principios": {},
+        "chart_tablero_progreso": {},
+        "chart_tablero_estandar": {},
+        "chart_curva": {},
         "docs_prioritarios": [],
         "docs_por_vencer": [],
         "dias_por_vencer": DIAS_POR_VENCER,
@@ -4050,15 +4050,15 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
     if progreso:
         principios = avance_por_principios(progreso)
         context["principios_avance"] = principios
-        context["chart_general_json"] = to_json(chart_general(progreso))
-        context["chart_temas_json"] = to_json(chart_temas(progreso))
-        context["chart_principios_json"] = to_json(chart_principios(principios))
+        context["chart_general"] = chart_general(progreso)
+        context["chart_temas"] = chart_temas(progreso)
+        context["chart_principios"] = chart_principios(principios)
         if tab == "progreso":
-            context["chart_tablero_progreso_json"] = to_json(
-                tablero_progreso(progreso, empresa=empresa)
+            context["chart_tablero_progreso"] = tablero_progreso(
+                progreso, empresa=empresa
             )
         if tab == "general":
-            context["chart_curva_json"] = to_json(curva_avance(revision, progreso))
+            context["chart_curva"] = curva_avance(revision, progreso)
             context["docs_prioritarios"] = documentos_prioritarios(
                 revision, progreso
             )
@@ -4102,7 +4102,7 @@ def indicadores_empresa(request: HttpRequest, pk: int) -> HttpResponse:
             context["cobertura"] = cobertura_estandar(revision, progreso)
 
     if tab == "estandar":
-        context["chart_tablero_estandar_json"] = to_json(tablero_estandar())
+        context["chart_tablero_estandar"] = tablero_estandar()
 
     if tab == "glosario":
         items = glosario_items(glosario_q)
@@ -4240,6 +4240,8 @@ def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
     from .email_templates import (
         asegurar_plantilla_acuerdo,
         contexto_correo_acuerdo,
+        render_plantilla_html,
+        validar_html_plantilla_correo,
     )
 
     asegurar_plantilla_acuerdo()
@@ -4248,27 +4250,36 @@ def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if tab not in {"html", "preview"}:
         tab = "html"
 
+    # HTML mostrado en el editor (puede diferir de BD si el POST falló validación).
+    html_editor = plantilla.html
+
     if request.method == "POST":
         nombre = (request.POST.get("nombre") or "").strip() or plantilla.nombre
         html = request.POST.get("html") or ""
         descripcion = request.POST.get("descripcion") or ""
         activo = request.POST.get("activo") == "on"
+        html_editor = html
+        plantilla.nombre = nombre[:120]
+        plantilla.descripcion = descripcion
+        plantilla.activo = activo
         if not html.strip():
             messages.error(request, "El HTML de la plantilla no puede estar vacío.")
             tab = "html"
         else:
-            plantilla.nombre = nombre[:120]
-            plantilla.html = html
-            plantilla.descripcion = descripcion
-            plantilla.activo = activo
-            plantilla.actualizado_por = request.user
-            plantilla.save()
-            messages.success(request, "Plantilla de correo guardada.")
-            return redirect(
-                f"{reverse('maestro:plantilla_correo_edit', args=[plantilla.pk])}?tab={tab}"
-            )
+            error_html = validar_html_plantilla_correo(html)
+            if error_html:
+                messages.error(request, error_html)
+                tab = "html"
+            else:
+                plantilla.html = html
+                plantilla.actualizado_por = request.user
+                plantilla.save()
+                messages.success(request, "Plantilla de correo guardada.")
+                return redirect(
+                    f"{reverse('maestro:plantilla_correo_edit', args=[plantilla.pk])}?tab={tab}"
+                )
 
-    # Vista previa: logo por URL estática (CID solo funciona en el correo enviado).
+    # Vista previa solo con HTML persistido en BD (nunca request.POST → evita SSTI).
     acuerdo = (
         Acuerdo.objects.select_related("empresa")
         .filter(empresa__isnull=False)
@@ -4290,13 +4301,8 @@ def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
             cta_url=request.build_absolute_uri("/"),
         )
         ctx["asunto"] = f"[Vista previa] {acuerdo.titulo}"
-        html_src = request.POST.get("html") if request.method == "POST" else plantilla.html
         try:
-            from django.template import Context, Template
-
-            preview_html = Template(html_src or plantilla.html).render(
-                Context(ctx, autoescape=True)
-            )
+            preview_html = render_plantilla_html(plantilla.html, ctx)
         except Exception as exc:  # noqa: BLE001
             preview_html = f"<p style='color:#b42318'>Error en la plantilla: {exc}</p>"
             tab = "html"
@@ -4310,6 +4316,7 @@ def plantilla_correo_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "maestro/plantilla_correo_form.html",
         {
             "plantilla": plantilla,
+            "html_editor": html_editor,
             "preview_html": preview_html,
             "tab": tab,
         },
