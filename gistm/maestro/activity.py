@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.urls import reverse
+
 from .models import (
     DocumentoCarga,
     EmpresaDocumento,
@@ -71,7 +73,8 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
                 ),
                 actor=_actor_label(carga.subido_por),
                 revision_label=rev.etiqueta if rev else "—",
-                archivo_url=carga.evidencia_url,
+                # Vía evidencia_abrir → SAS corto de solo lectura (no SAS de cuenta).
+                archivo_url=reverse("maestro:evidencia_abrir", args=[carga.pk]),
             )
         )
 
@@ -98,7 +101,7 @@ def eventos_monitoreo_empresa(empresa_id: int, *, limite: int = 100) -> list[Eve
                     ),
                     actor=_actor_label(carga.revisado_por),
                     revision_label=rev.etiqueta if rev else "—",
-                    archivo_url=carga.evidencia_url,
+                    archivo_url=reverse("maestro:evidencia_abrir", args=[carga.pk]),
                 )
             )
 

@@ -108,6 +108,33 @@ def puede_ver_revision(user, revision: Revision) -> bool:
     return False
 
 
+def consultores_candidatos_empresa(empresa: Empresa) -> list:
+    """
+    Gestores activos con acceso a la empresa (candidatos a consultor responsable).
+    Los gestores ven todas las revisiones de sus empresas asignadas.
+    """
+    perfiles = (
+        PerfilUsuario.objects.filter(
+            activo=True,
+            user__is_active=True,
+            tipo=TipoUsuario.GESTOR,
+            empresas=empresa,
+        )
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name", "user__email")
+        .distinct()
+    )
+    return [p.user for p in perfiles]
+
+
+def consultor_default_empresa(empresa: Empresa):
+    """Si hay un solo gestor candidato, lo devuelve; si no, None."""
+    candidatos = consultores_candidatos_empresa(empresa)
+    if len(candidatos) == 1:
+        return candidatos[0]
+    return None
+
+
 def revision_cliente_actual(
     request: HttpRequest, *, rev_id: int | None = None
 ) -> Revision | None:

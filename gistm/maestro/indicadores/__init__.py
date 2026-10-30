@@ -8,7 +8,7 @@ from calendar import monthrange
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import (
+from ..models import (
     Criterio,
     Documento,
     DocumentoCarga,
@@ -24,9 +24,10 @@ from .models import (
     Tema,
     TipoUsuario,
 )
-from .progress import (
+from ..progress import (
     ProgresoRevision,
     calcular_progreso_revision,
+    nivel_cumplimiento_anddes,
     revisiones_activas_empresa,
 )
 
@@ -58,6 +59,7 @@ class DocumentoIndicador:
     principios: list[str] = field(default_factory=list)
     criterios: list[str] = field(default_factory=list)
     consultores: list[str] = field(default_factory=list)
+    elaborador: str = ""  # consultor_responsable del documento (4.3)
     revisado_por: str = ""
     clasificacion: str = "referenciales"  # referenciales | multidisciplinario
     es_multiprincipio: bool = False  # criterios de 2+ principios distintos
@@ -191,12 +193,12 @@ def documentos_indicadores(
 ) -> list[DocumentoIndicador]:
     from django.db.models import Prefetch
 
-    from .models import DocumentoCarga, EmpresaDocumentoCriterio, EstadoRevisionCarga
+    from ..models import DocumentoCarga, EmpresaDocumentoCriterio, EstadoRevisionCarga
 
-    consultores = consultores_empresa(empresa)
     progreso_by_id = {d.id: d for d in progreso.documentos_all_activos}
     docs_qs = (
         EmpresaDocumento.objects.filter(revision=revision, activo=True)
+        .select_related("consultor_responsable")
         .prefetch_related(
             Prefetch(
                 "vinculos_criterio",
@@ -243,6 +245,9 @@ def documentos_indicadores(
             if timezone.is_aware(dt):
                 dt = timezone.localtime(dt)
             fecha_revision = dt.date()
+        elaborador = _actor_label(meta.consultor_responsable)
+        if not elaborador and prog is not None:
+            elaborador = (getattr(prog, "consultor_nombre", None) or "").strip()
         clasificacion = (
             "referenciales"
             if meta.origen == OrigenEmpresaDocumento.CATALOGO
@@ -283,7 +288,8 @@ def documentos_indicadores(
                 areas=areas,
                 principios=principios,
                 criterios=criterios,
-                consultores=consultores,
+                consultores=[elaborador] if elaborador else [],
+                elaborador=elaborador,
                 revisado_por=revisado,
                 clasificacion=clasificacion,
                 es_multiprincipio=es_multiprincipio,
@@ -326,7 +332,7 @@ def filtrar_documentos_query(
     for d in docs:
         if q and q not in d.codigo.lower() and q not in d.nombre.lower():
             continue
-        if consultor and (d.revisado_por or "") != consultor:
+        if consultor and (d.elaborador or "") != consultor:
             continue
         if area and area not in (d.areas or []):
             continue
@@ -353,8 +359,8 @@ def opciones_filtros_documentos(docs: list[DocumentoIndicador]) -> dict:
         areas.update(d.areas or [])
         if d.estado_label:
             estados.add(d.estado_label)
-        if d.revisado_por:
-            consultores.add(d.revisado_por)
+        if d.elaborador:
+            consultores.add(d.elaborador)
     return {
         "areas": sorted(areas),
         "estados": sorted(estados),
@@ -376,7 +382,7 @@ def cobertura_estandar(revision: Revision, progreso: ProgresoRevision) -> Cobert
     docs_total = len(catalogo_docs)
     docs_activos = sum(1 for d in catalogo_docs if d.pk in activos)
 
-    from .models import EmpresaDocumentoCriterio
+    from ..models import EmpresaDocumentoCriterio
 
     vinculos_estandar = list(
         DocumentoCriterio.objects.select_related(
@@ -449,7 +455,7 @@ def cobertura_estandar(revision: Revision, progreso: ProgresoRevision) -> Cobert
 
 def glosario_items(q: str = "") -> list[GlosarioItem]:
     """Términos activos registrados en Administración → Catálogo → Glosario."""
-    from .models import GlosarioTermino
+    from ..models import GlosarioTermino
 
     qs = GlosarioTermino.objects.filter(activo=True).order_by("concepto")
     q = (q or "").strip()
@@ -605,9 +611,6 @@ def tablero_progreso(
     Datos para Progreso: temas → principios → requisitos,
     más tablas de documentos asociados y criterios del tema.
     """
-    consultores = consultores_empresa(empresa) if empresa else []
-    elaborador_default = consultores[0] if consultores else "—"
-
     # Criterio codigo → doc progreso (vía vínculos)
     crit_to_doc: dict[str, object] = {}
     for doc in progreso.documentos_all_activos:
@@ -645,6 +648,7 @@ def tablero_progreso(
             for req in prin.children:
                 crits_total_p += req.total
                 crits_ok_p += req.completos
+                req_estado, req_clave = nivel_cumplimiento_anddes(pct=req.pct)
                 requisitos_tema.append(
                     {
                         "codigo": req.codigo,
@@ -654,6 +658,8 @@ def tablero_progreso(
                         "completos": req.completos,
                         "total": req.total,
                         "principio": prin.codigo,
+                        "estado": req_estado,
+                        "estado_clave": req_clave,
                     }
                 )
                 for crit in req.children:
@@ -661,6 +667,10 @@ def tablero_progreso(
                     doc = crit_to_doc.get(crit.codigo)
                     if doc is not None:
                         docs_ids_tema.add(doc.id)
+                        elaborador = (
+                            (getattr(doc, "consultor_nombre", None) or "").strip()
+                            or "—"
+                        )
                         bucket = docs_meta.setdefault(
                             doc.id,
                             {
@@ -675,7 +685,7 @@ def tablero_progreso(
                                     doc, "estado_label", None
                                 )
                                 or "—",
-                                "elaborador": elaborador_default,
+                                "elaborador": elaborador,
                                 "areas": [],
                                 "principios": [],
                                 "requisitos": [],
@@ -694,14 +704,15 @@ def tablero_progreso(
                             area = getattr(vinculo, "area", None)
                             if area and area.nombre not in bucket["areas"]:
                                 bucket["areas"].append(area.nombre)
+                    crit_estado, crit_clave = nivel_cumplimiento_anddes(pct=crit.pct)
                     criterios_tema.append(
                         {
                             "codigo": crit.codigo,
                             "aplica_a": _aplica_a_label(crit.codigo, descripcion),
                             "descripcion": descripcion,
                             "pct": crit.pct,
-                            "estado": "Cumplido" if crit.pct >= 100 else "Pendiente",
-                            "estado_clave": "ok" if crit.pct >= 100 else "pendiente",
+                            "estado": crit_estado,
+                            "estado_clave": crit_clave,
                             "requisito": req.codigo,
                             "principio": prin.codigo,
                         }
@@ -751,6 +762,72 @@ def tablero_progreso(
                 "criterios": criterios_tema,
             }
         )
+
+    # 5.3: criterios desactivados en la revisión aparecen como «No aplica».
+    from ..models import RevisionCatalogoCriterio, RevisionCriterioDesactivado
+
+    revision_pk = progreso.revision.pk
+    desactivados_ids = set(
+        RevisionCriterioDesactivado.objects.filter(
+            revision_id=revision_pk
+        ).values_list("criterio_id", flat=True)
+    )
+    if desactivados_ids:
+        no_aplica_label, no_aplica_clave = nivel_cumplimiento_anddes(no_aplica=True)
+        temas_by_codigo = {t["codigo"]: t for t in temas_out}
+        reqs_visibles = {
+            (t["codigo"], r["codigo"]) for t in temas_out for r in t["requisitos"]
+        }
+        snaps_na = RevisionCatalogoCriterio.objects.filter(
+            revision_id=revision_pk,
+            criterio_id__in=desactivados_ids,
+        )
+        for s in snaps_na:
+            tema_bucket = temas_by_codigo.get(s.tema_codigo)
+            if tema_bucket is None:
+                tema_bucket = {
+                    "codigo": s.tema_codigo,
+                    "nombre": s.tema_nombre or s.tema_codigo,
+                    "pct": 0.0,
+                    "completos": 0,
+                    "total": 0,
+                    "principios": [],
+                    "requisitos": [],
+                    "documentos": [],
+                    "criterios": [],
+                }
+                temas_out.append(tema_bucket)
+                temas_by_codigo[s.tema_codigo] = tema_bucket
+            desc = s.descripcion or s.codigo
+            tema_bucket["criterios"].append(
+                {
+                    "codigo": s.codigo,
+                    "aplica_a": _aplica_a_label(s.codigo, desc),
+                    "descripcion": desc,
+                    "pct": 0.0,
+                    "estado": no_aplica_label,
+                    "estado_clave": no_aplica_clave,
+                    "requisito": s.requisito_codigo,
+                    "principio": s.principio_codigo,
+                }
+            )
+            key = (s.tema_codigo, s.requisito_codigo)
+            if key not in reqs_visibles:
+                tema_bucket["requisitos"].append(
+                    {
+                        "codigo": s.requisito_codigo,
+                        "label": _label_requisito(s.requisito_codigo),
+                        "nombre": (s.requisito_descripcion or "")[:120],
+                        "pct": 0.0,
+                        "completos": 0,
+                        "total": 0,
+                        "principio": s.principio_codigo,
+                        "estado": no_aplica_label,
+                        "estado_clave": no_aplica_clave,
+                    }
+                )
+                reqs_visibles.add(key)
+
     return {
         "temas": temas_out,
         "tema_activo": temas_out[0]["codigo"] if temas_out else "",
@@ -784,7 +861,7 @@ def _curva_series_para_docs(
     months: list[date],
 ) -> dict:
     """Plan / Real / Forecast para un subconjunto de documentos."""
-    from .models import EmpresaDocumento
+    from ..models import EmpresaDocumento
 
     total_docs = max(len(docs), 1)
     doc_ids = {d.id for d in docs}
@@ -1014,7 +1091,7 @@ def documentos_prioritarios(
     """Documentos marcados como prioritarios en la revisión (campo prioritario)."""
     from django.db.models import Prefetch
 
-    from .models import EmpresaDocumentoCriterio
+    from ..models import EmpresaDocumentoCriterio
 
     docs = list(
         EmpresaDocumento.objects.filter(
@@ -1070,7 +1147,7 @@ def documentos_por_vencer(
 
     from django.db.models import Prefetch
 
-    from .models import EmpresaDocumentoCriterio
+    from ..models import EmpresaDocumentoCriterio
 
     hoy = date.today()
     hasta = hoy + timedelta(days=max(0, dias))

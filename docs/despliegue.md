@@ -51,7 +51,7 @@ Plantilla: [`.env.example`](../.env.example).
 | `DJANGO_SECURE_SSL_REDIRECT` | `False` (bootstrap) | `True` con HTTPS |
 | `DB_*` | Obligatorio | Igual |
 | `AZURE_AD_*` | Obligatorio para SSO | Ajustar `REDIRECT_URI` a HTTPS |
-| `AZURE_STORAGE_*` / ACS / `DEFAULT_FROM_EMAIL` | Obligatorio | Igual |
+| `AZURE_STORAGE_*` / ACS / `DEFAULT_FROM_EMAIL` | Obligatorio | Connection string **con AccountKey** (no SAS de cuenta sola). URLs = SAS por blob, solo lectura, ~15 min (`AZURE_STORAGE_URL_EXPIRE_SECS`) |
 
 No versionar `.env` ni secretos.
 
@@ -141,7 +141,8 @@ python3.13 manage.py procesar_actividades_diarias --sin-acuerdos
 - [ ] `.env` con DB + Blob + ACS + Entra
 - [ ] `migrate` / `collectstatic` / `check` OK
 - [ ] Login Entra (redirect provisional `http://<IP>/auth/callback/` registrado en Azure si aplica)
-- [ ] Subida de evidencia a Blob
+- [ ] Subida de evidencia a Blob (connection string con AccountKey; no SAS de cuenta)
+- [ ] Abrir evidencia → URL firmada por blob, solo lectura, caduca en ~15 min
 - [ ] Correo de prueba
 - [ ] Crontab con `python3.13` del sistema
 - [ ] Pendiente Anddes: dominio + TLS + actualizar hosts/CSRF/Entra/Apache

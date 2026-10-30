@@ -830,11 +830,11 @@
 
   function estadoDotClass(estado) {
     const e = (estado || "").toLowerCase();
-    if (e === "revb" || e === "cumplido" || e === "aprobado") return "is-revb is-ok";
-    if (e === "reva" || e === "rechazado") return "is-reva";
-    if (e === "rev0" || e === "por revisar" || e === "parcial") return "is-rev0";
+    if (e === "revb" || e === "cumplido" || e === "cumple" || e === "aprobado") return "is-revb is-ok";
+    if (e === "reva" || e === "rechazado" || e === "no_cumple" || e === "no cumple") return "is-reva";
+    if (e === "rev0" || e === "por revisar" || e === "parcial" || e === "cumple parcialmente") return "is-rev0";
     if (e === "iniciado" || e === "pendiente de carga") return "is-iniciado";
-    if (e === "pendiente" || e === "sin revisión") return "is-pendiente";
+    if (e === "pendiente" || e === "sin revisión" || e === "no_aplica" || e === "no aplica") return "is-pendiente";
     return "";
   }
 
@@ -898,7 +898,7 @@
         critsBody.innerHTML = '<tr><td colspan="3" class="muted">Sin criterios con el filtro actual.</td></tr>';
       } else {
         critsBody.innerHTML = crits.map(function (c) {
-          const dot = estadoDotClass(c.estado_clave === "ok" ? "cumplido" : "pendiente");
+          const dot = estadoDotClass(c.estado_clave || c.estado);
           return (
             "<tr>" +
             '<td class="mono">' + escapeHtml(c.aplica_a) + "</td>" +
@@ -981,7 +981,10 @@
               label: function (ctx) {
                 const r = reqs[ctx.dataIndex];
                 const base = ctx.parsed.x != null ? ctx.parsed.x + "%" : "—";
-                if (r) return base + " (" + r.completos + "/" + r.total + " criterios)";
+                if (r) {
+                  const nivel = r.estado ? " · " + r.estado : "";
+                  return base + nivel + " (" + r.completos + "/" + r.total + " criterios)";
+                }
                 return base;
               },
               afterBody: function () {

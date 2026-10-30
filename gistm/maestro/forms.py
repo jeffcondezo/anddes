@@ -211,6 +211,15 @@ class AreaCreateForm(forms.ModelForm):
             raise forms.ValidationError("Ya existe un área con ese nombre en la empresa.")
         return nombre
 
+    def save(self, commit: bool = True) -> Area:
+        area = super().save(commit=False)
+        if self.empresa is None:
+            raise forms.ValidationError("Falta la empresa para crear el área.")
+        area.empresa = self.empresa
+        if commit:
+            area.save()
+        return area
+
 
 class EmpresaNotificacionReglaForm(forms.Form):
     """
@@ -1264,7 +1273,8 @@ class RevisionParcialCargaForm(forms.Form):
     Revisión por pregunta sobre una carga.
     POST: accion=guardar|aprobar_todos,
     accion_p_<pregunta_respuesta_id>=CUMPLE|NO_CUMPLE,
-    obs_p_<pregunta_respuesta_id>=texto (obligatorio si NO_CUMPLE).
+    obs_p_<pregunta_respuesta_id>=texto (obligatorio si NO_CUMPLE),
+    paginas_v_<vinculo_id> / fragmento_v_<vinculo_id> (ubicación en esta evaluación).
     """
 
     def __init__(self, *args, carga: DocumentoCarga, **kwargs):
@@ -1296,6 +1306,16 @@ class RevisionParcialCargaForm(forms.Form):
         data = self.data
         accion = (data.get("accion") or "guardar").strip()
         decisions: list[tuple[EmpresaDocumentoPregunta, str, str]] = []
+        ubicaciones: list[tuple[EmpresaDocumentoCriterio, str, str]] = []
+        ubic_changed = False
+
+        for v in self.vinculos:
+            paginas = (data.get(f"paginas_v_{v.pk}") or "").strip()[:120]
+            fragmento = (data.get(f"fragmento_v_{v.pk}") or "").strip()
+            ubicaciones.append((v, paginas, fragmento))
+            if paginas != (v.paginas or "") or fragmento != (v.fragmento or ""):
+                ubic_changed = True
+        cleaned["ubicaciones"] = ubicaciones
 
         if accion == "aprobar_todos":
             for p in self.preguntas:
@@ -1325,10 +1345,10 @@ class RevisionParcialCargaForm(forms.Form):
                 )
             decisions.append((p, choice, obs))
 
-        if not decisions and not self.errors:
+        if not decisions and not ubic_changed and not self.errors:
             raise ValidationError(
                 "Indica al menos una pregunta (cumple / no cumple), "
-                "o usa «Aprobar todos»."
+                "actualiza páginas/fragmento de un criterio, o usa «Aprobar todos»."
             )
         cleaned["decisions"] = decisions
         return cleaned
@@ -1350,7 +1370,7 @@ class RechazoDocumentoCargaForm(forms.Form):
 
 
 class DocumentoRevisionConsultorForm(forms.Form):
-    """Etiqueta y % de revisión definidos por el consultor (no afectan el avance)."""
+    """Etiqueta, % y fecha de hito de etapa (historial). No afecta el avance."""
 
     revision_texto = forms.CharField(
         label="Revisión",
@@ -1381,6 +1401,28 @@ class DocumentoRevisionConsultorForm(forms.Form):
         ),
         help_text="Gestión interna del documento; no modifica el avance calculado.",
     )
+    fecha_hito = forms.DateField(
+        label="Fecha del cambio de etapa",
+        required=False,
+        widget=forms.DateInput(
+            attrs={"class": "input", "type": "date"},
+            format="%Y-%m-%d",
+        ),
+        input_formats=["%Y-%m-%d"],
+        help_text="Por defecto hoy. Obligatoria si indicas una etapa.",
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        texto = (cleaned.get("revision_texto") or "").strip()
+        fecha = cleaned.get("fecha_hito")
+        if texto and not fecha:
+            self.add_error(
+                "fecha_hito",
+                "Indica la fecha del cambio de etapa (por defecto puedes usar hoy).",
+            )
+        cleaned["revision_texto"] = texto
+        return cleaned
 
 
 class DocumentoMensajeForm(forms.Form):

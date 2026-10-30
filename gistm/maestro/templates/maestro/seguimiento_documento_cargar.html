@@ -1,0 +1,135 @@
+{% extends "maestro/base.html" %}
+
+{% block title %}Cargar {{ documento.codigo }} · {{ empresa.nombre }} · GISTM{% endblock %}
+
+{% block extra_head %}
+<style nonce="{{ csp_nonce }}">
+  .evidencia-tipo-hint { font-size: 0.85rem; }
+  .evidencia-tipo-opciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.35rem;
+  }
+  .evidencia-tipo-opciones label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="page-kicker">Seguimiento · {{ empresa.nombre }} · {{ revision.etiqueta }}</p>
+    <h1>Cargar evidencia</h1>
+    <p class="page-desc"><strong>{{ documento.codigo }}</strong> — {{ documento.nombre }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="{{ volver_url }}">Volver a pendientes</a>
+    <a class="btn btn-ghost" href="{{ conversacion_url }}" target="_blank" rel="noopener">Conversación</a>
+  </div>
+</header>
+
+<div class="info-banner">
+  <div>
+    <h2>Carga por consultor</h2>
+    <p>
+      La evidencia quedará registrada a tu nombre (<strong>{{ request.user.get_full_name|default:request.user.email }}</strong>)
+      para auditoría. No suplanta al usuario cliente.
+    </p>
+  </div>
+</div>
+
+{% if carga_actual %}
+  <div class="info-banner csi-16884469a8">
+    <div>
+      <h2>Evidencia vigente</h2>
+      <p>
+        {{ carga_actual.etiqueta_evidencia }}
+        · {{ carga_actual.creado_en|date:"d/m/Y H:i" }}
+        {% if carga_actual.subido_por %}
+          · {{ carga_actual.subido_por.get_full_name|default:carga_actual.subido_por.email }}
+        {% endif %}
+        {% if carga_actual.es_url %}
+          <span class="badge badge-info">URL</span>
+        {% else %}
+          <span class="badge badge-ok">Archivo</span>
+        {% endif %}
+        {% if carga_actual.evidencia_url %}
+          · {% include "maestro/partials/evidencia_enlace.html" with carga=carga_actual %}
+        {% endif %}
+      </p>
+      <p class="muted">Al registrar una nueva evidencia se reemplaza la vigente (el historial se conserva).</p>
+    </div>
+  </div>
+{% endif %}
+
+<section class="panel">
+  <form method="post" enctype="multipart/form-data" class="form-grid" id="form-carga-evidencia" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div>{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="form-row">
+      <span class="muted evidencia-tipo-hint">Tipo de evidencia</span>
+      <div class="evidencia-tipo-opciones">
+        {% for radio in form.tipo_evidencia %}
+          <label>
+            {{ radio.tag }}
+            <span>{{ radio.choice_label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      {{ form.tipo_evidencia.errors }}
+    </div>
+    <div class="form-row" data-evidencia-panel="archivo">
+      <label for="id_archivo">Archivo (PDF, DOC, XLS o imagen)</label>
+      {{ form.archivo }}
+      {% if form.archivo.help_text %}
+        <p class="muted csi-d8abb8dc77">{{ form.archivo.help_text }}</p>
+      {% endif %}
+      {{ form.archivo.errors }}
+    </div>
+    <div class="form-row" data-evidencia-panel="url" hidden>
+      <label for="id_url_evidencia">URL de la evidencia</label>
+      {{ form.url_evidencia }}
+      {% if form.url_evidencia.help_text %}
+        <p class="muted csi-d8abb8dc77">{{ form.url_evidencia.help_text }}</p>
+      {% endif %}
+      {{ form.url_evidencia.errors }}
+    </div>
+    <div class="form-row">
+      <label for="id_observaciones">Observaciones</label>
+      {{ form.observaciones }}
+      {{ form.observaciones.errors }}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn" id="btn-carga-evidencia">Subir evidencia</button>
+      <a class="btn btn-ghost" href="{{ volver_url }}">Cancelar</a>
+    </div>
+  </form>
+</section>
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var form = document.getElementById("form-carga-evidencia");
+  if (!form) return;
+  var panelArchivo = form.querySelector('[data-evidencia-panel="archivo"]');
+  var panelUrl = form.querySelector('[data-evidencia-panel="url"]');
+  var btn = document.getElementById("btn-carga-evidencia");
+  function sync() {
+    var checked = form.querySelector('input[name="tipo_evidencia"]:checked');
+    var tipo = checked ? checked.value : "archivo";
+    var isUrl = tipo === "url";
+    if (panelArchivo) panelArchivo.hidden = isUrl;
+    if (panelUrl) panelUrl.hidden = !isUrl;
+    if (btn) btn.textContent = isUrl ? "Registrar URL" : "Subir archivo";
+  }
+  form.querySelectorAll('input[name="tipo_evidencia"]').forEach(function (el) {
+    el.addEventListener("change", sync);
+  });
+  sync();
+})();
+</script>
+{% endblock %}

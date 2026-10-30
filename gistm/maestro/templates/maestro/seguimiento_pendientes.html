@@ -91,6 +91,12 @@
                 {% else %}
                   <span class="badge badge-off">Sin evidencia</span>
                 {% endif %}
+                <a
+                  class="btn"
+                  href="{% url 'maestro:seguimiento_documento_cargar' empresa.pk doc.id %}"
+                >
+                  Cargar
+                </a>
                 {% if doc.rechazado %}
                   <a
                     class="btn btn-ghost"

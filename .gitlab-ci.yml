@@ -1,0 +1,142 @@
+# =============================================================================
+# GISTM — GitLab CI/CD (Anexo Anddes / punto 3.1)
+#
+# Stages:
+#   test        → suite Django contra Postgres efímero del runner (NO usa QA/prod)
+#   deploy_qa   → despliegue + migrate en servidor QA
+#   deploy_prod → igual en producción (manual / protegido)
+#
+# Variables CI/CD a configurar en GitLab (Settings → CI/CD → Variables):
+#   Comunes / test (pueden ser no protegidas):
+#     DJANGO_SECRET_KEY          — valor cualquiera de test
+#   Deploy QA (protegidas / enmascaradas):
+#     QA_SSH_HOST, QA_SSH_USER, QA_SSH_PRIVATE_KEY
+#     QA_APP_DIR                 — ej. /var/www/html/anddes
+#   Deploy prod (protegidas / enmascaradas + environment protected):
+#     PROD_SSH_HOST, PROD_SSH_USER, PROD_SSH_PRIVATE_KEY
+#     PROD_APP_DIR               — ej. /var/www/html/anddes
+#
+# Los secretos de Django/Azure/BD de cada servidor viven en el .env de la VM,
+# no hace falta copiarlos al pipeline para el deploy por SSH+git pull.
+# =============================================================================
+
+stages:
+  - test
+  - deploy_qa
+  - deploy_prod
+
+variables:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_CACHE_DIR: "1"
+  DJANGO_TESTING: "1"
+  DJANGO_DEBUG: "False"
+  AZURE_AD_REQUIRE_LOGIN: "False"
+  # Postgres del servicio (job test)
+  POSTGRES_DB: gistm_ci
+  POSTGRES_USER: gistm
+  POSTGRES_PASSWORD: gistm_ci
+  DB_NAME: gistm_ci
+  DB_USER: gistm
+  DB_PASSWORD: gistm_ci
+  DB_HOST: postgres
+  DB_PORT: "5432"
+
+# -----------------------------------------------------------------------------
+# Integración continua: tests aislados
+# -----------------------------------------------------------------------------
+test:
+  stage: test
+  image: python:3.13-bookworm
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    # AccountKey fake solo por si algún import toca settings fuera de TESTING;
+    # manage.py test activa TESTING y usa FileSystemStorage.
+    AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=https;AccountName=gistmci;AccountKey=dGVzdGtleWZvcmdpc3RtY2kwMTIzNDU2Nzg5MA==;EndpointSuffix=core.windows.net"
+    AZURE_STORAGE_CONTAINER: gistm-ci
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends libpq-dev gcc
+    - python -m pip install -U pip
+    - python -m pip install -r requirements.lock.txt
+    - |
+      if [ -z "${DJANGO_SECRET_KEY:-}" ]; then
+        export DJANGO_SECRET_KEY="ci-only-not-for-production-$(date +%s)"
+      fi
+  script:
+    - cd gistm
+    - python manage.py check
+    - python manage.py test maestro --verbosity=1
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# -----------------------------------------------------------------------------
+# Plantilla de deploy por SSH (QA / prod)
+# Espera en el servidor: repo git clonado, .env, Python 3.13, Apache/mod_wsgi.
+# -----------------------------------------------------------------------------
+.deploy_ssh:
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache openssh-client bash git
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - |
+      ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - |
+      set -euo pipefail
+      # Expande APP_DIR / CI_COMMIT_SHA en el runner (valores de CI Variables).
+      ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" bash <<EOF
+        set -euo pipefail
+        cd "${APP_DIR}"
+        git fetch --prune origin
+        git reset --hard "${CI_COMMIT_SHA}"
+        cd gistm
+        /usr/bin/python3.13 -m pip install --break-system-packages -r ../requirements.lock.txt
+        /usr/bin/python3.13 manage.py migrate --noinput
+        /usr/bin/python3.13 manage.py collectstatic --noinput
+        sudo systemctl reload apache2 || sudo systemctl reload httpd || true
+      EOF
+
+deploy_qa:
+  extends: .deploy_ssh
+  stage: deploy_qa
+  environment:
+    name: qa
+    # url: https://qa-gistm.ejemplo.anddes  # opcional, cuando exista
+  variables:
+    SSH_HOST: $QA_SSH_HOST
+    SSH_USER: $QA_SSH_USER
+    SSH_PRIVATE_KEY: $QA_SSH_PRIVATE_KEY
+    APP_DIR: $QA_APP_DIR
+  rules:
+    # Tras tests en main/master; manual hasta validar el acceso SSH.
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+      when: manual
+      allow_failure: false
+  needs:
+    - test
+
+deploy_prod:
+  extends: .deploy_ssh
+  stage: deploy_prod
+  environment:
+    name: production
+  variables:
+    SSH_HOST: $PROD_SSH_HOST
+    SSH_USER: $PROD_SSH_USER
+    SSH_PRIVATE_KEY: $PROD_SSH_PRIVATE_KEY
+    APP_DIR: $PROD_APP_DIR
+  rules:
+    # Solo main/master, siempre manual (doble control).
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+      when: manual
+      allow_failure: false
+  needs:
+    - test
+    # Opcional: exigir deploy_qa antes → descomentar:
+    # - deploy_qa

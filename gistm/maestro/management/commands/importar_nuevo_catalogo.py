@@ -126,10 +126,15 @@ def _wipe_prueba(stdout, style) -> None:
     stdout.write(style.WARNING("Data de prueba y catálogo anterior eliminados."))
 
 
+_WIPE_CONFIRM_VALUE = "YES"
+
+
 class Command(BaseCommand):
     help = (
-        "Borra data de prueba e importa catálogo desde nuevo.xlsx: "
-        "temas/principios/requisitos/criterios, preguntas, documentos y relación estándar."
+        "Importa catálogo desde nuevo.xlsx (upsert): temas/principios/requisitos/"
+        "criterios, preguntas, documentos y relación estándar. "
+        "Por defecto NO borra data. El wipe destructivo solo con "
+        "--wipe-data --i-understand-delete-all=YES (entornos de prueba)."
     )
 
     def add_arguments(self, parser):
@@ -139,13 +144,60 @@ class Command(BaseCommand):
             help="Ruta al Excel (por defecto gistm/nuevo.xlsx).",
         )
         parser.add_argument(
+            "--wipe-data",
+            action="store_true",
+            help=(
+                "PELIGROSO: borra empresas, revisiones, cargas y catálogo "
+                "antes de importar (conserva usuarios). Requiere "
+                f"--i-understand-delete-all={_WIPE_CONFIRM_VALUE}."
+            ),
+        )
+        parser.add_argument(
+            "--i-understand-delete-all",
+            default="",
+            metavar="YES",
+            help=(
+                f"Confirmación explícita del wipe. Debe ser exactamente "
+                f"{_WIPE_CONFIRM_VALUE!r} junto con --wipe-data."
+            ),
+        )
+        parser.add_argument(
             "--keep-data",
             action="store_true",
-            help="No borrar data existente (solo upsert catálogo).",
+            help=(
+                "Obsoleto: el default ya es seguro (solo upsert). "
+                "Se ignora; no hace falta pasarlo."
+            ),
         )
+
+    def _assert_wipe_safe(self, options) -> bool:
+        """Valida flags de wipe. Devuelve True si debe ejecutarse _wipe_prueba."""
+        wipe = bool(options.get("wipe_data"))
+        confirm = (options.get("i_understand_delete_all") or "").strip()
+        if options.get("keep_data"):
+            self.stdout.write(
+                self.style.NOTICE(
+                    "--keep-data es obsoleto: el comando ya hace solo upsert por defecto."
+                )
+            )
+        if wipe:
+            if confirm != _WIPE_CONFIRM_VALUE:
+                raise CommandError(
+                    "Borrado masivo denegado. Para limpiar data de prueba usa "
+                    f"--wipe-data --i-understand-delete-all={_WIPE_CONFIRM_VALUE}. "
+                    "Sin esos flags el comando solo hace upsert del catálogo."
+                )
+            return True
+        if confirm:
+            raise CommandError(
+                "--i-understand-delete-all solo aplica junto con --wipe-data."
+            )
+        return False
 
     @transaction.atomic
     def handle(self, *args, **options):
+        do_wipe = self._assert_wipe_safe(options)
+
         path_opt = (options.get("path") or "").strip()
         if path_opt:
             excel_path = Path(path_opt)
@@ -166,9 +218,17 @@ class Command(BaseCommand):
             if sheet not in wb.sheetnames:
                 raise CommandError(f"Falta la hoja '{sheet}' en {excel_path.name}.")
 
-        if not options.get("keep_data"):
-            self.stdout.write("Limpiando data de prueba…")
+        if do_wipe:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Wipe confirmado: eliminando data operativa y catálogo…"
+                )
+            )
             _wipe_prueba(self.stdout, self.style)
+        else:
+            self.stdout.write(
+                "Modo seguro: se conserva la data existente (solo upsert de catálogo)."
+            )
 
         # --- Temas / Principios / Requisitos / Criterios ---
         ws = wb["Criterios GISTM"]

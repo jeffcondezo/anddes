@@ -16,7 +16,14 @@ PATH=/usr/local/bin:/usr/bin:/bin
 
 0 12 * * * cd /var/www/html/anddes/gistm && /usr/bin/python3.13 manage.py procesar_actividades_diarias >> /var/log/gistm-cron.log 2>&1
 
+# Retención auditoría: borra RegistroAuditoria con más de 1 año (365 días).
+# Diario a las 13:00 UTC (~08:00 Lima). Ajustar si el OS ya está en America/Lima.
+0 13 * * * cd /var/www/html/anddes/gistm && /usr/bin/python3.13 manage.py purgar_auditoria >> /var/log/gistm-cron-auditoria.log 2>&1
+
 # Prueba manual:
 #   cd /var/www/html/anddes/gistm && python3.13 manage.py procesar_actividades_diarias
 #   python3.13 manage.py procesar_actividades_diarias --fecha 2026-10-22
 #   python3.13 manage.py procesar_actividades_diarias --sin-acuerdos
+#   python3.13 manage.py purgar_auditoria --dry-run
+#   python3.13 manage.py purgar_auditoria
+

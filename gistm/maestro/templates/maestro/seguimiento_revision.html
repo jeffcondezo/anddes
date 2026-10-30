@@ -130,6 +130,33 @@
                           <span class="badge badge-off">Pendiente</span>
                         {% endif %}
                       </div>
+                      <div class="form-grid two-col csi-ubicacion-eval">
+                        <div class="form-row">
+                          <label for="paginas-v-{{ v.pk }}">Páginas / rango</label>
+                          <input
+                            class="input"
+                            type="text"
+                            name="paginas_v_{{ v.pk }}"
+                            id="paginas-v-{{ v.pk }}"
+                            value="{{ v.paginas }}"
+                            maxlength="120"
+                            placeholder="Ej. 12-15"
+                            autocomplete="off"
+                          >
+                        </div>
+                        <div class="form-row">
+                          <label for="fragmento-v-{{ v.pk }}">Fragmento / ubicación</label>
+                          <input
+                            class="input"
+                            type="text"
+                            name="fragmento_v_{{ v.pk }}"
+                            id="fragmento-v-{{ v.pk }}"
+                            value="{{ v.fragmento }}"
+                            placeholder="Ej. §3.2 Plan de cierre"
+                            autocomplete="off"
+                          >
+                        </div>
+                      </div>
                       {% with pregs=v.preguntas.all %}
                         {% if not pregs %}
                           <p class="muted csi-4152e1785b">

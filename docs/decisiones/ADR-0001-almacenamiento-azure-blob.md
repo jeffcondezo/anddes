@@ -18,6 +18,8 @@ Usar **Azure Blob Storage** como único backend de archivos en runtime (`django-
 
 ## Consecuencias
 
-- Obligatoria `AZURE_STORAGE_CONNECTION_STRING` fuera de tests.  
+- Obligatoria `AZURE_STORAGE_CONNECTION_STRING` fuera de tests (con **AccountKey**; no SAS de cuenta sola).  
+- URLs de evidencia: SAS **por blob**, permiso **solo lectura**, caducidad corta (`AZURE_STORAGE_URL_EXPIRE_SECS`, default 15 min) vía `gistm.azure_storage.GistmAzureStorage`.  
 - Dependencias Azure deben instalarse limpias (evitar conflictos con paquetes Debian).  
-- Rutas de versión de carga incorporan identificadores únicos en Blob.
+- Rutas de versión de carga incorporan identificadores únicos en Blob.  
+- Objetivo posterior: Managed Identity + User Delegation SAS (sin AccountKey en `.env`).

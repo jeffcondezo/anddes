@@ -46,7 +46,7 @@
           <input class="input" type="search" name="doc_q" id="doc_q" value="{{ docs_filtros.doc_q }}" placeholder="Código o nombre…">
         </div>
         <div class="form-row csi-1da9facb4d">
-          <label for="consultor">Consultor (revisado por)</label>
+          <label for="consultor">Elaborador</label>
           <select class="input" name="consultor" id="consultor">
             <option value="">Todos</option>
             {% for c in docs_opciones.consultores %}
@@ -152,7 +152,7 @@
                     <p><strong>Principios:</strong> {% if d.principios %}{{ d.principios|join:", " }}{% else %}—{% endif %}</p>
                     <p><strong>Áreas:</strong> {% if d.areas %}{{ d.areas|join:", " }}{% else %}—{% endif %}</p>
                     <p><strong>Criterios:</strong> {% if d.criterios %}<span class="mono">{{ d.criterios|join:", " }}</span>{% else %}—{% endif %}</p>
-                    <p><strong>Consultores (empresa):</strong> {% if d.consultores %}{{ d.consultores|join:", " }}{% else %}—{% endif %}</p>
+                    <p><strong>Elaborador:</strong> {{ d.elaborador|default:"—" }}</p>
                     <p><strong>Revisado por:</strong> {{ d.revisado_por|default:"—" }}</p>
                     <p class="csi-c9ef2a58eb">
                       <a class="btn btn-ghost" href="{% url 'maestro:documento_conversacion' d.id %}">Conversación</a>

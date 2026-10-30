@@ -26,3 +26,11 @@ Thumbs.db
 docs/manuales/*.md
 docs/manuales/_md_to_docx.py
 docs/manuales/img/
+
+# Observaciones cliente / tooling interno (no van al repo)
+Codigo.pdf
+Reporte_contraste_Codigo.pdf
+docs/reporte_codigo_cliente.py
+
+# Evidencias locales de prueba (fuera de MEDIA_ROOT)
+gistm/media_test/

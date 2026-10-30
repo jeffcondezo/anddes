@@ -1,4 +1,5 @@
-{# Requiere: empresa, doc (con id, revision_texto, revision_porcentaje), next_url opcional #}
+{# Requiere: empresa, doc (revision_texto, revision_porcentaje, etapas_historial opcional), next_url opcional #}
+{% now "Y-m-d" as hoy_iso %}
 {% with texto=doc.revision_texto pct=doc.revision_porcentaje %}
 <div class="doc-revision-consultor csi-1da9facb4d">
   <button
@@ -8,6 +9,9 @@
   >
     {% if texto or pct != None %}Cambiar revisión{% else %}Definir revisión{% endif %}
   </button>
+  {% if doc.consultor_nombre %}
+    <p class="muted csi-e01707a944">Consultor: {{ doc.consultor_nombre }}</p>
+  {% endif %}
 
   <div
     class="modal-backdrop"
@@ -30,14 +34,14 @@
       <form
         method="post"
         action="{% url 'maestro:seguimiento_documento_revision_consultor' empresa.pk doc.id %}"
-       
-       class="csi-950a92850f">
+        class="csi-950a92850f"
+      >
         {% csrf_token %}
         {% if next_url %}
           <input type="hidden" name="next" value="{{ next_url }}">
         {% endif %}
         <div class="form-row csi-1da9facb4d">
-          <label for="revision_texto_{{ doc.id }}">Revisión</label>
+          <label for="revision_texto_{{ doc.id }}">Revisión / etapa</label>
           <input
             class="input"
             type="text"
@@ -56,8 +60,19 @@
             <option value="RevB"></option>
           </datalist>
           <p class="muted csi-e01707a944">
-            Texto libre (puedes usar Iniciado/Rev0/RevA/RevB u otra). Independiente del estado del sistema.
+            Texto libre. Al guardar con etapa se registra un hito en el historial.
           </p>
+        </div>
+        <div class="form-row csi-1da9facb4d">
+          <label for="fecha_hito_{{ doc.id }}">Fecha del cambio de etapa</label>
+          <input
+            class="input"
+            type="date"
+            name="fecha_hito"
+            id="fecha_hito_{{ doc.id }}"
+            value="{{ hoy_iso }}"
+          >
+          <p class="muted csi-e01707a944">Por defecto hoy; puedes corregirla si el cambio fue otro día.</p>
         </div>
         <div class="form-row csi-1da9facb4d">
           <label for="revision_pct_{{ doc.id }}">Porcentaje</label>
@@ -76,6 +91,20 @@
             No modifica el avance calculado.
           </p>
         </div>
+        {% if doc.etapas_historial %}
+          <div class="csi-1da9facb4d">
+            <p class="muted"><strong>Historial reciente</strong></p>
+            <ul class="muted csi-e01707a944">
+              {% for h in doc.etapas_historial %}
+                <li>
+                  {{ h.fecha|date:"d/m/Y" }} · {{ h.etapa }}
+                  {% if h.porcentaje != None %} · {{ h.porcentaje }}%{% endif %}
+                  · {{ h.quien }}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
         <div class="form-actions csi-29ef399d80">
           <button type="button" class="btn btn-ghost" data-rev-close>Cancelar</button>
           <button type="submit" class="btn">Guardar</button>

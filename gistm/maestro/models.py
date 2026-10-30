@@ -553,13 +553,15 @@ class TipoAuditoria(models.TextChoices):
 class RegistroAuditoria(models.Model):
     """
     Log append-only de acciones sensibles (Anexo 01 §9.5).
-    No se actualiza ni elimina desde la aplicación.
+    No se actualiza ni elimina desde la aplicación (delete() de instancia bloqueado).
+    La purga por retención (1 año) solo la hace el comando `purgar_auditoria`.
+    FKs con PROTECT: borrar usuario/empresa en duro no arrastra ni anula el historial.
     """
 
     tipo = models.CharField(max_length=16, choices=TipoAuditoria.choices, db_index=True)
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="registros_auditoria",
@@ -572,7 +574,7 @@ class RegistroAuditoria(models.Model):
     usuario_nombre = models.CharField(max_length=255, blank=True)
     empresa = models.ForeignKey(
         Empresa,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="registros_auditoria",
@@ -1056,6 +1058,18 @@ class EmpresaDocumento(models.Model):
         default=False,
         help_text="Si está marcado, aparece en Documentos prioritarios del dashboard de Indicadores.",
     )
+    consultor_responsable = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="documentos_como_consultor",
+        verbose_name="Consultor responsable",
+        help_text=(
+            "Gestor asignado a este documento en la revisión. "
+            "Se elige entre consultores con acceso a la empresa."
+        ),
+    )
     # Gestión interna del consultor (independiente de PENDIENTE/APROBADO/RECHAZADO).
     revision_texto = models.CharField(
         max_length=64,
@@ -1140,6 +1154,54 @@ class EmpresaDocumento(models.Model):
     def empresa(self) -> Empresa:
         return self.revision.empresa
 
+
+class EmpresaDocumentoEtapaHistorial(models.Model):
+    """
+    Hito de etapa/revisión del consultor (texto libre + fecha).
+    No usa columnas fijas RevA/RevB porque la etiqueta es editable.
+    Distinto de la vigencia (fecha_ultima_revision / caducidad).
+    """
+
+    empresa_documento = models.ForeignKey(
+        EmpresaDocumento,
+        on_delete=models.CASCADE,
+        related_name="etapas_historial",
+    )
+    etapa_texto = models.CharField(
+        max_length=64,
+        verbose_name="Etapa / revisión",
+        help_text="Valor guardado al momento del hito (Iniciado, RevA, u otro texto).",
+    )
+    fecha_hito = models.DateField(
+        verbose_name="Fecha del cambio de etapa",
+        help_text="Fecha indicada por el consultor (por defecto el día del registro).",
+    )
+    revision_porcentaje = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Porcentaje al momento del hito",
+    )
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="etapas_documento_registradas",
+        help_text="Usuario que registró este cambio de etapa (puede diferir del responsable).",
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-fecha_hito", "-creado_en"]
+        verbose_name = "Hito de etapa de documento"
+        verbose_name_plural = "Hitos de etapa de documento"
+        indexes = [
+            models.Index(fields=["empresa_documento", "-fecha_hito"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.empresa_documento.codigo} · {self.etapa_texto} · {self.fecha_hito}"
+
     def clean(self) -> None:
         if self.origen == OrigenEmpresaDocumento.CATALOGO and not self.documento_id:
             raise ValidationError(
@@ -1213,6 +1275,24 @@ class EmpresaDocumentoCriterio(models.Model):
     observacion = models.TextField(
         blank=True,
         help_text="Última observación del consultor para este criterio.",
+    )
+    paginas = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        verbose_name="Páginas / rango",
+        help_text=(
+            "Ubicación en la evidencia de esta revisión (ej. 12-15). "
+            "La define el consultor al evaluar; no es del estándar global."
+        ),
+    )
+    fragmento = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Fragmento / ubicación",
+        help_text=(
+            "Sección, título o texto de referencia en la evidencia de esta evaluación."
+        ),
     )
     revisado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1575,6 +1655,8 @@ def asegurar_snapshot_catalogo_revision(revision: "Revision") -> int:
 def aplicar_estandar_a_revision(
     revision: "Revision",
     area: "Area",
+    *,
+    consultor_responsable=None,
 ) -> tuple[int, int]:
     """
     Activa documentos del catálogo estándar (principal y secundarios) y crea
@@ -1600,23 +1682,33 @@ def aplicar_estandar_a_revision(
     vinculos_creados = 0
 
     for documento in Documento.objects.filter(pk__in=doc_ids_estandar):
-        _, created = EmpresaDocumento.objects.get_or_create(
+        defaults = {
+            "codigo": documento.codigo,
+            "nombre": documento.nombre,
+            "tipo_documento": documento.tipo_documento,
+            "origen": OrigenEmpresaDocumento.CATALOGO,
+            "activo": True,
+        }
+        if consultor_responsable is not None:
+            defaults["consultor_responsable"] = consultor_responsable
+        ed, created = EmpresaDocumento.objects.get_or_create(
             revision=revision,
             documento=documento,
-            defaults={
-                "codigo": documento.codigo,
-                "nombre": documento.nombre,
-                "tipo_documento": documento.tipo_documento,
-                "origen": OrigenEmpresaDocumento.CATALOGO,
-                "activo": True,
-            },
+            defaults=defaults,
         )
         if created:
             docs_creados += 1
         else:
-            EmpresaDocumento.objects.filter(
-                revision=revision, documento=documento, activo=False
-            ).update(activo=True)
+            updates: dict = {}
+            if not ed.activo:
+                updates["activo"] = True
+            if (
+                consultor_responsable is not None
+                and ed.consultor_responsable_id is None
+            ):
+                updates["consultor_responsable"] = consultor_responsable
+            if updates:
+                EmpresaDocumento.objects.filter(pk=ed.pk).update(**updates)
 
     emp_docs = {
         ed.documento_id: ed

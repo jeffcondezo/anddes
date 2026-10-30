@@ -35,10 +35,9 @@
       <button type="button" class="btn btn-ghost" data-close-importar-excel>Cerrar</button>
     </header>
     <p class="muted csi-077e9a2ab8">
-      Flujo recomendado: <strong>Descargar Excel</strong> (trae las relaciones actuales + hoja
-      <span class="mono">Instrucciones</span>), editar, <strong>Borrar relaciones actuales</strong> e
-      <strong>Importar</strong>. En la hoja de datos: verde = obligatorio, ámbar = se usa (opcional),
-      gris = solo referencia.
+      Flujo recomendado: <strong>Descargar Excel</strong> (o usar el respaldo automático al borrar),
+      editar, <strong>Borrar relaciones actuales</strong> e <strong>Importar</strong>.
+      En la hoja de datos: verde = obligatorio, ámbar = se usa (opcional), gris = solo referencia.
     </p>
     <label class="form-row csi-846f4d72a1">
       <span>Archivo Excel</span>
@@ -70,13 +69,14 @@
       del estándar.
     </p>
     <p class="muted csi-077e9a2ab8">
-      Esta acción no se puede deshacer. Las revisiones de empresa que ya aplicaron el estándar
-      no se modifican automáticamente.
+      Antes de borrar, el sistema <strong>descargará automáticamente un Excel de respaldo</strong>
+      con las relaciones actuales y registrará el evento en auditoría.
+      Las revisiones de empresa que ya aplicaron el estándar no se modifican.
     </p>
     <div class="page-actions csi-6c93f26d8e">
       <button type="button" class="btn btn-ghost" data-close-borrar-relaciones>Cancelar</button>
       <button type="submit" class="btn csi-7c0e42f286">
-        Sí, borrar todas
+        Sí, respaldar y borrar
       </button>
     </div>
   </form>

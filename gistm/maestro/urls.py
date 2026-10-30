@@ -79,6 +79,11 @@ urlpatterns = [
         name="empresa_documento_toggle_prioritario",
     ),
     path(
+        "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/<int:doc_id>/consultor/",
+        views.empresa_documento_asignar_consultor,
+        name="empresa_documento_asignar_consultor",
+    ),
+    path(
         "empresas/<int:pk>/revisiones/<int:rev_id>/documentos/<int:doc_id>/criterios/",
         views.empresa_documento_criterios,
         name="empresa_documento_criterios",
@@ -258,6 +263,11 @@ urlpatterns = [
         "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/asociar-criterios/",
         views.seguimiento_documento_asociar_criterios,
         name="seguimiento_documento_asociar_criterios",
+    ),
+    path(
+        "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/cargar/",
+        views.seguimiento_documento_cargar,
+        name="seguimiento_documento_cargar",
     ),
     path(
         "seguimiento/empresas/<int:pk>/documentos/<int:doc_id>/revision-consultor/",

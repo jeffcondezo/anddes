@@ -259,6 +259,7 @@
           <th>Nombre</th>
           <th>Tipo</th>
           <th>Origen</th>
+          <th>Consultor</th>
           <th>Criterios</th>
           <th>Estado</th>
           <th>Prioritario</th>
@@ -272,6 +273,31 @@
             <td><strong>{{ doc.nombre }}</strong></td>
             <td>{{ doc.tipo_documento }}</td>
             <td>{{ doc.get_origen_display }}</td>
+            <td>
+              <form
+                method="post"
+                action="{% url 'maestro:empresa_documento_asignar_consultor' empresa.pk revision.pk doc.pk %}"
+                class="csi-0cd28ce9ba"
+              >
+                {% csrf_token %}
+                <select
+                  class="input"
+                  name="consultor_responsable"
+                  onchange="this.form.submit()"
+                  {% if not consultores %}disabled{% endif %}
+                >
+                  <option value="">— Seleccionar —</option>
+                  {% for u in consultores %}
+                    <option
+                      value="{{ u.pk }}"
+                      {% if doc.consultor_responsable_id == u.pk %}selected{% endif %}
+                    >
+                      {{ u.get_full_name|default:u.email }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </form>
+            </td>
             <td class="mono{% if doc.activo and doc.total_criterios == 0 %} mono-alert{% endif %}">
               {% if doc.activo and doc.total_criterios == 0 %}
                 0 · sin criterios
@@ -313,7 +339,7 @@
           </tr>
         {% empty %}
           <tr class="js-empty-row">
-            <td colspan="8">
+            <td colspan="9">
               <div class="empty-state">
                 {% if filtro_doc_q or filtro_doc_estado %}
                   <strong>Sin resultados</strong>

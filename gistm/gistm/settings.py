@@ -33,7 +33,9 @@ if not SECRET_KEY:
     raise ValueError('DJANGO_SECRET_KEY no está definida en el archivo .env')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
+# Default seguro (punto 3.2): sin DJANGO_DEBUG en el entorno → DEBUG=False.
+# En local/dev poner DJANGO_DEBUG=True en .env de forma explícita.
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() in ('1', 'true', 'yes')
 
 _allowed_hosts = (os.getenv('DJANGO_ALLOWED_HOSTS') or '').strip()
 if _allowed_hosts:
@@ -232,22 +234,39 @@ else:
             f'Detalle: {exc}'
         ) from exc
 
-    # Connection string con AccountKey → django-storages puede generar SAS temporal.
-    # Solo SharedAccessSignature (sin AccountKey) → no regenerar SAS; usar el de la cadena.
+    # SAS de cuenta en la connection string: no permite firmar SAS de blob y
+    # reexpone permisos amplios (rwdl) en cada enlace. Exigir AccountKey.
     _cs_lower = AZURE_STORAGE_CONNECTION_STRING.lower()
     _azure_sas_only = (
         'sharedaccesssignature=' in _cs_lower and 'accountkey=' not in _cs_lower
     )
+    if _azure_sas_only:
+        raise ValueError(
+            'AZURE_STORAGE_CONNECTION_STRING no puede ser solo SharedAccessSignature '
+            'de cuenta. Use una cadena con AccountKey (o configure Managed Identity) '
+            'para generar SAS por archivo, de solo lectura y corta duración.'
+        )
+
+    # Duración del SAS de blob (segundos). Por defecto 15 min.
+    try:
+        _azure_url_expire = int(
+            (os.getenv('AZURE_STORAGE_URL_EXPIRE_SECS') or '900').strip() or '900'
+        )
+    except ValueError:
+        _azure_url_expire = 900
+    if _azure_url_expire <= 0:
+        _azure_url_expire = 900
+
     _azure_storage_options = {
         'connection_string': AZURE_STORAGE_CONNECTION_STRING,
         'azure_container': AZURE_STORAGE_CONTAINER,
         'overwrite_files': True,
+        'expiration_secs': _azure_url_expire,
     }
-    if not _azure_sas_only:
-        _azure_storage_options['expiration_secs'] = 3600
     STORAGES = {
         'default': {
-            'BACKEND': 'storages.backends.azure_storage.AzureStorage',
+            # Firma siempre a nivel blob, permiso lectura (ver gistm.azure_storage).
+            'BACKEND': 'gistm.azure_storage.GistmAzureStorage',
             'OPTIONS': _azure_storage_options,
         },
         'staticfiles': {

@@ -9,6 +9,7 @@ from .models import (
     DocumentoCarga,
     EmpresaDocumento,
     EmpresaDocumentoCriterio,
+    EmpresaDocumentoEtapaHistorial,
     EmpresaDocumentoPregunta,
     EstadoRevisionCarga,
     EstadoRevisionPregunta,
@@ -18,6 +19,27 @@ from .models import (
     RevisionCriterioDesactivado,
     asegurar_snapshot_catalogo_revision,
 )
+
+
+def nivel_cumplimiento_anddes(
+    *, pct: float = 0.0, no_aplica: bool = False
+) -> tuple[str, str]:
+    """
+    Nivel Anddes (5.3) a partir del % de avance o desactivación.
+
+    - No aplica: criterio/requisito marcado no aplicable en la revisión
+    - Cumple: 100%
+    - Cumple parcialmente: > 0% y < 100%
+    - No cumple: 0%
+    """
+    if no_aplica:
+        return "No aplica", "no_aplica"
+    p = float(pct or 0.0)
+    if p >= 100.0:
+        return "Cumple", "cumple"
+    if p > 0.0:
+        return "Cumple parcialmente", "parcial"
+    return "No cumple", "no_cumple"
 
 
 @dataclass
@@ -32,6 +54,14 @@ class NivelProgreso:
     @property
     def completo(self) -> bool:
         return self.pct >= 100.0
+
+    @property
+    def cumplimiento_label(self) -> str:
+        return nivel_cumplimiento_anddes(pct=self.pct)[0]
+
+    @property
+    def cumplimiento_clave(self) -> str:
+        return nivel_cumplimiento_anddes(pct=self.pct)[1]
 
 
 @dataclass
@@ -101,6 +131,8 @@ class DocumentoProgreso:
     rechazado: bool = False
     revision_texto: str = ""
     revision_porcentaje: int | None = None
+    consultor_nombre: str = ""
+    etapas_historial: list = field(default_factory=list)
     vinculos: list = field(default_factory=list)
 
     @property
@@ -309,6 +341,7 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
     )
     documentos_qs = (
         EmpresaDocumento.objects.filter(revision=revision, activo=True)
+        .select_related("consultor_responsable")
         .annotate(
             criterios_principales=Count("vinculos_criterio", distinct=True),
             criterios_secundarios=Count("vinculos_criterio_secundarios", distinct=True),
@@ -328,6 +361,13 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
                 "vinculos_criterio_secundarios",
                 queryset=_vinculo_qs,
                 to_attr="vinculos_secundarios_list",
+            ),
+            Prefetch(
+                "etapas_historial",
+                queryset=EmpresaDocumentoEtapaHistorial.objects.select_related(
+                    "registrado_por"
+                ).order_by("-fecha_hito", "-creado_en"),
+                to_attr="etapas_list",
             ),
         )
         .order_by("codigo")
@@ -373,6 +413,31 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             in (EstadoRevisionCarga.PENDIENTE, EstadoRevisionCarga.PARCIAL)
         )
         rechazado = bool(carga and carga.estado_revision == EstadoRevisionCarga.RECHAZADO)
+        consultor = getattr(doc, "consultor_responsable", None)
+        if consultor is not None:
+            consultor_nombre = (
+                consultor.get_full_name() or consultor.email or consultor.get_username()
+            )
+        else:
+            consultor_nombre = ""
+        etapas_raw = list(getattr(doc, "etapas_list", []) or [])[:8]
+        etapas_historial = [
+            {
+                "etapa": e.etapa_texto,
+                "fecha": e.fecha_hito,
+                "porcentaje": e.revision_porcentaje,
+                "quien": (
+                    (
+                        e.registrado_por.get_full_name()
+                        or e.registrado_por.email
+                        or e.registrado_por.get_username()
+                    )
+                    if e.registrado_por_id
+                    else "—"
+                ),
+            }
+            for e in etapas_raw
+        ]
         item = DocumentoProgreso(
             id=doc.pk,
             codigo=doc.codigo,
@@ -388,6 +453,8 @@ def calcular_progreso_revision(revision: Revision) -> ProgresoRevision:
             rechazado=rechazado,
             revision_texto=(doc.revision_texto or "").strip(),
             revision_porcentaje=doc.revision_porcentaje,
+            consultor_nombre=consultor_nombre,
+            etapas_historial=etapas_historial,
             vinculos=vinculos_list,
         )
         documentos_all.append(item)

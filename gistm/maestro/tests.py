@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase, override_settings
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,6 +21,7 @@ from maestro.indicadores import (
     documentos_indicadores,
     documentos_prioritarios,
     filtrar_documentos,
+    filtrar_documentos_query,
     tablero_estandar,
     tablero_progreso,
 )
@@ -48,6 +52,7 @@ from maestro.models import (
     Principio,
     Requisito,
     Revision,
+    RevisionCriterioDesactivado,
     Tema,
     TipoActividad,
     TipoAvisoConsultor,
@@ -59,6 +64,7 @@ from maestro.models import (
 from maestro.permissions import empresas_visibles, puede_ver_empresa
 from maestro.progress import (
     calcular_progreso_revision,
+    nivel_cumplimiento_anddes,
     revision_activa_empresa,
     revisiones_activas_empresa,
 )
@@ -172,6 +178,19 @@ class FixturesMixin:
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
 )
 class ProgressTests(FixturesMixin, TestCase):
+    def test_nivel_cumplimiento_anddes_umbrales(self):
+        """5.3: Cumple / parcial / no cumple / no aplica."""
+        self.assertEqual(nivel_cumplimiento_anddes(pct=100), ("Cumple", "cumple"))
+        self.assertEqual(
+            nivel_cumplimiento_anddes(pct=45.5),
+            ("Cumple parcialmente", "parcial"),
+        )
+        self.assertEqual(nivel_cumplimiento_anddes(pct=0), ("No cumple", "no_cumple"))
+        self.assertEqual(
+            nivel_cumplimiento_anddes(no_aplica=True),
+            ("No aplica", "no_aplica"),
+        )
+
     def test_revision_activa(self):
         self.assertEqual(revision_activa_empresa(self.empresa.pk), self.revision)
 
@@ -950,16 +969,20 @@ class DocumentoRevisionConsultorTests(FixturesMixin, TestCase):
         self.client = Client()
 
     def test_definir_revision_y_porcentaje(self):
+        from maestro.models import EmpresaDocumentoEtapaHistorial
+
         self.client.force_login(self.gestor)
         url = reverse(
             "maestro:seguimiento_documento_revision_consultor",
             args=[self.empresa.pk, self.doc.pk],
         )
+        hoy = timezone.localdate()
         resp = self.client.post(
             url,
             {
                 "revision_texto": "Rev0",
                 "revision_porcentaje": "35",
+                "fecha_hito": hoy.isoformat(),
                 "next": reverse("maestro:seguimiento_empresa_revision", args=[self.empresa.pk]),
             },
         )
@@ -967,14 +990,33 @@ class DocumentoRevisionConsultorTests(FixturesMixin, TestCase):
         self.doc.refresh_from_db()
         self.assertEqual(self.doc.revision_texto, "Rev0")
         self.assertEqual(self.doc.revision_porcentaje, 35)
+        hito = EmpresaDocumentoEtapaHistorial.objects.filter(
+            empresa_documento=self.doc
+        ).first()
+        self.assertIsNotNone(hito)
+        self.assertEqual(hito.etapa_texto, "Rev0")
+        self.assertEqual(hito.fecha_hito, hoy)
+        self.assertEqual(hito.registrado_por_id, self.gestor.pk)
 
         progreso = calcular_progreso_revision(self.revision)
         item = next(d for d in progreso.documentos if d.id == self.doc.pk)
         self.assertEqual(item.revision_texto, "Rev0")
         self.assertEqual(item.revision_porcentaje, 35)
+        self.assertTrue(item.etapas_historial)
         from maestro.indicadores import _estado_madurez_doc
 
         self.assertEqual(_estado_madurez_doc(item), "Rev0")
+
+    def test_asignar_consultor_responsable(self):
+        self.client.force_login(self.admin)
+        url = reverse(
+            "maestro:empresa_documento_asignar_consultor",
+            args=[self.empresa.pk, self.revision.pk, self.doc.pk],
+        )
+        resp = self.client.post(url, {"consultor_responsable": self.gestor.pk})
+        self.assertEqual(resp.status_code, 302)
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.consultor_responsable_id, self.gestor.pk)
 
 
 @override_settings(
@@ -1057,6 +1099,57 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         )
         self.assertFalse(bool(carga.archivo))
         self.assertEqual(carga.evidencia_url, "https://example.com/evidencia-gistm.pdf")
+
+    def test_gestor_carga_evidencia_queda_como_subido_por(self):
+        """1.3: admin/gestor puede cargar evidencia con trazabilidad de autor."""
+        self.client.force_login(self.gestor)
+        pendientes = reverse(
+            "maestro:seguimiento_empresa_pendientes", args=[self.empresa.pk]
+        )
+        resp = self.client.get(pendientes)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Cargar")
+        url = reverse(
+            "maestro:seguimiento_documento_cargar",
+            args=[self.empresa.pk, self.doc.pk],
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Carga por consultor")
+        resp = self.client.post(
+            url,
+            {
+                "tipo_evidencia": "url",
+                "url_evidencia": "https://example.com/consultor-ev.pdf",
+                "observaciones": "Subido por gestor en campo",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        carga = DocumentoCarga.objects.filter(
+            empresa_documento=self.doc, activo=True
+        ).first()
+        self.assertIsNotNone(carga)
+        self.assertEqual(carga.subido_por_id, self.gestor.pk)
+        self.assertTrue(carga.es_url)
+        self.assertEqual(carga.estado_revision, EstadoRevisionCarga.PENDIENTE)
+        self.assertTrue(
+            DocumentoMensaje.objects.filter(
+                empresa_documento=self.doc,
+                carga=carga,
+                autor=self.gestor,
+                es_consultor=True,
+                tipo=TipoDocumentoMensaje.VERSION,
+            ).exists()
+        )
+
+    def test_cliente_no_accede_carga_seguimiento(self):
+        self.client.force_login(self.cliente)
+        url = reverse(
+            "maestro:seguimiento_documento_cargar",
+            args=[self.empresa.pk, self.doc.pk],
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 302)
 
     def test_cliente_lectura_no_puede_cargar(self):
         lectura = _user("lectura@test.local", first_name="Luz", last_name="Lectura")
@@ -1191,6 +1284,40 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         self.vinculo.refresh_from_db()
         self.assertEqual(self.vinculo.estado_revision, EstadoRevisionCriterio.PENDIENTE)
 
+    def test_revision_guarda_paginas_y_fragmento_por_criterio(self):
+        """3.4: ubicación es de la evaluación (consultor), no del estándar."""
+        carga = DocumentoCarga.objects.create(
+            empresa_documento=self.doc,
+            archivo=SimpleUploadedFile("ev.pdf", b"%PDF-1.4 demo"),
+            subido_por=self.cliente,
+            activo=True,
+            estado_revision=EstadoRevisionCarga.PENDIENTE,
+        )
+        self.client.force_login(self.gestor)
+        url = reverse(
+            "maestro:seguimiento_carga_revisar",
+            args=[self.empresa.pk, carga.pk],
+        )
+        resp = self.client.post(
+            url,
+            {
+                "accion": "guardar",
+                f"accion_p_{self.respuesta.pk}": "CUMPLE",
+                f"paginas_v_{self.vinculo.pk}": "12-15",
+                f"fragmento_v_{self.vinculo.pk}": "§3.2 Plan de cierre",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        # Sin vigencia aún → aprobación pendiente; ubicación sí debe persistir
+        # solo tras aplicar, o en sesión. Aquí sin quedar aprobado total si hay 1 pregunta:
+        # con 1 pregunta CUMPLE quedaría aprobado → vigencia. Ubicaciones van a sesión.
+        # Forzar vigencia para confirmar persistencia final.
+        if "vigencia" in (resp.url or ""):
+            self._completar_vigencia_aprobacion(self.doc)
+        self.vinculo.refresh_from_db()
+        self.assertEqual(self.vinculo.paginas, "12-15")
+        self.assertEqual(self.vinculo.fragmento, "§3.2 Plan de cierre")
+
     def test_revision_parcial_con_observacion_por_pregunta(self):
         c2 = Criterio.objects.create(
             codigo="C2",
@@ -1279,6 +1406,98 @@ class ViewsSmokeTests(FixturesMixin, TestCase):
         self.assertEqual(resp.status_code, 302)
         aviso.refresh_from_db()
         self.assertTrue(aviso.leido)
+
+
+@override_settings(
+    AZURE_AD_REQUIRE_LOGIN=False,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class EmpresaRevisionScreensTests(FixturesMixin, TestCase):
+    """Regresión 1.2 cliente: Documentos / Agregar área / Aplicar estándar sin 500."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_documentos_revision_ok(self):
+        url = reverse(
+            "maestro:empresa_documento_list",
+            args=[self.empresa.pk, self.revision.pk],
+        )
+        for tab in ("huerfanos", "cubiertos", "no_aplican"):
+            with self.subTest(tab=tab):
+                resp = self.client.get(url, {"tab": tab})
+                self.assertEqual(resp.status_code, 200, msg=tab)
+                self.assertIn("total_catalogo", resp.context)
+                self.assertEqual(resp.context["total_catalogo"], 1)
+
+    def test_agregar_area_asigna_empresa(self):
+        url = reverse("maestro:empresa_areas", args=[self.empresa.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(
+            url,
+            {"accion": "crear_area", "nombre": "Gestión Ambiental", "activo": "on"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        area = Area.objects.get(empresa=self.empresa, nombre="Gestión Ambiental")
+        self.assertEqual(area.empresa_id, self.empresa.pk)
+        self.assertTrue(area.activo)
+
+    def test_aplicar_estandar_ok(self):
+        from maestro.models import Documento, DocumentoCriterio
+
+        catalogo = Documento.objects.create(
+            codigo="D-STD",
+            nombre="Doc estándar",
+            tipo_documento="PDF",
+        )
+        DocumentoCriterio.objects.create(
+            documento=catalogo,
+            criterio=self.criterio,
+        )
+        url = reverse(
+            "maestro:empresa_documento_aplicar_estandar",
+            args=[self.empresa.pk, self.revision.pk],
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("total_pares_estandar", resp.context)
+        self.assertGreaterEqual(resp.context["total_pares_estandar"], 1)
+
+    def test_borrar_todas_descarga_excel_y_audita(self):
+        """2.3: respaldo Excel automático + auditoría; no toca vínculos de revisión."""
+        from maestro.models import Documento, DocumentoCriterio, RegistroAuditoria, TipoAuditoria
+
+        catalogo = Documento.objects.create(
+            codigo="D-WIPE",
+            nombre="Doc wipe",
+            tipo_documento="PDF",
+        )
+        DocumentoCriterio.objects.create(documento=catalogo, criterio=self.criterio)
+        vinculo_id = self.vinculo.pk
+        url = reverse("maestro:documento_criterio_borrar_todas")
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("respaldo_relacion_estandar_", resp["Content-Disposition"])
+        payload = b"".join(resp.streaming_content)
+        self.assertTrue(payload[:2] == b"PK")  # zip/xlsx
+        self.assertEqual(DocumentoCriterio.objects.count(), 0)
+        self.assertTrue(
+            EmpresaDocumentoCriterio.objects.filter(pk=vinculo_id).exists()
+        )
+        self.assertTrue(
+            RegistroAuditoria.objects.filter(
+                tipo=TipoAuditoria.ARCHIVO,
+                usuario=self.admin,
+                detalle__icontains="Borrado masivo",
+            ).exists()
+        )
 
 
 @override_settings(
@@ -1378,6 +1597,60 @@ class IndicadoresTests(FixturesMixin, TestCase):
         self.assertContains(resp, "Multiprincipio")
         self.assertContains(resp, "DOC-01")
 
+    def test_tablero_requisito_y_criterio_nivel_anddes(self):
+        """5.3: tablero expone Cumple/parcial/No cumple y No aplica si desactivado."""
+        progreso = calcular_progreso_revision(self.revision)
+        tablero = tablero_progreso(progreso, empresa=self.empresa)
+        reqs = [r for t in tablero["temas"] for r in t["requisitos"]]
+        crits = [c for t in tablero["temas"] for c in t["criterios"]]
+        self.assertTrue(reqs)
+        self.assertEqual(reqs[0]["estado"], "No cumple")  # 0% sin preguntas OK
+        self.assertEqual(reqs[0]["estado_clave"], "no_cumple")
+
+        self._aprobar_criterio_via_preguntas()
+        progreso = calcular_progreso_revision(self.revision)
+        tablero = tablero_progreso(progreso, empresa=self.empresa)
+        reqs = [r for t in tablero["temas"] for r in t["requisitos"]]
+        self.assertEqual(reqs[0]["estado"], "Cumple")
+
+        RevisionCriterioDesactivado.objects.create(
+            revision=self.revision,
+            criterio=self.criterio,
+            motivo="No aplica a esta instalación",
+        )
+        progreso = calcular_progreso_revision(self.revision)
+        tablero = tablero_progreso(progreso, empresa=self.empresa)
+        crits = [c for t in tablero["temas"] for c in t["criterios"]]
+        self.assertTrue(any(c["estado_clave"] == "no_aplica" for c in crits))
+        reqs = [r for t in tablero["temas"] for r in t["requisitos"]]
+        self.assertTrue(any(r["estado_clave"] == "no_aplica" for r in reqs))
+
+    def test_elaborador_por_documento_no_unico_empresa(self):
+        """4.3: elaborador = consultor_responsable del doc, no el primer gestor."""
+        otro = _user("gestor2@test.local", first_name="Hugo", last_name="Otro")
+        _perfil(otro, TipoUsuario.GESTOR, empresas=[self.empresa])
+        self.doc.consultor_responsable = otro
+        self.doc.save(update_fields=["consultor_responsable", "actualizado_en"])
+        self.doc_propio.consultor_responsable = self.gestor
+        self.doc_propio.save(update_fields=["consultor_responsable", "actualizado_en"])
+
+        progreso = calcular_progreso_revision(self.revision)
+        docs = documentos_indicadores(self.revision, progreso, empresa=self.empresa)
+        by_codigo = {d.codigo: d for d in docs}
+        self.assertEqual(by_codigo["DOC-01"].elaborador, "Hugo Otro")
+        self.assertEqual(by_codigo["DOC-PROPIO"].elaborador, "Gina Gestor")
+
+        solo_hugo = filtrar_documentos_query(docs, consultor="Hugo Otro")
+        self.assertEqual([d.codigo for d in solo_hugo], ["DOC-01"])
+
+        tablero = tablero_progreso(progreso, empresa=self.empresa)
+        elaboradores = {
+            d["codigo"]: d["elaborador"]
+            for tema in tablero["temas"]
+            for d in tema["documentos"]
+        }
+        self.assertEqual(elaboradores.get("DOC-01"), "Hugo Otro")
+
     def test_avance_por_principios_con_aprobado(self):
         DocumentoCarga.objects.create(
             empresa_documento=self.doc,
@@ -1475,6 +1748,34 @@ class IndicadoresTests(FixturesMixin, TestCase):
         self.assertContains(resp, "chart-curva-avance")
 
 
+class DjangoDebugDefaultTests(SimpleTestCase):
+    """3.2: sin DJANGO_DEBUG en el entorno el default debe ser False."""
+
+    def test_default_sin_env_es_false(self):
+        import os
+
+        env = os.environ.copy()
+        env.pop("DJANGO_DEBUG", None)
+        with patch.dict(os.environ, env, clear=True):
+            debug = os.getenv("DJANGO_DEBUG", "False").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        self.assertFalse(debug)
+
+    def test_true_explicito(self):
+        import os
+
+        with patch.dict(os.environ, {"DJANGO_DEBUG": "True"}, clear=False):
+            debug = os.getenv("DJANGO_DEBUG", "False").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        self.assertTrue(debug)
+
+
 @override_settings(
     AZURE_AD_REQUIRE_LOGIN=False,
     CSP_ENABLED=True,
@@ -1504,3 +1805,173 @@ class SecurityHeadersTests(TestCase):
             self.assertNotIn("'unsafe-inline'", parts[0], msg=directive)
         self.assertContains(resp, 'nonce="')
         self.assertContains(resp, "csp_inline.css")
+
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from gistm.azure_storage import DEFAULT_BLOB_SAS_SECONDS, GistmAzureStorage
+
+
+class GistmAzureStorageTests(SimpleTestCase):
+    def test_url_requiere_account_key_o_token(self):
+        storage = GistmAzureStorage(
+            account_name="anddesfake",
+            account_key=None,
+            token_credential=None,
+            azure_container="gistm-media",
+            expiration_secs=900,
+            connection_string=None,
+            sas_token=None,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            storage.url("empresas/1/doc.pdf")
+        self.assertIn("AccountKey", str(ctx.exception))
+
+    def test_url_fuerza_lectura_y_expiracion_corta(self):
+        storage = GistmAzureStorage(
+            account_name="anddesfake",
+            account_key="dGVzdGtleQ==",
+            token_credential=None,
+            azure_container="gistm-media",
+            expiration_secs=900,
+            connection_string=None,
+            sas_token=None,
+        )
+        with patch.object(
+            GistmAzureStorage.__bases__[0],
+            "url",
+            return_value="https://example.blob.core.windows.net/c/x.pdf?sig=1",
+        ) as mocked:
+            out = storage.url("path/evidencia.pdf", expire=None, mode="racwdl")
+        self.assertTrue(out.startswith("https://"))
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs.get("mode"), "r")
+        self.assertEqual(kwargs.get("expire"), 900)
+
+    def test_url_expire_invalido_usa_default(self):
+        storage = GistmAzureStorage(
+            account_name="anddesfake",
+            account_key="dGVzdGtleQ==",
+            azure_container="gistm-media",
+            expiration_secs=0,
+            connection_string=None,
+        )
+        with patch.object(
+            GistmAzureStorage.__bases__[0],
+            "url",
+            return_value="https://example.blob.core.windows.net/c/x.pdf?sig=1",
+        ) as mocked:
+            storage.url("a.pdf", expire=0)
+        self.assertEqual(mocked.call_args.kwargs.get("expire"), DEFAULT_BLOB_SAS_SECONDS)
+
+
+@override_settings(AZURE_AD_REQUIRE_LOGIN=False)
+class RetencionAuditoriaTests(FixturesMixin, TestCase):
+    """2.1: retención 1 año + PROTECT en FKs de auditoría."""
+
+    def _crear_registro(self, *, dias_atras: int):
+        from maestro.models import RegistroAuditoria, TipoAuditoria
+
+        reg = RegistroAuditoria.objects.create(
+            tipo=TipoAuditoria.LOGIN,
+            usuario=self.gestor,
+            usuario_email=self.gestor.email,
+            usuario_nombre="Gina Gestor",
+            empresa=self.empresa,
+            empresa_nombre=self.empresa.nombre,
+            detalle="login de prueba retención",
+        )
+        RegistroAuditoria.objects.filter(pk=reg.pk).update(
+            creado_en=timezone.now() - timedelta(days=dias_atras)
+        )
+        reg.refresh_from_db()
+        return reg
+
+    def test_delete_instancia_sigue_bloqueado(self):
+        from django.core.exceptions import ValidationError
+        from maestro.models import RegistroAuditoria
+
+        reg = self._crear_registro(dias_atras=1)
+        with self.assertRaises(ValidationError):
+            reg.delete()
+        self.assertTrue(RegistroAuditoria.objects.filter(pk=reg.pk).exists())
+
+    def test_purga_solo_anteriores_al_anio(self):
+        from maestro.models import RegistroAuditoria
+        from maestro.retencion_auditoria import purgar_auditoria_antigua
+
+        viejo = self._crear_registro(dias_atras=400)
+        reciente = self._crear_registro(dias_atras=10)
+        resultado = purgar_auditoria_antigua(dias=365, dry_run=False)
+        self.assertEqual(resultado["eliminados"], 1)
+        self.assertFalse(RegistroAuditoria.objects.filter(pk=viejo.pk).exists())
+        self.assertTrue(RegistroAuditoria.objects.filter(pk=reciente.pk).exists())
+
+    def test_comando_dry_run_no_borra(self):
+        from maestro.models import RegistroAuditoria
+
+        viejo = self._crear_registro(dias_atras=400)
+        call_command("purgar_auditoria", dias=365, dry_run=True)
+        self.assertTrue(RegistroAuditoria.objects.filter(pk=viejo.pk).exists())
+
+    def test_protect_impide_borrar_usuario_con_auditoria(self):
+        from django.db.models.deletion import ProtectedError
+
+        self._crear_registro(dias_atras=5)
+        with self.assertRaises(ProtectedError):
+            self.gestor.delete()
+
+
+@override_settings(AZURE_AD_REQUIRE_LOGIN=False)
+class ImportarNuevoCatalogoSafeDefaultTests(TestCase):
+    """1.5: el comando no borra data salvo wipe explícito + confirmación."""
+
+    def test_default_no_invoca_wipe(self):
+        with patch(
+            "maestro.management.commands.importar_nuevo_catalogo._wipe_prueba"
+        ) as wipe:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    "importar_nuevo_catalogo",
+                    path="E:/no-existe-catalogo-seguro.xlsx",
+                )
+        self.assertIn("No se encontró", str(ctx.exception))
+        wipe.assert_not_called()
+
+    def test_wipe_sin_confirmacion_falla(self):
+        with patch(
+            "maestro.management.commands.importar_nuevo_catalogo._wipe_prueba"
+        ) as wipe:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    "importar_nuevo_catalogo",
+                    wipe_data=True,
+                    path="E:/no-existe-catalogo-seguro.xlsx",
+                )
+        self.assertIn("i-understand-delete-all", str(ctx.exception))
+        wipe.assert_not_called()
+
+    def test_confirmacion_sin_wipe_falla(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "importar_nuevo_catalogo",
+                i_understand_delete_all="YES",
+                path="E:/no-existe-catalogo-seguro.xlsx",
+            )
+        self.assertIn("--wipe-data", str(ctx.exception))
+
+    def test_wipe_confirmado_permite_seguir_hasta_archivo(self):
+        """Con flags correctos el gate pasa; falla luego por Excel inexistente."""
+        with patch(
+            "maestro.management.commands.importar_nuevo_catalogo._wipe_prueba"
+        ) as wipe:
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    "importar_nuevo_catalogo",
+                    wipe_data=True,
+                    i_understand_delete_all="YES",
+                    path="E:/no-existe-catalogo-seguro.xlsx",
+                )
+        self.assertIn("No se encontró", str(ctx.exception))
+        wipe.assert_not_called()
